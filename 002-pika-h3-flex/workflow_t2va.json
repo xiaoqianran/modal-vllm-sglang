@@ -1,0 +1,12 @@
+{
+  "mode": "t2va",
+  "seconds": 5,
+  "num_inference_steps": 6,
+  "target": {
+    "short_edge": 480,
+    "aspect_ratio": "16:9",
+    "duration_seconds": 5.0
+  },
+  "num_outputs_per_prompt": 1,
+  "seed_start": 1100
+}

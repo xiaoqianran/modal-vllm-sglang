@@ -1,0 +1,143 @@
+"""Batch storyboard image inference: one Modal GPU container, sequential requests."""
+
+import base64
+from datetime import datetime, timezone
+import json
+import os
+from pathlib import Path
+import subprocess
+import time
+import urllib.request
+
+import modal
+
+MODEL = os.getenv("MOSS_MODEL", "OpenMOSS-Team/MOSS-Image-SFT")
+GPU = os.getenv("MOSS_GPU", "RTX-PRO-6000")
+app = modal.App("modal-forge-008-moss-storyboard-batch")
+volume = modal.Volume.from_name("modal-forge", create_if_missing=True)
+image = (
+    modal.Image.from_registry("vllm/vllm-omni:v0.32.0")
+    .entrypoint([])
+    .env({"HF_HOME": "/mnt/modal/007-moss-image"})
+)
+REQUEST_DEFAULTS = {
+    "size": "1024x1024",
+    "n": 1,
+    "num_inference_steps": 50,
+    "guidance_scale": 3.0,
+    "flow_shift": 5.0,
+    "response_format": "b64_json",
+    "extra_params": {"uncond_skip_layers": [22], "slg_start": 0.01, "slg_stop": 1.0},
+}
+
+
+@app.function(
+    image=image,
+    gpu=GPU,
+    cpu=8,
+    memory=32768,
+    volumes={"/mnt/modal": volume},
+    min_containers=0,
+    max_containers=1,
+    scaledown_window=2,
+    timeout=3600,
+)
+def generate_batch(shots: list[dict], output_prefix: str):
+    """Reuse one model process for every storyboard shot; persist after each image."""
+    started = time.perf_counter()
+    process = subprocess.Popen(
+        ["vllm", "serve", MODEL, "--omni", "--enforce-eager", "--port", "8000"]
+    )
+    target = Path("/mnt/modal") / output_prefix
+    target.mkdir(parents=True, exist_ok=True)
+    report = {
+        "model": MODEL, "gpu": GPU, "output_prefix": output_prefix,
+        "sequential": True, "shots": [], "startup_seconds": None,
+    }
+    try:
+        while time.perf_counter() - started < 900:
+            if process.poll() is not None:
+                raise RuntimeError(f"vLLM exited: {process.returncode}")
+            try:
+                urllib.request.urlopen("http://127.0.0.1:8000/health", timeout=3).close()
+                break
+            except Exception:
+                time.sleep(3)
+        else:
+            raise TimeoutError("vLLM model not ready after 900 seconds")
+        report["startup_seconds"] = round(time.perf_counter() - started, 2)
+        print(f"READY startup={report['startup_seconds']}s total={len(shots)} gpu={GPU}", flush=True)
+
+        for index, shot in enumerate(shots, 1):
+            shot_id = shot["id"]
+            destination = target / f"{shot_id}.png"
+            if destination.is_file() and destination.stat().st_size > 10000:
+                report["shots"].append({"id": shot_id, "status": "skipped", "bytes": destination.stat().st_size})
+                print(f"[{index}/{len(shots)}] SKIP {shot_id}", flush=True)
+                continue
+            payload = dict(REQUEST_DEFAULTS, prompt=shot["prompt"], seed=1000 + index)
+            request = urllib.request.Request(
+                "http://127.0.0.1:8000/v1/images/generations",
+                data=json.dumps(payload).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+            )
+            t = time.perf_counter()
+            try:
+                with urllib.request.urlopen(request, timeout=600) as response:
+                    body = json.load(response)
+                encoded = body.get("data", [{}])[0].get("b64_json")
+                if not encoded:
+                    raise ValueError("Image response has no b64_json")
+                decoded = base64.b64decode(encoded, validate=True)
+                if not decoded[:8].hex() == "89504e470d0a1a0a":
+                    # Some backends return JPEG rather than PNG regardless of response format.
+                    if decoded[:2].hex() == "ffd8":
+                        destination = destination.with_suffix(".jpg")
+                    else:
+                        raise ValueError("Unknown image data format")
+                destination.write_bytes(decoded)
+                volume.commit()
+                elapsed = round(time.perf_counter() - t, 2)
+                report["shots"].append({"id": shot_id, "status": "ok", "seconds": elapsed, "bytes": len(decoded), "file": destination.name})
+                print(f"[{index}/{len(shots)}] OK {shot_id}: {elapsed}s {len(decoded)} bytes", flush=True)
+            except Exception as exc:
+                report["shots"].append({"id": shot_id, "status": "error", "error": str(exc)})
+                print(f"[{index}/{len(shots)}] ERROR {shot_id}: {exc}", flush=True)
+        report["total_seconds"] = round(time.perf_counter() - started, 2)
+        report["recorded_at_utc"] = datetime.now(timezone.utc).isoformat()
+        (target / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+        volume.commit()
+        return report
+    finally:
+        process.terminate()
+        try:
+            process.wait(timeout=20)
+        except subprocess.TimeoutExpired:
+            process.kill()
+
+
+def download_result(path: str, destination: Path):
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with destination.open("wb") as stream:
+        for chunk in volume.read_file(path):
+            stream.write(chunk)
+
+
+@app.local_entrypoint()
+def main(episode: str = "07"):
+    root = Path(__file__).parent
+    prompt_dir = root / "storyboard" / f"episode{episode}" / "prompts"
+    shots = [
+        {"id": f"{episode}-{i:02d}", "prompt": (prompt_dir / f"{episode}-{i:02d}.txt").read_text(encoding="utf-8").strip()}
+        for i in range(1, 9)
+    ]
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    output_prefix = f"008-moss-storyboard/episode{episode}/{stamp}"
+    report = generate_batch.remote(shots, output_prefix)
+    local = root / "results" / "storyboard" / f"episode{episode}" / stamp
+    local.mkdir(parents=True, exist_ok=True)
+    (local / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    for shot in report["shots"]:
+        if shot["status"] == "ok":
+            download_result(f"/{output_prefix}/{shot['file']}", local / shot["file"])
+    print(json.dumps({"local_output": str(local), "report": report}, ensure_ascii=False, indent=2))

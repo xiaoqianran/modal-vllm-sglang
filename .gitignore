@@ -1,0 +1,10 @@
+# 本地 Python 环境与缓存
+**/.venv/
+**/__pycache__/
+**/*.pyc
+
+# 模型运行输出
+**/results/
+
+# 本地测试任务（包含本机绝对路径）
+**/tasks/episode09_single_test.json
