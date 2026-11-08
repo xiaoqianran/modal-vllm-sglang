@@ -1,4 +1,4 @@
-# 009 Pika H3 Flex · SGLang fixed workflow
+# 002 Pika H3 Flex · SGLang fixed workflow
 
 ## 模型下载与推理严格分离
 
@@ -110,3 +110,7 @@ After every completed video the cloud output is committed. Use the SAME --run-id
 Offline tests (no GPU):
 
     uv run python -m unittest discover -s tests -v
+
+## 共享模块
+
+shared/ 包含 Modal 镜像、Volume、进程监控、文件清单和结果存储公共能力。Pika Overlay、六步采样和关键帧代理仍是 Pika 专属逻辑。为复用权重，云端 009-pika-h3-flex 缓存路径保持不变。

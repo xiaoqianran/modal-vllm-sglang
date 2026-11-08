@@ -12,6 +12,11 @@ import uuid
 from datetime import datetime, timezone
 
 import modal
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from shared.modal_setup import model_volume, runtime_image
+from shared.files import atomic_json, download_volume_file, read_json, sha256_file
+from shared.runtime import stop_process, wait_for_health
 from model_cache import READY_FILE, get_ready_model
 
 ROOT = Path(__file__).resolve().parent
@@ -24,26 +29,18 @@ MODEL_CACHE = "/mnt/modal/009-pika-h3-flex"
 VALID_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 
 app = modal.App(APP_NAME)
-volume = modal.Volume.from_name("modal-forge", create_if_missing=True)
-image = (modal.Image.from_registry("lmsysorg/sglang:dev")
-         .entrypoint([])
-         .env({"HF_HOME": MODEL_CACHE, "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1",
-               "SGLANG_DIFFUSION_CACHE_ROOT": MODEL_CACHE + "/sglang"})
-         .env({"PYTHONPATH": "/opt/pika"})
-         .add_local_file(str(ROOT / "model_cache.py"), "/opt/pika/model_cache.py")
-         )
+volume = model_volume()
+image = runtime_image(
+    "lmsysorg/sglang:dev",
+    env={"HF_HOME": MODEL_CACHE, "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1",
+         "SGLANG_DIFFUSION_CACHE_ROOT": MODEL_CACHE + "/sglang",
+         "PYTHONPATH": "/opt/pika"},
+    files=((ROOT / "model_cache.py", "/opt/pika/model_cache.py"),),
+)
 
 
-def json_read(path):
-    return json.loads(Path(path).read_text(encoding="utf-8-sig"))
-
-
-def write_json(path, obj):
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temp = path.with_name(path.name + ".tmp")
-    temp.write_text(json.dumps(obj, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    temp.replace(path)
+json_read = read_json
+write_json = atomic_json
 
 
 def safe_id(value):
@@ -71,14 +68,6 @@ def validate_image(path):
             or (header.startswith(b"RIFF") and header[8:12] == b"WEBP")):
         raise ValueError(f"Invalid image signature: {path}")
     return path
-
-
-def sha256_file(path):
-    hash_obj = hashlib.sha256()
-    with open(path, "rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            hash_obj.update(chunk)
-    return hash_obj.hexdigest()
 
 
 def validate_task(workflow, task, limit=0):
@@ -241,18 +230,8 @@ def generate_batch(workflow: dict, items: list[dict], output_prefix: str):
         "--host", "127.0.0.1", "--port", str(PORT),
     ])
     try:
-        for _ in range(1200):
-            if process.poll() is not None:
-                raise RuntimeError(f"SGLang exited while loading: {process.returncode}")
-            try:
-                with urllib.request.urlopen(f"http://127.0.0.1:{PORT}/health", timeout=3) as resp:
-                    if resp.status == 200:
-                        break
-            except (urllib.error.URLError, TimeoutError):
-                pass
-            time.sleep(2)
-        else:
-            raise TimeoutError("SGLang model loading exceeded 40 minutes")
+        wait_for_health(process, f"http://127.0.0.1:{PORT}/health",
+                        timeout=2400, interval=2)
         report["startup_seconds"] = round(time.perf_counter() - started, 2)
         print(f"MODEL READY in {report['startup_seconds']}s, items={len(items)}", flush=True)
 
@@ -322,21 +301,8 @@ def generate_batch(workflow: dict, items: list[dict], output_prefix: str):
         volume.commit()
         return report
     finally:
-        process.terminate()
-        try:
-            process.wait(timeout=20)
-        except subprocess.TimeoutExpired:
-            process.kill()
+        stop_process(process)
         volume.commit()
-
-
-def download_file(volume_path, local_path):
-    local_path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = local_path.with_suffix(local_path.suffix + ".part")
-    with temporary.open("wb") as output:
-        for part in volume.read_file(volume_path):
-            output.write(part)
-    temporary.replace(local_path)
 
 
 @app.local_entrypoint()
@@ -384,8 +350,8 @@ def main(workflow: str = "workflow_t2va.json",
     for entry in report["results"]:
         if entry["status"] in ("completed", "skipped"):
             shot_id = entry["id"]
-            download_file(f"/{output_prefix}/{shot_id}.mp4", local / (shot_id + ".mp4"))
-            download_file(f"/{output_prefix}/{shot_id}.json", local / (shot_id + ".json"))
+            download_volume_file(volume, f"/{output_prefix}/{shot_id}.mp4", local / (shot_id + ".mp4"))
+            download_volume_file(volume, f"/{output_prefix}/{shot_id}.json", local / (shot_id + ".json"))
     print(json.dumps({"local_results": str(local), "report": report}, ensure_ascii=False, indent=2), flush=True)
     if report["failed"] or report["unattempted"]:
         raise RuntimeError("Video batch incomplete; inspect report.json")

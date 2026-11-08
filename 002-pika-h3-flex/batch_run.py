@@ -10,21 +10,16 @@ import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from shared.files import atomic_json, read_json
 
 ROOT = Path(__file__).resolve().parent
 MODEL = "Pika-Labs/Pika-H3-Flex"
 SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 
 
-def read_json(path):
-    return json.loads(Path(path).read_text(encoding="utf-8-sig"))
-
-
-def save_json(path, obj):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(path.name + ".tmp")
-    temporary.write_text(json.dumps(obj, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    temporary.replace(path)
+save_json = atomic_json
 
 
 def _path(value):

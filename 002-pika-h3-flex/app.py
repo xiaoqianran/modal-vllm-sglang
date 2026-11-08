@@ -1,11 +1,13 @@
 """Pika H3 Flex SGLang Diffusion + inline FL2VA frame proxy on Modal."""
 import os
 import subprocess
-import threading
-import time
 from pathlib import Path
 
 import modal
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from shared.modal_setup import model_volume, runtime_image
+from shared.runtime import monitor_processes
 from model_cache import get_ready_model
 
 MODEL = "Pika-Labs/Pika-H3-Flex"
@@ -14,16 +16,15 @@ SG_PORT = 30010
 PROXY_PORT = 30011
 
 app = modal.App("modal-forge-009-pika-h3-flex-fl2va")
-volume = modal.Volume.from_name("modal-forge", create_if_missing=True)
-image = (
-    modal.Image.from_registry("lmsysorg/sglang:dev")
-    .entrypoint([])
-    .env({"HF_HOME": "/mnt/modal/009-pika-h3-flex",
-          "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1",
-          "SGLANG_DIFFUSION_CACHE_ROOT": "/mnt/modal/009-pika-h3-flex/sglang",
-          "PYTHONPATH": "/opt/pika"})
-    .add_local_file(str(Path(__file__).with_name("proxy.py")), "/opt/pika/proxy.py")
-    .add_local_file(str(Path(__file__).with_name("model_cache.py")), "/opt/pika/model_cache.py")
+volume = model_volume()
+image = runtime_image(
+    "lmsysorg/sglang:dev",
+    env={"HF_HOME": "/mnt/modal/009-pika-h3-flex",
+         "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1",
+         "SGLANG_DIFFUSION_CACHE_ROOT": "/mnt/modal/009-pika-h3-flex/sglang",
+         "PYTHONPATH": "/opt/pika"},
+    files=((Path(__file__).with_name("proxy.py"), "/opt/pika/proxy.py"),
+           (Path(__file__).with_name("model_cache.py"), "/opt/pika/model_cache.py")),
 )
 
 
@@ -55,18 +56,4 @@ def serve():
     engine = subprocess.Popen(cmd)
     gateway = subprocess.Popen(["python", "-u", "/opt/pika/proxy.py"])
 
-    def monitor():
-        # 两个核心子进程中任意一个退出，都停止另一个，避免静默失效。
-        while engine.poll() is None and gateway.poll() is None:
-            time.sleep(2)
-        print(f"Pika process exited: engine={engine.poll()}, gateway={gateway.poll()}",
-              flush=True)
-        try:
-            for process in (engine, gateway):
-                if process.poll() is None:
-                    process.terminate()
-            volume.commit()
-        except Exception as exc:
-            print(f"Cleanup failed: {exc}", flush=True)
-
-    threading.Thread(target=monitor, daemon=True).start()
+    monitor_processes((engine, gateway), volume, label="Pika")

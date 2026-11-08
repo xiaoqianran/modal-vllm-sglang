@@ -3,20 +3,21 @@ import json
 from pathlib import Path
 
 import modal
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from shared.modal_setup import model_volume, runtime_image
 
 from model_cache import CACHE_ROOT, MATERIALIZED_ROOT, MODEL, READY_FILE, VOLUME_ROOT, inspect_snapshot
 
 app = modal.App("modal-forge-009-pika-h3-flex-download")
-volume = modal.Volume.from_name("modal-forge", create_if_missing=True)
-image = (modal.Image.from_registry("lmsysorg/sglang:dev")
-         .entrypoint([])
-         # Windows 主机上 str(Path("/mnt/...")) 会变成反斜杠，
-         # 导致 Modal 镜像 Dockerfile 解析失败。容器路径必须使用 POSIX 字面量。
-         .env({"HF_HOME": "/mnt/modal/009-pika-h3-flex",
-               "SGLANG_DIFFUSION_CACHE_ROOT": "/mnt/modal/009-pika-h3-flex/sglang"})
-         .env({"PYTHONPATH": "/opt/pika"})
-         .add_local_file(str(Path(__file__).with_name("model_cache.py")),
-                         "/opt/pika/model_cache.py"))
+volume = model_volume()
+image = runtime_image(
+    "lmsysorg/sglang:dev",
+    env={"HF_HOME": "/mnt/modal/009-pika-h3-flex",
+         "SGLANG_DIFFUSION_CACHE_ROOT": "/mnt/modal/009-pika-h3-flex/sglang",
+         "PYTHONPATH": "/opt/pika"},
+    files=((Path(__file__).with_name("model_cache.py"), "/opt/pika/model_cache.py"),),
+)
 
 
 @app.function(

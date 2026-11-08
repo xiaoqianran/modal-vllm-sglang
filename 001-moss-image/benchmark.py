@@ -9,15 +9,23 @@ import urllib.request
 from pathlib import Path
 
 import modal
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from shared.modal_setup import model_volume, runtime_image
+from model_cache import get_ready_model
+from shared.runtime import stop_process, wait_for_health
 
 GPU = os.getenv("MOSS_GPU", "RTX-PRO-6000")
 MODEL = os.getenv("MOSS_MODEL", "OpenMOSS-Team/MOSS-Image-SFT")
 app = modal.App("modal-forge-008-moss-benchmark")
-volume = modal.Volume.from_name("modal-forge", create_if_missing=True)
-image = (
-    modal.Image.from_registry("vllm/vllm-omni:v0.32.0")
-    .entrypoint([])
-    .env({"HF_HOME": "/root/.cache/huggingface"})
+volume = model_volume()
+image = runtime_image(
+    "vllm/vllm-omni:v0.32.0",
+    env={"HF_HOME": "/root/.cache/huggingface",
+         "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1",
+         "PYTHONPATH": "/opt/moss"},
+    files=((Path(__file__).with_name("model_cache.py"), "/opt/moss/model_cache.py"),),
 )
 
 CACHE = "/root/.cache/huggingface"
@@ -50,22 +58,15 @@ REQUEST = {
 )
 def run_benchmark():
     """Test warm latency and two parallel requests without exposing a public API."""
+    get_ready_model(MODEL)
     started = time.perf_counter()
     process = subprocess.Popen(
         ["vllm", "serve", MODEL, "--omni", "--enforce-eager", "--port", "8000"],
     )
     report = {"engine": "vllm-omni", "model": MODEL, "gpu_requested": GPU}
     try:
-        while time.perf_counter() - started < 1800:
-            if process.poll() is not None:
-                raise RuntimeError(f"vLLM exited during initialization: {process.returncode}")
-            try:
-                urllib.request.urlopen("http://127.0.0.1:8000/health", timeout=3).close()
-                break
-            except Exception:
-                time.sleep(5)
-        else:
-            raise TimeoutError("Model was not ready after 1800 seconds")
+        wait_for_health(process, "http://127.0.0.1:8000/health",
+                        timeout=1800, interval=5)
         report["startup_seconds"] = round(time.perf_counter() - started, 2)
 
         def infer(seed):
@@ -99,11 +100,7 @@ def run_benchmark():
         report["gpu_after_run"] = gpu.stdout.strip()
         return report
     finally:
-        process.terminate()
-        try:
-            process.wait(timeout=20)
-        except subprocess.TimeoutExpired:
-            process.kill()
+        stop_process(process)
         try:
             volume.commit()
         except Exception as exc:

@@ -1,6 +1,9 @@
 """Pika 模型缓存校验：下载端提交清单，推理端只读取完整物化目录。"""
 import json
 from pathlib import Path
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from shared.cache import file_inventory
 
 MODEL = "Pika-Labs/Pika-H3-Flex"
 VOLUME_ROOT = "/mnt/modal"
@@ -15,24 +18,19 @@ def inspect_snapshot(snapshot):
     snapshot = Path(snapshot)
     if not snapshot.is_dir():
         raise RuntimeError(f"Materialized model is missing: {snapshot}")
-    files = sorted(p for p in snapshot.rglob("*") if p.is_file() or p.is_symlink())
-    for item in files:
-        if not item.is_file():
-            raise RuntimeError(f"Broken or invalid model file: {item}")
-    weights = [p for p in files if p.suffix.lower() in (".safetensors", ".bin", ".pt", ".pth")]
+    inventory = file_inventory(snapshot)
+    weights = [name for name in inventory
+               if Path(name).suffix.lower() in (".safetensors", ".bin", ".pt", ".pth")]
     if not weights:
         raise RuntimeError(f"No model weights were found in {snapshot}")
     if not (snapshot / "model_index.json").is_file():
         raise RuntimeError(f"Model index is missing: {snapshot}")
     if not (snapshot / ".sglang_overlay_materialized.json").is_file():
         raise RuntimeError("SGLang overlay materialization marker is missing")
-    inventory = {p.relative_to(snapshot).as_posix(): p.stat().st_size for p in files}
-    if any(size <= 0 for size in inventory.values()):
-        raise RuntimeError("Model snapshot contains empty files")
     total = sum(inventory.values())
     if total == 0:
         raise RuntimeError(f"Model files are empty: {snapshot}")
-    return {"file_count": len(files), "weight_count": len(weights),
+    return {"file_count": len(inventory), "weight_count": len(weights),
             "total_bytes": total, "inventory": inventory}
 
 

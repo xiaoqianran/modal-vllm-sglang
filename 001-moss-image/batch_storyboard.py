@@ -10,15 +10,24 @@ import time
 import urllib.request
 
 import modal
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from shared.modal_setup import model_volume, runtime_image
+from model_cache import get_ready_model
+from shared.files import download_volume_file
+from shared.runtime import stop_process, wait_for_health
 
 MODEL = os.getenv("MOSS_MODEL", "OpenMOSS-Team/MOSS-Image-SFT")
 GPU = os.getenv("MOSS_GPU", "RTX-PRO-6000")
 app = modal.App("modal-forge-008-moss-storyboard-batch")
-volume = modal.Volume.from_name("modal-forge", create_if_missing=True)
-image = (
-    modal.Image.from_registry("vllm/vllm-omni:v0.32.0")
-    .entrypoint([])
-    .env({"HF_HOME": "/mnt/modal/007-moss-image"})
+volume = model_volume()
+image = runtime_image(
+    "vllm/vllm-omni:v0.32.0",
+    env={"HF_HOME": "/mnt/modal/007-moss-image",
+         "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1",
+         "PYTHONPATH": "/opt/moss"},
+    files=((Path(__file__).with_name("model_cache.py"), "/opt/moss/model_cache.py"),),
 )
 REQUEST_DEFAULTS = {
     "size": "1024x1024",
@@ -44,6 +53,7 @@ REQUEST_DEFAULTS = {
 )
 def generate_batch(shots: list[dict], output_prefix: str):
     """Reuse one model process for every storyboard shot; persist after each image."""
+    get_ready_model(MODEL)
     started = time.perf_counter()
     process = subprocess.Popen(
         ["vllm", "serve", MODEL, "--omni", "--enforce-eager", "--port", "8000"]
@@ -55,16 +65,8 @@ def generate_batch(shots: list[dict], output_prefix: str):
         "sequential": True, "shots": [], "startup_seconds": None,
     }
     try:
-        while time.perf_counter() - started < 900:
-            if process.poll() is not None:
-                raise RuntimeError(f"vLLM exited: {process.returncode}")
-            try:
-                urllib.request.urlopen("http://127.0.0.1:8000/health", timeout=3).close()
-                break
-            except Exception:
-                time.sleep(3)
-        else:
-            raise TimeoutError("vLLM model not ready after 900 seconds")
+        wait_for_health(process, "http://127.0.0.1:8000/health",
+                        timeout=900, interval=3)
         report["startup_seconds"] = round(time.perf_counter() - started, 2)
         print(f"READY startup={report['startup_seconds']}s total={len(shots)} gpu={GPU}", flush=True)
 
@@ -109,18 +111,7 @@ def generate_batch(shots: list[dict], output_prefix: str):
         volume.commit()
         return report
     finally:
-        process.terminate()
-        try:
-            process.wait(timeout=20)
-        except subprocess.TimeoutExpired:
-            process.kill()
-
-
-def download_result(path: str, destination: Path):
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    with destination.open("wb") as stream:
-        for chunk in volume.read_file(path):
-            stream.write(chunk)
+        stop_process(process)
 
 
 @app.local_entrypoint()
@@ -139,5 +130,5 @@ def main(episode: str = "07"):
     (local / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     for shot in report["shots"]:
         if shot["status"] == "ok":
-            download_result(f"/{output_prefix}/{shot['file']}", local / shot["file"])
+            download_volume_file(volume, f"/{output_prefix}/{shot['file']}", local / shot["file"])
     print(json.dumps({"local_output": str(local), "report": report}, ensure_ascii=False, indent=2))

@@ -14,10 +14,12 @@ cd 001-moss-image
 uv sync
 $env:MOSS_MODEL = "OpenMOSS-Team/MOSS-Image-SFT"
 $env:MOSS_GPU = "RTX-PRO-6000"
+uv run modal run download_model.py
+uv run modal run download_model.py --check-only
 uv run modal deploy app.py
 ```
 
-Modal App 名称：`modal-forge-008-moss-image`。使用现有 Modal Volume `modal-forge` 暂时复用历史 `007-moss-image` 子目录缓存模型（仅内部缓存路径不变，避免重新下载权重；每 60 秒尝试提交）；首次请求需要下载模型。默认 `min_containers=0`、`max_containers=1`、每容器并发 1 个请求。空闲时不常驻 GPU。API 启用 Modal Proxy Auth；需要在 Workspace 创建 Proxy Token。
+Modal App 名称：`modal-forge-008-moss-image`。使用现有 Modal Volume `modal-forge` 暂时复用历史 `007-moss-image` 子目录缓存模型（仅内部缓存路径不变，避免重新下载权重；每 60 秒尝试提交）；首次需先运行 CPU 下载入口生成完整缓存清单；GPU 端禁止联网补充权重。默认 `min_containers=0`、`max_containers=1`、每容器并发 1 个请求。空闲时不常驻 GPU。API 启用 Modal Proxy Auth；需要在 Workspace 创建 Proxy Token。
 
 ## 请求
 
@@ -110,3 +112,7 @@ uv run modal run benchmark.py
 默认先使用单 GPU 容器保持模型只加载一次，然后依次生成 10 张图。未来若需要大量图片，再做多 GPU 容器分片（一个容器一部分提示词），分别衡量吞吐量与成本。避免现在将请求级 HTTP 并发误认为 GPU 内核并行。
 
 图片持久化的首选是 Modal Volume；如需给其他 Cloudflare 任务直接消费，可再接 R2 输出。这一批量流程目前只在讨论阶段，不应误认为已完成批量运行测试。
+
+## 共享模块与 CPU 缓存
+
+公共设施位于根目录 shared/；本项目的缓存校验由 model_cache.py 实现。下载使用 4 vCPU，复用原有 007-moss-image 缓存路径。新版本在启动 GPU 前校验 model-ready.json，没有完成 CPU 预备任务时会直接拒绝推理。
