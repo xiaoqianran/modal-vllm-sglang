@@ -15,7 +15,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from shared.modal_setup import model_volume, runtime_image
 from model_cache import get_ready_model
-from shared.files import download_volume_file
+from shared.files import download_volume_file, atomic_json, sha256_file
+from shared.batch import safe_id, intent_digest, completed_output, counts
+from shared.http import request_json
 from shared.runtime import stop_process, wait_for_health
 
 MODEL = os.getenv("MOSS_MODEL", "OpenMOSS-Team/MOSS-Image-SFT")
@@ -71,22 +73,31 @@ def generate_batch(shots: list[dict], output_prefix: str):
         print(f"READY startup={report['startup_seconds']}s total={len(shots)} gpu={GPU}", flush=True)
 
         for index, shot in enumerate(shots, 1):
-            shot_id = shot["id"]
+            shot_id = safe_id(shot["id"])
             destination = target / f"{shot_id}.png"
-            if destination.is_file() and destination.stat().st_size > 10000:
-                report["shots"].append({"id": shot_id, "status": "skipped", "bytes": destination.stat().st_size})
+            metadata = target / f"{shot_id}.json"
+            payload = dict(REQUEST_DEFAULTS, prompt=shot["prompt"], seed=1000 + index)
+            signature = intent_digest({"model": MODEL, "payload": payload})
+            def valid_image(path):
+                if path.stat().st_size <= 10000:
+                    return False
+                with path.open("rb") as stream:
+                    header = stream.read(12)
+                return (header.startswith(b"\x89PNG\r\n\x1a\n")
+                        or header.startswith(b"\xff\xd8\xff"))
+            existing = next((candidate for candidate in
+                             (destination, destination.with_suffix(".jpg"))
+                             if completed_output(candidate, metadata, signature,
+                                                 validate=valid_image)), None)
+            if existing is not None:
+                report["shots"].append({"id": shot_id, "status": "skipped",
+                                        "bytes": existing.stat().st_size, "file": existing.name})
                 print(f"[{index}/{len(shots)}] SKIP {shot_id}", flush=True)
                 continue
-            payload = dict(REQUEST_DEFAULTS, prompt=shot["prompt"], seed=1000 + index)
-            request = urllib.request.Request(
-                "http://127.0.0.1:8000/v1/images/generations",
-                data=json.dumps(payload).encode("utf-8"),
-                headers={"Content-Type": "application/json"},
-            )
             t = time.perf_counter()
             try:
-                with urllib.request.urlopen(request, timeout=600) as response:
-                    body = json.load(response)
+                body = request_json("http://127.0.0.1:8000/v1/images/generations",
+                                    payload, timeout=600)
                 encoded = body.get("data", [{}])[0].get("b64_json")
                 if not encoded:
                     raise ValueError("Image response has no b64_json")
@@ -97,7 +108,14 @@ def generate_batch(shots: list[dict], output_prefix: str):
                         destination = destination.with_suffix(".jpg")
                     else:
                         raise ValueError("Unknown image data format")
-                destination.write_bytes(decoded)
+                temporary = destination.with_suffix(destination.suffix + ".part")
+                temporary.write_bytes(decoded)
+                temporary.replace(destination)
+                atomic_json(metadata, {
+                    "id": shot_id, "status": "completed",
+                    "intent_hash": signature, "sha256": sha256_file(destination),
+                    "bytes": len(decoded), "file": destination.name,
+                })
                 volume.commit()
                 elapsed = round(time.perf_counter() - t, 2)
                 report["shots"].append({"id": shot_id, "status": "ok", "seconds": elapsed, "bytes": len(decoded), "file": destination.name})
@@ -107,7 +125,8 @@ def generate_batch(shots: list[dict], output_prefix: str):
                 print(f"[{index}/{len(shots)}] ERROR {shot_id}: {exc}", flush=True)
         report["total_seconds"] = round(time.perf_counter() - started, 2)
         report["recorded_at_utc"] = datetime.now(timezone.utc).isoformat()
-        (target / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+        report.update(counts(report["shots"], len(shots), completed="ok", failed="error"))
+        atomic_json(target / "report.json", report)
         volume.commit()
         return report
     finally:
@@ -127,8 +146,10 @@ def main(episode: str = "07"):
     report = generate_batch.remote(shots, output_prefix)
     local = root / "results" / "storyboard" / f"episode{episode}" / stamp
     local.mkdir(parents=True, exist_ok=True)
-    (local / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    atomic_json(local / "report.json", report)
     for shot in report["shots"]:
-        if shot["status"] == "ok":
+        if shot["status"] in ("ok", "skipped"):
             download_volume_file(volume, f"/{output_prefix}/{shot['file']}", local / shot["file"])
+            download_volume_file(volume, f"/{output_prefix}/{shot['id']}.json",
+                                 local / f"{shot['id']}.json")
     print(json.dumps({"local_output": str(local), "report": report}, ensure_ascii=False, indent=2))

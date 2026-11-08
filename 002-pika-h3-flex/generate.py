@@ -5,19 +5,15 @@ import os
 import time
 import urllib.request
 from pathlib import Path
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from shared.http import request_bytes, request_json, poll_job
 
 MODEL = "Pika-Labs/Pika-H3-Flex"
 
 
 def fetch(url, payload=None, timeout=120):
-    headers = {}
-
-    if payload is not None:
-        headers["Content-Type"] = "application/json"
-        payload = json.dumps(payload).encode("utf-8")
-    request = urllib.request.Request(url, data=payload, headers=headers)
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        return response.read()
+    return request_bytes(url, payload, timeout=timeout)
 
 
 def main():
@@ -41,34 +37,26 @@ def main():
     submitted = json.loads(fetch(f"{base}/v1/videos", payload))
     job_id = submitted["id"]
     print(f"Job: {job_id}", flush=True)
-    while time.perf_counter() - started < args.timeout_seconds:
-        job = json.loads(fetch(f"{base}/v1/videos/{job_id}"))
-        status = job.get("status")
-        print(f"Status: {status}", flush=True)
-        if status == "failed":
-            raise RuntimeError(f"Video generation failed: {job}")
-        if status == "completed":
-            output = Path(args.output)
-            output.parent.mkdir(parents=True, exist_ok=True)
-            data = fetch(f"{base}/v1/videos/{job_id}/content", timeout=300)
-            if not data:
-                raise RuntimeError("Empty video response")
-            temporary = output.with_suffix(output.suffix + ".part")
-            temporary.write_bytes(data)
-            temporary.replace(output)
-            report = {
-                "model": MODEL, "job_id": job_id, "task": payload["task"],
-                "seconds_requested": payload["seconds"],
-                "output": str(output), "bytes": len(data),
-                "elapsed_seconds": round(time.perf_counter() - started, 2),
-            }
-            output.with_suffix(".json").write_text(
-                json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
-            )
-            print(json.dumps(report, ensure_ascii=False, indent=2))
-            return
-        time.sleep(args.poll_seconds)
-    raise TimeoutError(f"Timed out waiting for {job_id}")
+    poll_job(lambda: request_json(f"{base}/v1/videos/{job_id}"),
+             timeout=args.timeout_seconds, interval=args.poll_seconds, label=f"Video {job_id}")
+    output = Path(args.output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    data = fetch(f"{base}/v1/videos/{job_id}/content", timeout=300)
+    if not data:
+        raise RuntimeError("Empty video response")
+    temporary = output.with_suffix(output.suffix + ".part")
+    temporary.write_bytes(data)
+    temporary.replace(output)
+    report = {
+        "model": MODEL, "job_id": job_id, "task": payload["task"],
+        "seconds_requested": payload["seconds"],
+        "output": str(output), "bytes": len(data),
+        "elapsed_seconds": round(time.perf_counter() - started, 2),
+    }
+    output.with_suffix(".json").write_text(
+        json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(json.dumps(report, ensure_ascii=False, indent=2))
+
 
 
 if __name__ == "__main__":

@@ -17,6 +17,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from shared.modal_setup import model_volume, runtime_image
 from shared.files import atomic_json, download_volume_file, read_json, sha256_file
 from shared.runtime import stop_process, wait_for_health
+from shared.batch import safe_id as check_id, intent_digest, completed_output, counts
+from shared.http import request_bytes, request_json, poll_job
 from model_cache import READY_FILE, get_ready_model
 
 ROOT = Path(__file__).resolve().parent
@@ -26,7 +28,6 @@ APP_NAME = "modal-forge-009-pika-h3-flex-batch"
 PORT = 30010
 VOLUME_ROOT = "/mnt/modal"
 MODEL_CACHE = "/mnt/modal/009-pika-h3-flex"
-VALID_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 
 app = modal.App(APP_NAME)
 volume = model_volume()
@@ -44,9 +45,7 @@ write_json = atomic_json
 
 
 def safe_id(value):
-    if not isinstance(value, str) or not VALID_ID.fullmatch(value):
-        raise ValueError(f"Invalid name or id: {value!r}")
-    return value
+    return check_id(value)
 
 
 def resolve_path(value):
@@ -116,22 +115,15 @@ def intent_hash(workflow, item):
         "prompt": item["prompt"], "seed": item["seed"],
         "frames": [frame["sha256"] for frame in item.get("frames", [])],
     }
-    return hashlib.sha256(json.dumps(obj, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+    return intent_digest(obj)
 
 
 def http_json(path, body=None, timeout=600):
-    request = urllib.request.Request(
-        f"http://127.0.0.1:{PORT}" + path,
-        data=json.dumps(body).encode() if body is not None else None,
-        headers={"Content-Type": "application/json"} if body is not None else {},
-    )
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        return json.load(response)
+    return request_json(f"http://127.0.0.1:{PORT}" + path, body, timeout=timeout)
 
 
 def http_bytes(path, timeout=600):
-    with urllib.request.urlopen(f"http://127.0.0.1:{PORT}" + path, timeout=timeout) as response:
-        return response.read()
+    return request_bytes(f"http://127.0.0.1:{PORT}" + path, timeout=timeout)
 
 
 def valid_mp4(path):
@@ -243,32 +235,19 @@ def generate_batch(workflow: dict, items: list[dict], output_prefix: str):
                 (item["intent_hash"] + model_manifest_hash
                  + "performance=memory;offload=text_encoder,vae;video_vae=36").encode()
             ).hexdigest()
-            if metadata_path.is_file() and valid_mp4(target):
-                try:
-                    previous = json_read(metadata_path)
-                    if (previous.get("status") == "completed"
-                            and previous.get("intent_hash") == signature
-                            and previous.get("sha256") == sha256_file(target)):
-                        print(f"[{index}/{len(items)}] SKIP {item['id']}", flush=True)
-                        report["results"].append({"id": item["id"], "status": "skipped"})
-                        continue
-                except (OSError, ValueError, KeyError):
-                    pass
+            if completed_output(target, metadata_path, signature, validate=valid_mp4):
+                print(f"[{index}/{len(items)}] SKIP {item['id']}", flush=True)
+                report["results"].append({"id": item["id"], "status": "skipped"})
+                continue
             entry_started = time.perf_counter()
             try:
                 payload = _payload(workflow, item)
                 submitted = http_json("/v1/videos", payload, timeout=3600)
                 job_id = submitted["id"]
-                deadline = time.monotonic() + 3600
-                while time.monotonic() < deadline:
-                    state = http_json(f"/v1/videos/{job_id}", timeout=120)
-                    if state.get("status") == "completed":
-                        break
-                    if state.get("status") in ("failed", "cancelled"):
-                        raise RuntimeError(str(state))
-                    time.sleep(2)
-                else:
-                    raise TimeoutError(f"Video {job_id} did not complete within 3600s")
+                poll_job(
+                    lambda: http_json(f"/v1/videos/{job_id}", timeout=120),
+                    timeout=3600, interval=2, label=f"Video {job_id}",
+                )
                 clip = http_bytes(f"/v1/videos/{job_id}/content", timeout=900)
                 if len(clip) < 32 or clip[4:8] != b"ftyp":
                     raise ValueError(f"Invalid MP4 response: {len(clip)} bytes")
@@ -293,10 +272,7 @@ def generate_batch(workflow: dict, items: list[dict], output_prefix: str):
                 break  # Fail fast, never automatically start the next job after failure.
             report["results"].append(entry)
         report["elapsed_seconds"] = round(time.perf_counter() - started, 2)
-        report["failed"] = sum(x["status"] == "failed" for x in report["results"])
-        report["completed"] = sum(x["status"] == "completed" for x in report["results"])
-        report["skipped"] = sum(x["status"] == "skipped" for x in report["results"])
-        report["unattempted"] = len(items) - len(report["results"])
+        report.update(counts(report["results"], len(items)))
         write_json(output_root / "report.json", report)
         volume.commit()
         return report

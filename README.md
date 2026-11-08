@@ -9,7 +9,9 @@
     │   ├── modal_setup.py       # Modal Volume、镜像及轻量代码挂载
     │   ├── runtime.py           # 健康检查、子进程监控和清理
     │   ├── cache.py             # 模型文件大小清单
-    │   └── files.py             # 原子 JSON、哈希、Volume 下载
+    │   ├── files.py             # 原子 JSON、哈希、Volume 下载
+    │   ├── http.py              # 安全重试与任务轮询
+    │   └── batch.py             # 输入签名、断点续跑、状态汇总
     ├── 001-moss-image/
     │   ├── download_model.py    # 独立 CPU 下载
     │   ├── model_cache.py       # GPU 只读校验
@@ -69,3 +71,13 @@
     uv run python -m unittest discover -s tests -v
 
 本次只进行代码和 CPU 离线测试。尚未执行新的 Modal CPU 下载任务或 GPU 推理，无法保证新部署环境端到端通过。修改本地文件不会自动更新已部署的 Modal 服务。
+
+
+## 公共批处理与 HTTP 约定
+
+- shared/http.py：只对只读 GET 允许有限重试。生成类 POST 强制单次提交，避免超时后重复扣费及生成重复任务。
+- shared/batch.py：稳定的任务标识、输入签名、输出哈希和元数据匹配校验；所有条目使用相同的状态计数工具。
+- MOSS 图片批处理改为检查输入签名及结果文件 SHA256。历史上只有 PNG、没有条目级 JSON 的结果**不会直接跳过**，同一输出前缀下首次执行将重新生成，以避免静默复用错误内容。
+- Pika 的 HTTP 客户端、Modal Run、单视频请求共用底层 HTTP 访问逻辑，保留各自模型参数和视频任务路径。
+- 不自动改变原有云端 GPU 配置、模型缓存、Modal 资源参数和既有服务鉴权。
+- 修改后的 GPU 端到端验证仍需在 Modal 上执行，离线单测不能代替真实视频或图片推理。

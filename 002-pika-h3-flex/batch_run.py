@@ -12,11 +12,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from shared.files import atomic_json, read_json
+from shared.files import atomic_json, read_json, sha256_file
+from shared.batch import safe_id, intent_digest, completed_output, counts
+from shared.http import request_bytes, poll_job
 
 ROOT = Path(__file__).resolve().parent
 MODEL = "Pika-Labs/Pika-H3-Flex"
-SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 
 
 save_json = atomic_json
@@ -50,7 +51,7 @@ def _request_hash(mode, workflow, item, images):
         "images": [hashlib.sha256(data).hexdigest() for data in images],
         "model": MODEL,
     }
-    return hashlib.sha256(json.dumps(source, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+    return intent_digest(source)
 
 
 def build_payload(workflow, item, index):
@@ -65,8 +66,7 @@ def build_payload(workflow, item, index):
         raise ValueError("Pika trained sampler forbids shift overrides")
     if not isinstance(item.get("prompt"), str) or not item["prompt"].strip():
         raise ValueError(f"Missing prompt for {item.get('id')}")
-    if not SAFE_ID.fullmatch(str(item.get("id", ""))):
-        raise ValueError(f"Unsafe item id: {item.get('id')}")
+    safe_id(str(item.get("id", "")))
     if int(workflow.get("num_outputs_per_prompt", 1)) != 1:
         raise ValueError("The runner saves exactly one video per item")
     payload = {
@@ -92,27 +92,8 @@ def build_payload(workflow, item, index):
 
 
 def fetch(base, path, payload=None, timeout=180, attempts=3):
-    headers = {}
-    data = None
-    if payload is not None:
-        data = json.dumps(payload).encode("utf-8")
-        headers["Content-Type"] = "application/json"
-    last = None
-    for attempt in range(attempts):
-        try:
-            req = urllib.request.Request(base + path, data=data, headers=headers)
-            with urllib.request.urlopen(req, timeout=timeout) as response:
-                return response.read()
-        except urllib.error.HTTPError as exc:
-            detail = exc.read(1500).decode("utf-8", errors="replace")
-            if exc.code in (400, 401, 403, 404, 413, 422):
-                raise RuntimeError(f"HTTP {exc.code}: {detail}") from exc
-            last = f"HTTP {exc.code}: {detail}"
-        except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
-            last = str(exc)
-        if attempt < attempts - 1:
-            time.sleep(2 * (attempt + 1))
-    raise RuntimeError(f"Request failed: {path}: {last}")
+    return request_bytes(base + path, payload, timeout=timeout,
+                         attempts=1 if payload is not None else attempts)
 
 
 def _valid_video(path):
@@ -126,8 +107,7 @@ def run(base, workflow_path, task_path, out_root, *, poll=1, wait=3600, continue
     if not isinstance(task.get("items"), list) or not task["items"]:
         raise ValueError("Task requires a nonempty items list")
     name = str(task.get("name", ""))
-    if not SAFE_ID.fullmatch(name):
-        raise ValueError(f"Unsafe task name: {name}")
+    safe_id(name)
     ids = [str(item.get("id", "")) for item in task["items"]]
     if len(ids) != len(set(ids)):
         raise ValueError("Duplicate item IDs")
@@ -144,31 +124,19 @@ def run(base, workflow_path, task_path, out_root, *, poll=1, wait=3600, continue
         started = time.perf_counter()
         try:
             payload, intent = build_payload(workflow, item, index)
-            if info_path.exists() and _valid_video(video_path):
-                previous = read_json(info_path)
-                if (previous.get("status") == "completed"
-                        and previous.get("intent_hash") == intent
-                        and previous.get("sha256") == hashlib.sha256(video_path.read_bytes()).hexdigest()):
-                    print(f"[{index}/{len(ids)}] {item_id}: already completed, skip", flush=True)
-                    results.append({"id": item_id, "status": "skipped", "elapsed_seconds": 0})
-                    continue
+            if completed_output(video_path, info_path, intent, validate=_valid_video):
+                print(f"[{index}/{len(ids)}] {item_id}: already completed, skip", flush=True)
+                results.append({"id": item_id, "status": "skipped", "elapsed_seconds": 0})
+                continue
             print(f"[{index}/{len(ids)}] {item_id}: submitting {mode}", flush=True)
             job = json.loads(fetch(base, "/v1/videos", payload, timeout=3600, attempts=1))
             video_id = job["id"]
             # Video job state lives in the SGLang process. Poll frequently because
             # Modal is set to the minimal scaledown window.
-            status = None
-            deadline = time.monotonic() + wait
-            while time.monotonic() < deadline:
-                status = json.loads(fetch(base, f"/v1/videos/{video_id}", attempts=2))
-                state = status.get("status")
-                if state == "completed":
-                    break
-                if state in ("failed", "cancelled"):
-                    raise RuntimeError(f"Video {state}: {status}")
-                time.sleep(poll)
-            else:
-                raise TimeoutError(f"Job {video_id} exceeded {wait}s")
+            poll_job(
+                lambda: json.loads(fetch(base, f"/v1/videos/{video_id}", attempts=2)),
+                timeout=wait, interval=poll, label=f"Job {video_id}",
+            )
             blob = fetch(base, f"/v1/videos/{video_id}/content", timeout=600, attempts=2)
             if len(blob) <= 32 or blob[4:8] != b"ftyp":
                 raise ValueError("SGLang returned invalid MP4 content")
@@ -199,10 +167,7 @@ def run(base, workflow_path, task_path, out_root, *, poll=1, wait=3600, continue
     report = {
         "name": name, "mode": mode, "model": MODEL,
         "total": len(ids),
-        "completed": sum(r["status"] == "completed" for r in results),
-        "skipped": sum(r["status"] == "skipped" for r in results),
-        "failed": sum(r["status"] == "failed" for r in results),
-        "unattempted": len(ids) - len(results),
+        **counts(results, len(ids)),
         "elapsed_seconds": round(time.perf_counter() - total_start, 2),
         "items": results,
     }
