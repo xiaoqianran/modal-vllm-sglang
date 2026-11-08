@@ -1,13 +1,11 @@
 """Batch storyboard image inference: one Modal GPU container, sequential requests."""
 
-import base64
 from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
 import subprocess
 import time
-import urllib.request
 
 import modal
 import sys
@@ -17,7 +15,7 @@ from shared.modal_setup import model_volume, runtime_image
 from model_cache import get_ready_model
 from shared.files import download_volume_file, atomic_json, sha256_file
 from shared.batch import safe_id, intent_digest, completed_output, counts
-from shared.http import request_json
+from shared.inference_api import VLLMImageClient
 from shared.runtime import stop_process, wait_for_health
 
 MODEL = os.getenv("MOSS_MODEL", "OpenMOSS-Team/MOSS-Image-SFT")
@@ -71,6 +69,7 @@ def generate_batch(shots: list[dict], output_prefix: str):
                         timeout=900, interval=3)
         report["startup_seconds"] = round(time.perf_counter() - started, 2)
         print(f"READY startup={report['startup_seconds']}s total={len(shots)} gpu={GPU}", flush=True)
+        client = VLLMImageClient("http://127.0.0.1:8000")
 
         for index, shot in enumerate(shots, 1):
             shot_id = safe_id(shot["id"])
@@ -96,30 +95,20 @@ def generate_batch(shots: list[dict], output_prefix: str):
                 continue
             t = time.perf_counter()
             try:
-                body = request_json("http://127.0.0.1:8000/v1/images/generations",
-                                    payload, timeout=600)
-                encoded = body.get("data", [{}])[0].get("b64_json")
-                if not encoded:
-                    raise ValueError("Image response has no b64_json")
-                decoded = base64.b64decode(encoded, validate=True)
-                if not decoded[:8].hex() == "89504e470d0a1a0a":
-                    # Some backends return JPEG rather than PNG regardless of response format.
-                    if decoded[:2].hex() == "ffd8":
-                        destination = destination.with_suffix(".jpg")
-                    else:
-                        raise ValueError("Unknown image data format")
+                image_bytes, suffix = client.generate(payload, timeout=600)
+                destination = destination.with_suffix(suffix)
                 temporary = destination.with_suffix(destination.suffix + ".part")
-                temporary.write_bytes(decoded)
+                temporary.write_bytes(image_bytes)
                 temporary.replace(destination)
                 atomic_json(metadata, {
                     "id": shot_id, "status": "completed",
                     "intent_hash": signature, "sha256": sha256_file(destination),
-                    "bytes": len(decoded), "file": destination.name,
+                    "bytes": len(image_bytes), "file": destination.name,
                 })
                 volume.commit()
                 elapsed = round(time.perf_counter() - t, 2)
-                report["shots"].append({"id": shot_id, "status": "ok", "seconds": elapsed, "bytes": len(decoded), "file": destination.name})
-                print(f"[{index}/{len(shots)}] OK {shot_id}: {elapsed}s {len(decoded)} bytes", flush=True)
+                report["shots"].append({"id": shot_id, "status": "ok", "seconds": elapsed, "bytes": len(image_bytes), "file": destination.name})
+                print(f"[{index}/{len(shots)}] OK {shot_id}: {elapsed}s {len(image_bytes)} bytes", flush=True)
             except Exception as exc:
                 report["shots"].append({"id": shot_id, "status": "error", "error": str(exc)})
                 print(f"[{index}/{len(shots)}] ERROR {shot_id}: {exc}", flush=True)

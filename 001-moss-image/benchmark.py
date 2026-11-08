@@ -5,7 +5,6 @@ import json
 import os
 import subprocess
 import time
-import urllib.request
 from pathlib import Path
 
 import modal
@@ -15,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from shared.modal_setup import model_volume, runtime_image
 from model_cache import get_ready_model
 from shared.runtime import stop_process, wait_for_health
+from shared.inference_api import VLLMImageClient
 
 GPU = os.getenv("MOSS_GPU", "RTX-PRO-6000")
 MODEL = os.getenv("MOSS_MODEL", "OpenMOSS-Team/MOSS-Image-SFT")
@@ -68,19 +68,12 @@ def run_benchmark():
         wait_for_health(process, "http://127.0.0.1:8000/health",
                         timeout=1800, interval=5)
         report["startup_seconds"] = round(time.perf_counter() - started, 2)
+        client = VLLMImageClient("http://127.0.0.1:8000")
 
         def infer(seed):
             payload = dict(REQUEST, seed=seed)
-            request = urllib.request.Request(
-                "http://127.0.0.1:8000/v1/images/generations",
-                data=json.dumps(payload).encode("utf-8"),
-                headers={"Content-Type": "application/json"},
-            )
             t = time.perf_counter()
-            with urllib.request.urlopen(request, timeout=1200) as response:
-                body = json.load(response)
-            if not body.get("data") or not body["data"][0].get("b64_json"):
-                raise ValueError("Image response missing b64_json")
+            client.generate(payload, timeout=1200)
             return round(time.perf_counter() - t, 2)
 
         report["single_seconds"] = infer(0)

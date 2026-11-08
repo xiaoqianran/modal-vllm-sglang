@@ -3,12 +3,8 @@ import hashlib
 import json
 import os
 from pathlib import Path
-import re
 import subprocess
 import time
-import urllib.error
-import urllib.request
-import uuid
 from datetime import datetime, timezone
 
 import modal
@@ -18,7 +14,7 @@ from shared.modal_setup import model_volume, runtime_image
 from shared.files import atomic_json, download_volume_file, read_json, sha256_file
 from shared.runtime import stop_process, wait_for_health
 from shared.batch import safe_id as check_id, intent_digest, completed_output, counts
-from shared.http import request_bytes, request_json, poll_job
+from shared.inference_api import SGLangVideoClient
 from model_cache import READY_FILE, get_ready_model
 
 ROOT = Path(__file__).resolve().parent
@@ -116,14 +112,6 @@ def intent_hash(workflow, item):
         "frames": [frame["sha256"] for frame in item.get("frames", [])],
     }
     return intent_digest(obj)
-
-
-def http_json(path, body=None, timeout=600):
-    return request_json(f"http://127.0.0.1:{PORT}" + path, body, timeout=timeout)
-
-
-def http_bytes(path, timeout=600):
-    return request_bytes(f"http://127.0.0.1:{PORT}" + path, timeout=timeout)
 
 
 def valid_mp4(path):
@@ -226,6 +214,7 @@ def generate_batch(workflow: dict, items: list[dict], output_prefix: str):
                         timeout=2400, interval=2)
         report["startup_seconds"] = round(time.perf_counter() - started, 2)
         print(f"MODEL READY in {report['startup_seconds']}s, items={len(items)}", flush=True)
+        client = SGLangVideoClient(f"http://127.0.0.1:{PORT}")
 
         for index, item in enumerate(items, 1):
             target = output_root / (item["id"] + ".mp4")
@@ -242,15 +231,10 @@ def generate_batch(workflow: dict, items: list[dict], output_prefix: str):
             entry_started = time.perf_counter()
             try:
                 payload = _payload(workflow, item)
-                submitted = http_json("/v1/videos", payload, timeout=3600)
-                job_id = submitted["id"]
-                poll_job(
-                    lambda: http_json(f"/v1/videos/{job_id}", timeout=120),
-                    timeout=3600, interval=2, label=f"Video {job_id}",
-                )
-                clip = http_bytes(f"/v1/videos/{job_id}/content", timeout=900)
-                if len(clip) < 32 or clip[4:8] != b"ftyp":
-                    raise ValueError(f"Invalid MP4 response: {len(clip)} bytes")
+                job_id = client.submit(payload, timeout=3600)
+                client.wait(job_id, timeout=3600, poll=2, status_timeout=120,
+                            attempts=1)
+                clip = client.content(job_id, timeout=900, attempts=1)
                 temp = target.with_suffix(".mp4.part")
                 temp.write_bytes(clip)
                 temp.replace(target)

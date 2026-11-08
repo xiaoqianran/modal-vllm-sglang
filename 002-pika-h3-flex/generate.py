@@ -1,19 +1,13 @@
 """Submit a Pika H3 Flex job, poll status, and save its MP4."""
 import argparse
 import json
-import os
 import time
-import urllib.request
 from pathlib import Path
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from shared.http import request_bytes, request_json, poll_job
+from shared.inference_api import SGLangVideoClient
 
 MODEL = "Pika-Labs/Pika-H3-Flex"
-
-
-def fetch(url, payload=None, timeout=120):
-    return request_bytes(url, payload, timeout=timeout)
 
 
 def main():
@@ -32,18 +26,18 @@ def main():
         raise ValueError("Pika Flex uses a fixed schedule; remove shift overrides")
     if not 5 <= payload.get("seconds", 0) <= 15:
         raise ValueError("Pika Flex duration must be between 5 and 15 seconds")
-    base = args.endpoint.rstrip("/")
+    client = SGLangVideoClient(args.endpoint)
     started = time.perf_counter()
-    submitted = json.loads(fetch(f"{base}/v1/videos", payload))
-    job_id = submitted["id"]
+    job_id = client.submit(payload, timeout=120)
     print(f"Job: {job_id}", flush=True)
-    poll_job(lambda: request_json(f"{base}/v1/videos/{job_id}"),
-             timeout=args.timeout_seconds, interval=args.poll_seconds, label=f"Video {job_id}")
+    client.wait(
+        job_id, timeout=args.timeout_seconds, poll=args.poll_seconds,
+        status_timeout=120, attempts=1,
+        on_status=lambda job: print(f"Status: {job.get('status')}", flush=True),
+    )
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
-    data = fetch(f"{base}/v1/videos/{job_id}/content", timeout=300)
-    if not data:
-        raise RuntimeError("Empty video response")
+    data = client.content(job_id, timeout=300, attempts=1)
     temporary = output.with_suffix(output.suffix + ".part")
     temporary.write_bytes(data)
     temporary.replace(output)

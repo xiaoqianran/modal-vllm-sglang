@@ -34,15 +34,18 @@ class BatchTests(unittest.TestCase):
             }), encoding="utf-8")
             submitted = []
 
-            def fake_fetch(base, path, payload=None, **_):
-                if path == "/v1/videos":
+            def fake_json(url, payload=None, **_):
+                if url.endswith("/v1/videos"):
                     submitted.append(payload)
-                    return json.dumps({"id": str(len(submitted))}).encode()
-                if path.endswith("/content"):
-                    return VIDEO
-                return json.dumps({"status": "completed"}).encode()
+                    return {"id": str(len(submitted))}
+                return {"status": "completed"}
 
-            with patch.object(batch, "fetch", side_effect=fake_fetch):
+            def fake_bytes(url, **_):
+                self.assertTrue(url.endswith("/content"))
+                return VIDEO
+
+            with patch("shared.inference_api.request_json", side_effect=fake_json), \
+                 patch("shared.inference_api.request_bytes", side_effect=fake_bytes):
                 first = batch.run("http://fake", workflow, task, work / "results")
                 self.assertEqual(first["completed"], 2)
                 self.assertEqual(first["failed"], 0)

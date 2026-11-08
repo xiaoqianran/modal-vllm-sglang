@@ -3,18 +3,14 @@ import argparse
 import base64
 import hashlib
 import json
-import os
-import re
 import time
-import urllib.error
-import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from shared.files import atomic_json, read_json, sha256_file
+from shared.files import atomic_json, read_json
 from shared.batch import safe_id, intent_digest, completed_output, counts
-from shared.http import request_bytes, poll_job
+from shared.inference_api import SGLangVideoClient
 
 ROOT = Path(__file__).resolve().parent
 MODEL = "Pika-Labs/Pika-H3-Flex"
@@ -91,11 +87,6 @@ def build_payload(workflow, item, index):
     return payload, _request_hash(mode, workflow, item, images)
 
 
-def fetch(base, path, payload=None, timeout=180, attempts=3):
-    return request_bytes(base + path, payload, timeout=timeout,
-                         attempts=1 if payload is not None else attempts)
-
-
 def _valid_video(path):
     if not path.is_file() or path.stat().st_size <= 32:
         return False
@@ -115,6 +106,7 @@ def run(base, workflow_path, task_path, out_root, *, poll=1, wait=3600, continue
     output_dir = out_root / mode / name
     output_dir.mkdir(parents=True, exist_ok=True)
     total_start = time.perf_counter()
+    client = SGLangVideoClient(base)
     results = []
 
     for index, item in enumerate(task["items"], start=1):
@@ -129,17 +121,11 @@ def run(base, workflow_path, task_path, out_root, *, poll=1, wait=3600, continue
                 results.append({"id": item_id, "status": "skipped", "elapsed_seconds": 0})
                 continue
             print(f"[{index}/{len(ids)}] {item_id}: submitting {mode}", flush=True)
-            job = json.loads(fetch(base, "/v1/videos", payload, timeout=3600, attempts=1))
-            video_id = job["id"]
+            video_id = client.submit(payload, timeout=3600)
             # Video job state lives in the SGLang process. Poll frequently because
             # Modal is set to the minimal scaledown window.
-            poll_job(
-                lambda: json.loads(fetch(base, f"/v1/videos/{video_id}", attempts=2)),
-                timeout=wait, interval=poll, label=f"Job {video_id}",
-            )
-            blob = fetch(base, f"/v1/videos/{video_id}/content", timeout=600, attempts=2)
-            if len(blob) <= 32 or blob[4:8] != b"ftyp":
-                raise ValueError("SGLang returned invalid MP4 content")
+            client.wait(video_id, timeout=wait, poll=poll, status_timeout=180, attempts=2)
+            blob = client.content(video_id, timeout=600, attempts=2)
             temp = video_path.with_suffix(".mp4.part")
             temp.write_bytes(blob)
             temp.replace(video_path)
