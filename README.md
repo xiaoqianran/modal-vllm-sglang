@@ -2,8 +2,18 @@
 
 ## 日常入口
 
-- **部署模型**：进入模型目录，运行 `download_model.py`，再部署 `app.py`。
-- **生成内容**：回到仓库根目录，统一使用 `python -m orchestration plan/run/resume/status`。
+- **批量分镜生图（推荐）**：直接运行 `scripts/run_moss_batch.py`。内部使用 Modal `app.run()` + `remote_gen()`，不需要先 `modal deploy`，也不需要 HTTP Proxy Token；本机仍需已登录 Modal。
+- **HTTP 工作流（可选）**：只有调用已部署 HTTP 端点组合 MOSS、Pika 等服务时，才使用 `python -m orchestration plan/run/resume/status`，并按服务设置 HTTP 认证。
+- **部署 HTTP 服务（可选）**：需要对外提供 HTTP API 时才运行 `modal deploy app.py`，MOSS HTTP 服务保持 Proxy Auth 开启。
+
+直接运行一批 MOSS 分镜（在仓库根目录）：
+
+```powershell
+uv run --project 001-moss-image python scripts/run_moss_batch.py --project 002-again-love --task tasks/002-again-love-001-hotel-corridor.json --dry-run
+uv run --project 001-moss-image python scripts/run_moss_batch.py --project 002-again-love --task tasks/002-again-love-001-hotel-corridor.json
+```
+
+该命令直接创建临时 Modal App 执行 GPU 任务，输出至 `outputs/<project>/<scene>/`。中断后重复同一命令可校验并续跑；不需要 `MOSS_ENDPOINT`、`MOSS_MODAL_KEY` 或 `MOSS_MODAL_SECRET`。
 
 | 模型目录 | 引擎 | 工作流 |
 | --- | --- | --- |
@@ -20,7 +30,7 @@ uv run python -m orchestration status outputs/003-minimax-image-demo/001-main
 ```
 
 `workflows/` 写步骤和参数，`tasks/` 写镜头和提示词，`outputs/` 保存结果与进度。
-旧批处理脚本保留作兼容和专项调试；新日常任务使用统一编排入口。
+Modal 原生批处理是日常批量分镜的推荐入口；跨模型 HTTP 组合使用统一编排入口。
 新增模型按 [新增模型说明](docs/add-model.md)，保持现有结构。
 
 下面保留已有部署约束和入口细节。

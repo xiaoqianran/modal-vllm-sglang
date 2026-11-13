@@ -1,6 +1,6 @@
 # 轻量 Workflow / Task 执行器
 
-已实现的第一版：MOSS 生图、Pika 文生视频、MOSS 首尾帧 → Pika 视频。编排在本机 CPU 执行，调用已经部署的 HTTP 服务。纯 Python 标准库，无新增运行依赖；原模型目录、Modal App、GPU 配置和缓存路径保留。
+已实现的第一版：MOSS 生图、Pika 文生视频、MOSS 首尾帧 → Pika 视频。**本页说明的是可选 HTTP 工作流**：本机 CPU 编排器调用已部署的 HTTP 服务，需要对应的服务地址及其开启的认证。若仅需直接批量生成 MOSS 分镜，请使用 `scripts/run_moss_batch.py`（见 [MOSS 批量续跑](moss-resume.md)）：该脚本通过 Modal 临时 App 执行，不需要先部署 HTTP 服务，也不需要 HTTP Proxy Token；本机仍需 Modal 账号凭据。编排器仅使用 Python 标准库，原模型目录、Modal App、GPU 配置和缓存路径保留。
 
 ## 使用
 
