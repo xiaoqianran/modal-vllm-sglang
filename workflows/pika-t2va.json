@@ -1,0 +1,6 @@
+{
+  "version": 1,
+  "id": "pika-t2va",
+  "steps": [{"id": "video", "uses": "pika.t2va", "inputs": {"prompt": {"ref": "input.prompt"}}}],
+  "outputs": {"video": {"ref": "video.video"}}
+}

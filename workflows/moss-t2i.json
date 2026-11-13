@@ -1,0 +1,6 @@
+{
+  "version": 1,
+  "id": "moss-t2i",
+  "steps": [{"id": "image", "uses": "moss.t2i", "inputs": {"prompt": {"ref": "input.prompt"}}}],
+  "outputs": {"image": {"ref": "image.image"}}
+}

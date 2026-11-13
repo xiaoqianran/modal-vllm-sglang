@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "name": "002-again-love-002-social-media",
+  "project": "002-again-love",
+  "scene": "002-social-media",
+  "workflow": "moss-t2i",
+  "items": [
+    {
+      "id": "001",
+      "prompt": "Photorealistic contemporary Chinese romantic short-drama film still, square 1024x1024, natural faces and hands, cinematic lighting, one instantaneous action, no watermarks or captions. 温染浅米色针织衫，夜晚公寓沙发上翻看手机网友评论，手机冷光映脸，眼睛睁大，中近景。"
+    },
+    {
+      "id": "002",
+      "prompt": "Photorealistic contemporary Chinese romantic short-drama film still, square 1024x1024, natural faces and hands, cinematic lighting, one instantaneous action, no watermarks or captions. 同一公寓服装，温染眉头紧锁，身旁虚化的评论气泡象征粉丝争论与嗑CP，构图集中于无奈表情。"
+    },
+    {
+      "id": "003",
+      "prompt": "Photorealistic contemporary Chinese romantic short-drama film still, square 1024x1024, natural faces and hands, cinematic lighting, one instantaneous action, no watermarks or captions. 经纪人周妍，三十多岁干练中国女性，灰色职业西装，娱乐公司办公室电脑前处理舆论，焦急果断，办公桌文件咖啡，中景。"
+    },
+    {
+      "id": "004",
+      "prompt": "Photorealistic contemporary Chinese romantic short-drama film still, square 1024x1024, natural faces and hands, cinematic lighting, one instantaneous action, no watermarks or captions. 娱乐公司办公室，工作人员双手在键盘和手机之间操作，模糊官方社媒运营界面，半俯视桌面特写，真实办公细节。"
+    },
+    {
+      "id": "005",
+      "prompt": "Photorealistic contemporary Chinese romantic short-drama film still, square 1024x1024, natural faces and hands, cinematic lighting, one instantaneous action, no watermarks or captions. 温染公寓沙发上发现私信由谩骂转为道歉，握手机愣住后难以置信苦笑，暖灯与屏幕光，半身镜头。"
+    },
+    {
+      "id": "006",
+      "prompt": "Photorealistic contemporary Chinese romantic short-drama film still, square 1024x1024, natural faces and hands, cinematic lighting, one instantaneous action, no watermarks or captions. 温染握手机独坐沙发边缘，她是真的商时序妻子却被全网当作宣传，神情沉默复杂，画面留白，暖台灯。"
+    },
+    {
+      "id": "007",
+      "prompt": "Photorealistic contemporary Chinese romantic short-drama film still, square 1024x1024, natural faces and hands, cinematic lighting, one instantaneous action, no watermarks or captions. 温染坐画面中心，周围虚化社媒缩略图形成网络舆论包围感，惊讶疲惫，写实真人电影。"
+    }
+  ]
+}

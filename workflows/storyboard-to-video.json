@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "id": "storyboard-to-video",
+  "steps": [
+    {"id": "first", "uses": "moss.t2i", "inputs": {"prompt": {"ref": "input.first_prompt"}}},
+    {"id": "last", "uses": "moss.t2i", "inputs": {"prompt": {"ref": "input.last_prompt"}}},
+    {
+      "id": "video", "uses": "pika.fl2va",
+      "inputs": {
+        "prompt": {"ref": "input.motion_prompt"},
+        "first_frame": {"ref": "first.image"},
+        "last_frame": {"ref": "last.image"}
+      }
+    }
+  ],
+  "outputs": {"first_frame": {"ref": "first.image"}, "last_frame": {"ref": "last.image"}, "video": {"ref": "video.video"}}
+}

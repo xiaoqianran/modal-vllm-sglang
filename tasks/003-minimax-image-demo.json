@@ -1,0 +1,6 @@
+{
+  "version": 1,
+  "name": "003-minimax-image-demo",
+  "workflow": "minimax-t2i",
+  "items": [{"id": "001", "seed": 42, "prompt": "A red paper boat floating on a still mountain lake at sunrise. Soft golden light touches the folded paper, gentle ripples spread across the water, and distant pine-covered mountains fade into pale morning mist. A cinematic wide composition with realistic reflections and fine paper texture."}]
+}

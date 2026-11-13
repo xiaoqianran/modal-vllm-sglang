@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "name": "001-story-demo",
+  "workflow": "storyboard-to-video",
+  "items": [
+    {
+      "id": "001",
+      "first_prompt": "A red paper boat floating near a quiet beach at sunrise, cinematic wide shot.",
+      "last_prompt": "A red paper boat floating farther out from a quiet beach at sunrise, cinematic wide shot.",
+      "motion_prompt": "The red paper boat gently drifts away with the waves. Fixed camera, natural ocean ambience, no cuts."
+    }
+  ]
+}

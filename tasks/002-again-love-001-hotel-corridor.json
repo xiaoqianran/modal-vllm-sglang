@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "name": "002-again-love-001-hotel-corridor",
+  "project": "002-again-love",
+  "scene": "001-hotel-corridor",
+  "workflow": "moss-t2i",
+  "items": [
+    {
+      "id": "004",
+      "prompt": "Photorealistic contemporary Chinese romantic short-drama film still, square 1024x1024, natural faces and hands, cinematic lighting, one instantaneous action, no watermarks or captions. 温染深蓝礼裙在酒店暖金走廊向后踉跄，商时序黑色晚宴西装急忙俯身伸手但尚未碰到她，长焦偷拍中景。"
+    },
+    {
+      "id": "005",
+      "prompt": "Photorealistic contemporary Chinese romantic short-drama film still, square 1024x1024, natural faces and hands, cinematic lighting, one instantaneous action, no watermarks or captions. 商时序黑色晚宴西装迅速扶住温染深蓝礼裙腰侧，二人距离骤然缩短，男主担忧，女主惊魂未定，酒店走廊双人中近景。"
+    },
+    {
+      "id": "006",
+      "prompt": "Photorealistic contemporary Chinese romantic short-drama film still, square 1024x1024, natural faces and hands, cinematic lighting, one instantaneous action, no watermarks or captions. 手部特写：商时序黑西装袖口与扶在温染深蓝礼裙腰侧的手，动作保护而克制，真实手部结构和布料纹理。"
+    },
+    {
+      "id": "007",
+      "prompt": "Photorealistic contemporary Chinese romantic short-drama film still, square 1024x1024, natural faces and hands, cinematic lighting, one instantaneous action, no watermarks or captions. 高清记忆视角：商时序黑色晚宴西装在酒店走廊低头望向画外温染，眼神担忧深情，暖色石墙壁灯，面部近景，不是模糊偷拍。"
+    },
+    {
+      "id": "008",
+      "prompt": "Photorealistic contemporary Chinese romantic short-drama film still, square 1024x1024, natural faces and hands, cinematic lighting, one instantaneous action, no watermarks or captions. 温染回现代公寓换浅米色家居针织衫，坐沙发握手机看到热搜，冷光照脸，震惊不安，夜晚中近景。"
+    },
+    {
+      "id": "009",
+      "prompt": "Photorealistic contemporary Chinese romantic short-drama film still, square 1024x1024, natural faces and hands, cinematic lighting, one instantaneous action, no watermarks or captions. 商时序仍穿黑色晚宴西装，独自在安静室内用手机发布公开表态，神情平静坚定，半身近景，屏幕文字不需可读。"
+    },
+    {
+      "id": "010",
+      "prompt": "Photorealistic contemporary Chinese romantic short-drama film still, square 1024x1024, natural faces and hands, cinematic lighting, one instantaneous action, no watermarks or captions. 温染穿浅米色针织衫坐客厅，手机评论不断涌入，她茫然紧张，社媒图形只做模糊背景，电影中景。"
+    }
+  ]
+}

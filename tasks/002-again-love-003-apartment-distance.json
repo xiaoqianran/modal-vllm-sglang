@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "name": "002-again-love-003-apartment-distance",
+  "project": "002-again-love",
+  "scene": "003-apartment-distance",
+  "workflow": "moss-t2i",
+  "items": [
+    {
+      "id": "001",
+      "prompt": "Photorealistic contemporary Chinese romantic short-drama film still, square 1024x1024, natural faces and hands, cinematic lighting, one instantaneous action, no watermarks or captions. 现代公寓茶几放结婚证和两人亲密合照相册，温染浅色家居服低头查看，陌生困惑，俯视中景，证件文字不可读。"
+    },
+    {
+      "id": "002",
+      "prompt": "Photorealistic contemporary Chinese romantic short-drama film still, square 1024x1024, natural faces and hands, cinematic lighting, one instantaneous action, no watermarks or captions. 商时序白衬衫坐沙发耐心讲述两人失忆前恋爱故事，温染浅色家居服倾听但目光疏离，双人中景，留距离。"
+    },
+    {
+      "id": "003",
+      "prompt": "Photorealistic contemporary Chinese romantic short-drama film still, square 1024x1024, natural faces and hands, cinematic lighting, one instantaneous action, no watermarks or captions. 公寓餐桌两端，温染浅色家居服与商时序白衬衫相对而坐，像客气室友，留大片空白，对称远景。"
+    },
+    {
+      "id": "004",
+      "prompt": "Photorealistic contemporary Chinese romantic short-drama film still, square 1024x1024, natural faces and hands, cinematic lighting, one instantaneous action, no watermarks or captions. 夜晚公寓玄关门刚打开，商时序白衬衫深色西裤，袖口半挽头发略乱，匆忙赶回，脸上紧张，门口中景。"
+    },
+    {
+      "id": "005",
+      "prompt": "Photorealistic contemporary Chinese romantic short-drama film still, square 1024x1024, natural faces and hands, cinematic lighting, one instantaneous action, no watermarks or captions. 商时序客厅微俯身询问温染是否还好，温染沙发抬头犹疑警惕，近距离未触碰，暖光双人中近景。"
+    },
+    {
+      "id": "006",
+      "prompt": "Photorealistic contemporary Chinese romantic short-drama film still, square 1024x1024, natural faces and hands, cinematic lighting, one instantaneous action, no watermarks or captions. 商时序坐温染身旁仅两拳距离解释微博公关手段，温染浅色家居服身体微绷想后退，侧面双人中景。"
+    },
+    {
+      "id": "007",
+      "prompt": "Photorealistic contemporary Chinese romantic short-drama film still, square 1024x1024, natural faces and hands, cinematic lighting, one instantaneous action, no watermarks or captions. 温染坐沙发偏脸，紧张要求商时序不要一直盯自己，商时序白衬衫安静凝视，克制双人近景。"
+    },
+    {
+      "id": "008",
+      "prompt": "Photorealistic contemporary Chinese romantic short-drama film still, square 1024x1024, natural faces and hands, cinematic lighting, one instantaneous action, no watermarks or captions. 夜晚商时序白衬衫站落地窗旁接电话，听到唇语破译神情严肃，温染远处抬头，城市夜景虚化。"
+    },
+    {
+      "id": "009",
+      "prompt": "Photorealistic contemporary Chinese romantic short-drama film still, square 1024x1024, natural faces and hands, cinematic lighting, one instantaneous action, no watermarks or captions. 温染手握手机抬头与刚挂电话的商时序对视，她慌张他凝重，客厅双人中景，危机将至。"
+    }
+  ]
+}

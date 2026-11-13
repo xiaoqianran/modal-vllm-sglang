@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "name": "002-again-love-004-lip-reading",
+  "project": "002-again-love",
+  "scene": "004-lip-reading",
+  "workflow": "moss-t2i",
+  "items": [
+    {
+      "id": "001",
+      "prompt": "Photorealistic contemporary Chinese romantic short-drama film still, square 1024x1024, natural faces and hands, cinematic lighting, one instantaneous action, no watermarks or captions. 温染浅色家居服紧盯手机播放酒店偷拍视频，视频模糊底部有字幕区域，女主惊愕怀疑，公寓中近景。"
+    },
+    {
+      "id": "002",
+      "prompt": "Photorealistic contemporary Chinese romantic short-drama film still, square 1024x1024, natural faces and hands, cinematic lighting, one instantaneous action, no watermarks or captions. 温染放下手机转头看商时序，怀疑唇语字幕半真半假，商时序白衬衫冷静判断，客厅双人近景。"
+    },
+    {
+      "id": "003",
+      "prompt": "Photorealistic contemporary Chinese romantic short-drama film still, square 1024x1024, natural faces and hands, cinematic lighting, one instantaneous action, no watermarks or captions. 温染沙发边手机顶部弹出陆谦消息，她手指悬停，表情犹豫，浅色家居服，手部与脸部近景。"
+    },
+    {
+      "id": "004",
+      "prompt": "Photorealistic contemporary Chinese romantic short-drama film still, square 1024x1024, natural faces and hands, cinematic lighting, one instantaneous action, no watermarks or captions. 杀青宴闪回：陆谦深灰西装端酒杯向商时序敬酒，商时序黑色晚宴西装以手掌盖住杯口拒绝，宾客惊讶，酒店宴会厅中景。"
+    },
+    {
+      "id": "005",
+      "prompt": "Photorealistic contemporary Chinese romantic short-drama film still, square 1024x1024, natural faces and hands, cinematic lighting, one instantaneous action, no watermarks or captions. 同一杀青宴闪回，温染深蓝礼裙站一旁怒视商时序公开拒绝陆谦敬酒，商时序和陆谦背景对峙，女主情绪近景。"
+    },
+    {
+      "id": "006",
+      "prompt": "Photorealistic contemporary Chinese romantic short-drama film still, square 1024x1024, natural faces and hands, cinematic lighting, one instantaneous action, no watermarks or captions. 现代公寓温染抱手机看网友恶搞不同唇语字幕，哭笑不得，周围模糊短视频光影，写实轻喜剧中景。"
+    },
+    {
+      "id": "007",
+      "prompt": "Photorealistic contemporary Chinese romantic short-drama film still, square 1024x1024, natural faces and hands, cinematic lighting, one instantaneous action, no watermarks or captions. 温染沙发举手机问商时序是否他策划网友玩梗，商时序白衬衫从书房走出无奈微笑，暖灯双人中景。"
+    },
+    {
+      "id": "008",
+      "prompt": "Photorealistic contemporary Chinese romantic short-drama film still, square 1024x1024, natural faces and hands, cinematic lighting, one instantaneous action, no watermarks or captions. 温染站客厅窗边握手机，眼神复杂，玻璃映出模糊社媒缩略图，意味着她终于被大众记住，都市夜景。"
+    }
+  ]
+}
