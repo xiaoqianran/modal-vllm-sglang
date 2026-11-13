@@ -1,5 +1,7 @@
 # 001-moss-image
 
+GPU 推理入口默认统一为 **4 核 CPU、8 GiB RAM**（8192 MiB），包括部署、批处理和基准脚本。此资源档位由用户确认已在远程 Modal 测试；基准脚本仍允许环境变量覆盖。
+
 独立 Modal 生图服务：使用 vLLM-Omni 官方版本镜像；原有 007-video-understanding 不变。
 
 ## 模型及后端

@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 import json
 import os
 import subprocess
+import threading
 import time
 from pathlib import Path
 
@@ -17,6 +18,8 @@ from shared.runtime import stop_process, wait_for_health
 from shared.inference_api import VLLMImageClient
 
 GPU = os.getenv("MOSS_GPU", "RTX-PRO-6000")
+CPU = int(os.getenv("MOSS_BENCH_CPU", "4"))
+RAM_MIB = int(os.getenv("MOSS_BENCH_RAM_MIB", "8192"))
 MODEL = os.getenv("MOSS_MODEL", "OpenMOSS-Team/MOSS-Image-SFT")
 app = modal.App("modal-forge-008-moss-benchmark")
 volume = model_volume()
@@ -49,21 +52,64 @@ REQUEST = {
 @app.function(
     image=image,
     gpu=GPU,
-    cpu=8,
-    memory=32768,
+    cpu=CPU,
+    memory=RAM_MIB,
     volumes={
         CACHE: volume.with_mount_options(sub_path="/007-moss-image"),
     },
     timeout=3600,
 )
-def run_benchmark():
+def run_benchmark(requested_cpu: int = 4, parallel: bool = True, requested_ram_mib: int = 8192):
     """Test warm latency and two parallel requests without exposing a public API."""
     get_ready_model(MODEL)
     started = time.perf_counter()
     process = subprocess.Popen(
         ["vllm", "serve", MODEL, "--omni", "--enforce-eager", "--port", "8000"],
     )
-    report = {"engine": "vllm-omni", "model": MODEL, "gpu_requested": GPU}
+    report = {"engine": "vllm-omni", "model": MODEL, "gpu_requested": GPU, "cpu_requested": requested_cpu, "memory_requested_mib": requested_ram_mib, "cpu_cgroup_max": (Path("/sys/fs/cgroup/cpu.max").read_text().strip() if Path("/sys/fs/cgroup/cpu.max").exists() else None)}
+    memory_samples = []
+    stop_sampling = threading.Event()
+
+    def proc_memory_gib():
+        # smaps_rollup PSS avoids counting shared pages repeatedly.
+        rss_kib = pss_kib = uss_kib = 0
+        available_pss = available_uss = 0
+        for status in Path("/proc").glob("[0-9]*/status"):
+            try:
+                for line in status.read_text().splitlines():
+                    if line.startswith("VmRSS:"):
+                        rss_kib += int(line.split()[1])
+                        break
+            except (OSError, ValueError):
+                pass
+            try:
+                fields = {}
+                for line in status.with_name("smaps_rollup").read_text().splitlines():
+                    if ":" in line:
+                        key, value = line.split(":", 1)
+                        fields[key] = value.strip().split()[0]
+                if "Pss" in fields:
+                    pss_kib += int(fields["Pss"])
+                    available_pss += 1
+                if "Private_Clean" in fields or "Private_Dirty" in fields:
+                    uss_kib += int(fields.get("Private_Clean", 0)) + int(fields.get("Private_Dirty", 0))
+                    available_uss += 1
+            except (OSError, ValueError):
+                pass
+        return {
+            "rss_sum_gib": round(rss_kib / 1024**2, 3),
+            "pss_sum_gib": round(pss_kib / 1024**2, 3) if available_pss else None,
+            "uss_sum_gib": round(uss_kib / 1024**2, 3) if available_uss else None,
+            "pss_readable_processes": available_pss,
+        }
+
+    def sample_memory():
+        while not stop_sampling.is_set():
+            memory_samples.append({"time_s": round(time.perf_counter() - started, 2), **proc_memory_gib()})
+            stop_sampling.wait(0.5)
+
+    sampler = threading.Thread(target=sample_memory, daemon=True)
+    sampler.start()
     try:
         wait_for_health(process, "http://127.0.0.1:8000/health",
                         timeout=1800, interval=5)
@@ -77,6 +123,19 @@ def run_benchmark():
             return round(time.perf_counter() - t, 2)
 
         report["single_seconds"] = infer(0)
+        for key in ("memory.current", "memory.peak", "memory.max"):
+            path = Path("/sys/fs/cgroup") / key
+            if path.exists():
+                value = path.read_text().strip()
+                report[key.replace(".", "_")] = round(int(value) / 1024**3, 3) if value.isdigit() else value
+        for key in ("rss_sum_gib", "pss_sum_gib", "uss_sum_gib"):
+            values = [sample[key] for sample in memory_samples if sample.get(key) is not None]
+            report["peak_" + key] = max(values, default=None)
+        report["memory_sample_count"] = len(memory_samples)
+        report["memory_source"] = "sum of readable /proc/PID/status VmRSS; PSS/USS where readable"
+        report["memory_sample_preview"] = memory_samples[::max(1, len(memory_samples)//20)][:21]
+        if not parallel:
+            return report
         # Concurrent requests test engine concurrency, not multi-container scaling.
         t = time.perf_counter()
         with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
@@ -93,6 +152,8 @@ def run_benchmark():
         report["gpu_after_run"] = gpu.stdout.strip()
         return report
     finally:
+        stop_sampling.set()
+        sampler.join(timeout=2)
         stop_process(process)
         try:
             volume.commit()
@@ -102,12 +163,11 @@ def run_benchmark():
 
 @app.local_entrypoint()
 def main():
-    report = run_benchmark.remote()
+    report = run_benchmark.remote(CPU, os.getenv("MOSS_BENCH_PARALLEL", "1") != "0", RAM_MIB)
     report["recorded_at_utc"] = datetime.now(timezone.utc).isoformat()
-    destination = Path(__file__).parent / "results"
-    destination.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    output = destination / f"vllm_{report['gpu_requested'].lower().replace('-', '_')}_{stamp}.json"
+    from shared.outputs import run_dir
+    destination = run_dir(f"moss-vllm-cpu{CPU}-ram{RAM_MIB}", benchmark=True)
+    output = destination / "report.json"
     output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(f"Benchmark report: {output}")
     print(json.dumps(report, ensure_ascii=False, indent=2))

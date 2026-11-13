@@ -37,8 +37,8 @@ image = (
 @app.function(
     image=image,
     gpu=GPU,
-    cpu=8,
-    memory=32768,
+    cpu=4,
+    memory=8192,
     volumes={"/mnt/modal": volume},
     min_containers=0,
     max_containers=1,
@@ -178,4 +178,11 @@ def main():
     # Run exactly one batch; do not restart a GPU container just for a preliminary image.
     selected = shots if os.environ.get("SGLANG_RUN_EIGHT") == "1" else shots[:1]
     result = run_test.remote(selected, BATCH_SIZE, os.environ.get("SGLANG_QUALITY", "exact"))
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    from shared.outputs import run_dir
+    from shared.files import atomic_json
+    local = run_dir("moss-sglang", Path(result["volume_dir"]).name, benchmark=True)
+    atomic_json(local / "report.json", result)
+    print("LOCAL_REPORT", local / "report.json", flush=True)
     print("SGLang batch:", json.dumps(result, ensure_ascii=False, indent=2))

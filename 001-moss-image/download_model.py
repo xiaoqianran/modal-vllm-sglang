@@ -39,7 +39,7 @@ def download():
     record = {
         "manifest_version": 1,
         "repo_id": MODEL,
-        "snapshot_relative": snapshot.relative_to(root).as_posix(),
+        "snapshot_relative": snapshot.resolve().relative_to(root.resolve()).as_posix(),
         "file_count": len(inventory),
         "total_bytes": sum(inventory.values()),
         "inventory": inventory,

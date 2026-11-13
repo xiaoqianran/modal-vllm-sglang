@@ -26,8 +26,8 @@ image = runtime_image(
 @app.function(
     image=image,
     gpu=GPU,
-    cpu=8,
-    memory=32768,
+    cpu=4,
+    memory=8192,
     volumes={
         "/root/.cache/huggingface": volume.with_mount_options(
             sub_path="/007-moss-image"  # 复用已有权重缓存，避免重新下载
