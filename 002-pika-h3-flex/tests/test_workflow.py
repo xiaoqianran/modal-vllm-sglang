@@ -23,6 +23,14 @@ PNG = b"\x89PNG\r\n\x1a\n" + b"generated-test-bytes"
 
 
 class WorkflowTests(unittest.TestCase):
+    def test_actual_seed_changes_resume_signature(self):
+        workflow = batch.read_json(ROOT / "workflow_t2va.json")
+        item = {"id": "001", "prompt": "Ocean"}
+        first, signature = batch.build_payload(workflow, item, 1)
+        second, changed = batch.build_payload(workflow, item, 2)
+        self.assertNotEqual(first["seed"], second["seed"])
+        self.assertNotEqual(signature, changed)
+
     def test_two_templates_and_first_last(self):
         t2va = batch.read_json(ROOT / "workflow_t2va.json")
         fl2va = batch.read_json(ROOT / "workflow_fl2va.json")

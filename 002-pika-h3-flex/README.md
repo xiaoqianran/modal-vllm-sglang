@@ -1,5 +1,8 @@
 # 002 Pika H3 Flex · SGLang fixed workflow
 
+GPU 推理资源：部署和 Modal Run 批处理均为 **4 核 CPU、48 GiB RAM**（49152 MiB）。此降配尚未完成新的 GPU 验收。
+日常批量视频使用下方 `run_batch.py`，其 `scaledown_window=2`；HTTP 部署入口仍为 120 秒，保留异步轮询间隙的缓冲。
+
 ## 模型下载与推理严格分离
 
 CPU 下载使用和推理一致的 SGLang Diffusion 镜像与模型注册机制。它会处理

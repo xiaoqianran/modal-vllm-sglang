@@ -31,8 +31,8 @@ image = runtime_image(
 @app.function(
     image=image,
     gpu=GPU,
-    cpu=12,
-    memory=131072,
+    cpu=4,
+    memory=49152,
     volumes={"/mnt/modal": volume},
     min_containers=0,
     max_containers=1,

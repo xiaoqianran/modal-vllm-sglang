@@ -182,7 +182,7 @@ def preflight_runtime():
 
 
 @app.function(
-    image=image, gpu=GPU, cpu=12, memory=131072,
+    image=image, gpu=GPU, cpu=4, memory=49152,
     volumes={VOLUME_ROOT: volume},
     min_containers=0, max_containers=1, scaledown_window=2,
     timeout=14400,
@@ -280,11 +280,13 @@ def main(workflow: str = "workflow_t2va.json",
     task_path = resolve_path(task)
     settings, request = json_read(wf_path), json_read(task_path)
     mode, entries = validate_task(settings, request, limit)
+    from shared.outputs import component, new_id, run_dir, step_dir, record_artifact
     name = safe_id(request["name"])
+    component(name)
     if run_id:
-        safe_id(run_id)
+        component(run_id)
     else:
-        run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        run_id = new_id()
     output_prefix = f"009-pika-batch/{mode}/{name}/{run_id}"
     for item in entries:
         item["intent_hash"] = intent_hash(settings, item)
@@ -303,15 +305,44 @@ def main(workflow: str = "workflow_t2va.json",
                     frame["volume_path"] = VOLUME_ROOT + remote
         print(f"Staged {len(staged)} unique frames in existing Volume", flush=True)
 
+    local = run_dir(request.get("project", name), scene=request.get("scene", "001-main"),
+                    root=resolve_path(output) if output else None)
+    pending = []
+    for item in entries:
+        shot_id = item["id"]
+        target = local / f"{shot_id}.mp4"
+        if not target.exists():
+            pending.append(item)
+            continue
+        folder = step_dir(local, shot_id, "video")
+        artifact_file = folder / "artifacts.json"
+        metadata_file = folder / "metadata.json"
+        artifact = json_read(artifact_file).get("artifacts", {}).get("video", {}) if artifact_file.exists() else {}
+        metadata = json_read(metadata_file) if metadata_file.exists() else {}
+        if (artifact.get("sha256") != sha256_file(target)
+                or metadata.get("intent_hash") != item["intent_hash"]):
+            raise FileExistsError(f"Existing video differs or is unverified: {target}")
+    entries = pending
+    if not entries:
+        print(f"All requested videos already verified: {local}", flush=True)
+        return
     report = generate_batch.remote(settings, entries, output_prefix)
-    local = resolve_path(output) if output else ROOT / "results" / mode / name / run_id
-    local.mkdir(parents=True, exist_ok=True)
-    write_json(local / "report.json", report)
+    report_path = local / ".runner" / "pika-batch" / "report.json"
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    write_json(report_path, report)
     for entry in report["results"]:
         if entry["status"] in ("completed", "skipped"):
             shot_id = entry["id"]
-            download_volume_file(volume, f"/{output_prefix}/{shot_id}.mp4", local / (shot_id + ".mp4"))
-            download_volume_file(volume, f"/{output_prefix}/{shot_id}.json", local / (shot_id + ".json"))
+            folder = step_dir(local, shot_id, "video")
+            video_path = local / f"{shot_id}.mp4"
+            if video_path.exists():
+                raise FileExistsError(f"Refusing to overwrite {video_path}")
+            download_volume_file(volume, f"/{output_prefix}/{shot_id}.mp4", video_path)
+            download_volume_file(volume, f"/{output_prefix}/{shot_id}.json", folder / "metadata.json")
+            entry["local_path"] = video_path.relative_to(local).as_posix()
+            record_artifact(local, video_path, "video", source=f"/{output_prefix}/{shot_id}.mp4")
+    report["entrypoint"] = "pika-modal-batch"
+    write_json(report_path, report)
     print(json.dumps({"local_results": str(local), "report": report}, ensure_ascii=False, indent=2), flush=True)
     if report["failed"] or report["unattempted"]:
         raise RuntimeError("Video batch incomplete; inspect report.json")

@@ -46,26 +46,27 @@ class BatchTests(unittest.TestCase):
 
             with patch("shared.inference_api.request_json", side_effect=fake_json), \
                  patch("shared.inference_api.request_bytes", side_effect=fake_bytes):
-                first = batch.run("http://fake", workflow, task, work / "results")
+                first = batch.run("http://fake", workflow, task, work / "outputs", run_id="test-run")
                 self.assertEqual(first["completed"], 2)
                 self.assertEqual(first["failed"], 0)
                 self.assertEqual([p["seed"] for p in submitted], [1101, 1102])
-                second = batch.run("http://fake", workflow, task, work / "results")
+                second = batch.run("http://fake", workflow, task, work / "outputs", run_id="test-run")
                 self.assertEqual(second["skipped"], 2)
                 self.assertEqual(len(submitted), 2)
                 for name in ("001", "002"):
-                    video = work / "results" / "t2va" / "test" / (name + ".mp4")
-                    metadata = video.with_suffix(".json")
+                    video = work / "outputs" / "test" / "001-main" / f"{name}.mp4"
+                    metadata = video.parent / ".runner" / "items" / name / "video" / "metadata.json"
                     self.assertEqual(video.read_bytes(), VIDEO)
                     self.assertEqual(json.loads(metadata.read_text())["sha256"], hashlib.sha256(VIDEO).hexdigest())
-                # Any changed prompt invalidates its old result and submits again.
+                # Changed inputs cannot overwrite an existing scene even when re-invoked.
                 content = json.loads(task.read_text())
                 content["items"][1]["prompt"] = "Volcanic mountain"
                 task.write_text(json.dumps(content), encoding="utf-8")
-                third = batch.run("http://fake", workflow, task, work / "results")
-                self.assertEqual(third["skipped"], 1)
-                self.assertEqual(third["completed"], 1)
-                self.assertEqual(len(submitted), 3)
+                with self.assertRaises(ValueError):
+                    batch.run("http://fake", workflow, task, work / "outputs", run_id="test-run")
+                with self.assertRaises(ValueError):
+                    batch.run("http://fake", workflow, task, work / "outputs")
+                self.assertEqual(len(submitted), 2)
 
 
 if __name__ == "__main__":
