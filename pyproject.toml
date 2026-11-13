@@ -1,0 +1,9 @@
+[project]
+name = "modal-inference-workflows"
+version = "0.1.0"
+description = "Local CPU orchestration for independent inference services"
+requires-python = ">=3.11"
+dependencies = []
+
+[tool.uv]
+package = false

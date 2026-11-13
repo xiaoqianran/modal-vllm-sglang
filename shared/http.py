@@ -9,13 +9,15 @@ import urllib.error
 import urllib.request
 
 
-def request_bytes(url, payload=None, *, timeout=120, attempts=1):
+def request_bytes(url, payload=None, *, timeout=120, attempts=1, headers=None):
     if attempts < 1:
         raise ValueError("attempts must be >= 1")
     if payload is not None and attempts != 1:
         raise ValueError("POST retry is unsafe: use attempts=1")
     data = json.dumps(payload).encode("utf-8") if payload is not None else None
-    headers = {"Content-Type": "application/json"} if data is not None else {}
+    headers = dict(headers or {})
+    if data is not None:
+        headers.setdefault("Content-Type", "application/json")
     for attempt in range(attempts):
         req = urllib.request.Request(url, data=data, headers=headers)
         try:
@@ -31,8 +33,9 @@ def request_bytes(url, payload=None, *, timeout=120, attempts=1):
         time.sleep(2 * (attempt + 1))
 
 
-def request_json(url, payload=None, *, timeout=120, attempts=1):
-    return json.loads(request_bytes(url, payload, timeout=timeout, attempts=attempts))
+def request_json(url, payload=None, *, timeout=120, attempts=1, headers=None):
+    options = {"headers": headers} if headers else {}
+    return json.loads(request_bytes(url, payload, timeout=timeout, attempts=attempts, **options))
 
 
 def poll_job(fetch_status, *, timeout=3600, interval=2, completed="completed",

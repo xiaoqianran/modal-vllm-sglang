@@ -11,17 +11,21 @@ from shared.http import poll_job, request_bytes, request_json
 
 
 class VLLMImageClient:
-    """OpenAI-style /v1/images/generations endpoint used by vLLM-Omni."""
+    """Base64 image protocol shared by vLLM-Omni and SGLang.
 
-    def __init__(self, endpoint):
+    Historical class name retained for existing callers.
+    """
+
+    def __init__(self, endpoint, *, headers=None):
         if not endpoint or not str(endpoint).strip():
             raise ValueError("Image API endpoint cannot be empty")
         self.endpoint = str(endpoint).rstrip("/")
+        self.options = {"headers": dict(headers)} if headers else {}
 
     def generate(self, payload, *, timeout=600):
         """Return (image_bytes, extension), validating the actual image format."""
         body = request_json(
-            self.endpoint + "/v1/images/generations", payload, timeout=timeout
+            self.endpoint + "/v1/images/generations", payload, timeout=timeout, **self.options
         )
         try:
             encoded = body["data"][0]["b64_json"]
@@ -40,10 +44,11 @@ class VLLMImageClient:
 class SGLangVideoClient:
     """Async /v1/videos submit -> poll -> content API used by SGLang Diffusion."""
 
-    def __init__(self, endpoint):
+    def __init__(self, endpoint, *, headers=None):
         if not endpoint or not str(endpoint).strip():
             raise ValueError("Video API endpoint cannot be empty")
         self.endpoint = str(endpoint).rstrip("/")
+        self.options = {"headers": dict(headers)} if headers else {}
 
     @staticmethod
     def _job_path(job_id):
@@ -53,7 +58,7 @@ class SGLangVideoClient:
 
     def submit(self, payload, *, timeout=3600):
         """Submit exactly once; an ambiguous timeout must not duplicate a job."""
-        response = request_json(self.endpoint + "/v1/videos", payload, timeout=timeout)
+        response = request_json(self.endpoint + "/v1/videos", payload, timeout=timeout, **self.options)
         job_id = response.get("id") if isinstance(response, dict) else None
         if not isinstance(job_id, (str, int)) or not str(job_id).strip():
             raise ValueError("Video submission response has no id")
@@ -62,7 +67,7 @@ class SGLangVideoClient:
     def status(self, job_id, *, timeout=180, attempts=2):
         return request_json(
             self.endpoint + self._job_path(job_id),
-            timeout=timeout, attempts=attempts,
+            timeout=timeout, attempts=attempts, **self.options,
         )
 
     def wait(self, job_id, *, timeout=3600, poll=2, status_timeout=180,
@@ -77,7 +82,7 @@ class SGLangVideoClient:
     def content(self, job_id, *, timeout=600, attempts=2):
         blob = request_bytes(
             self.endpoint + self._job_path(job_id) + "/content",
-            timeout=timeout, attempts=attempts,
+            timeout=timeout, attempts=attempts, **self.options,
         )
         if len(blob) < 32 or blob[4:8] != b"ftyp":
             raise ValueError(f"Invalid MP4 response: {len(blob)} bytes")

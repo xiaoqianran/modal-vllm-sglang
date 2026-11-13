@@ -8,3 +8,9 @@
 
 # 本地测试任务（包含本机绝对路径）
 **/tasks/episode09_single_test.json
+
+# Workflow run records and local service configuration
+/outputs/
+/benchmarks/
+/endpoints.local.json
+/.env

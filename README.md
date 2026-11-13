@@ -1,6 +1,46 @@
 # modal-vllm-sglang
 
+## 日常入口
+
+- **部署模型**：进入模型目录，运行 `download_model.py`，再部署 `app.py`。
+- **生成内容**：回到仓库根目录，统一使用 `python -m orchestration plan/run/resume/status`。
+
+| 模型目录 | 引擎 | 工作流 |
+| --- | --- | --- |
+| `001-moss-image/` | vLLM-Omni | `moss-t2i` |
+| `002-pika-h3-flex/` | SGLang | `pika-t2va`、`storyboard-to-video` |
+| [003-minimax-h3-image](003-minimax-h3-image/README.md) | SGLang | `minimax-t2i`（尚未云端验收） |
+
+```powershell
+uv run python -m orchestration plan tasks/003-minimax-image-demo.json
+# 配置端点和鉴权后运行
+uv run python -m orchestration run tasks/003-minimax-image-demo.json
+uv run python -m orchestration resume outputs/003-minimax-image-demo/001-main
+uv run python -m orchestration status outputs/003-minimax-image-demo/001-main
+```
+
+`workflows/` 写步骤和参数，`tasks/` 写镜头和提示词，`outputs/` 保存结果与进度。
+旧批处理脚本保留作兼容和专项调试；新日常任务使用统一编排入口。
+新增模型按 [新增模型说明](docs/add-model.md)，保持现有结构。
+
+下面保留已有部署约束和入口细节。
+
 参考 modal-comfyui-caru-ini 的分层架构：保留项目独立入口，公共能力放在 shared/，将模型下载与 GPU 推理分离。
+
+成品统一放在 `outputs/<剧目>/<场次>/`，镜头直接命名为 `001.png`、`001.mp4` 或 `001-first.png` / `001-last.png`，内部状态保留在场次内的 `plan.json`、`state.json` 和 `.runner/`；历史运行目录已校验迁移并归档。
+
+跨模型组合已加入轻量执行器，见 [Workflow / Task 使用说明](docs/workflow-runner.md)。支持 MOSS 生图、Pika 文生视频及 MOSS 首尾帧 → Pika 视频，按步骤处理整批镜头，提供本地状态持久化和安全恢复。
+
+```powershell
+# 离线预览，不访问 GPU 服务
+uv run python -m orchestration plan tasks/001-story-demo.json
+# 配置端点及鉴权后运行；详见使用说明
+uv run python -m orchestration run tasks/001-story-demo.json
+# 中断后继续已有运行，不要再次 run 创建新批次
+uv run python -m orchestration resume outputs/001-story-demo/001-main
+```
+
+真实 GPU 组合链尚未验收；当前验证为离线测试；此前 MOSS 单模型 GPU 生图已成功，新的组合编排仍需 GPU 验证。原模型目录和独立运行入口继续保留。[早期设计提案](docs/workflow-task-architecture.md) 留作参考，当前配置以使用说明为准。
 
 ## 目录
 

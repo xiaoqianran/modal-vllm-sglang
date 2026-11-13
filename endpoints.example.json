@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "services": {
+    "minimax": {
+      "endpoint_env": "MINIMAX_ENDPOINT",
+      "revision": "minimax-h3-image-r1",
+      "headers_env": {
+        "Modal-Key": "MINIMAX_MODAL_KEY",
+        "Modal-Secret": "MINIMAX_MODAL_SECRET"
+      }
+    },
+    "moss": {
+      "endpoint_env": "MOSS_ENDPOINT",
+      "revision": "moss-r1",
+      "headers_env": {
+        "Modal-Key": "MOSS_MODAL_KEY",
+        "Modal-Secret": "MOSS_MODAL_SECRET"
+      }
+    },
+    "pika": {
+      "endpoint_env": "PIKA_ENDPOINT",
+      "revision": "pika-r1",
+      "headers_env": {}
+    }
+  }
+}

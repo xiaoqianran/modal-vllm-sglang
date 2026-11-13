@@ -12,6 +12,22 @@ MP4 = b"\x00\x00\x00\x1cftypisom" + b"fake-mp4-contents" * 3
 
 
 class ImageClientTests(unittest.TestCase):
+    def test_optional_auth_headers_forwarded(self):
+        headers = {"Modal-Key": "test-key", "Modal-Secret": "test-secret"}
+        body = {"data": [{"b64_json": base64.b64encode(PNG).decode()}]}
+        with patch("shared.inference_api.request_json", return_value=body) as call:
+            VLLMImageClient("http://localhost", headers=headers).generate({"prompt": "Test"})
+            self.assertEqual(call.call_args.kwargs["headers"], headers)
+        video = SGLangVideoClient("http://localhost", headers=headers)
+        with patch("shared.inference_api.request_json", return_value={"id": "job"}) as call:
+            video.submit({"prompt": "Test"})
+            self.assertEqual(call.call_args.kwargs["headers"], headers)
+            video.status("job")
+            self.assertEqual(call.call_args.kwargs["headers"], headers)
+        with patch("shared.inference_api.request_bytes", return_value=MP4) as call:
+            video.content("job")
+            self.assertEqual(call.call_args.kwargs["headers"], headers)
+
     def test_png_and_jpeg(self):
         client = VLLMImageClient("http://localhost:8000/")
         for raw, extension in ((PNG, ".png"), (JPEG, ".jpg")):
