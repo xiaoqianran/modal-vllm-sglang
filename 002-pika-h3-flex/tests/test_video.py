@@ -89,6 +89,94 @@ class VideoTests(unittest.TestCase):
                 self.call(FakeVolume())
             client.return_value.submit.assert_not_called()
 
+    def test_submission_journal_committed_before_and_after_remote_submit(self):
+        with tempfile.TemporaryDirectory() as directory, \
+             patch.object(video, "VOLUME_ROOT", directory), \
+             patch.object(video, "SGLangVideoClient") as client:
+            vol = FakeVolume()
+            journal = Path(directory) / self.prefix / "001.progress.json"
+            observations = []
+
+            def submit(_payload, **_kwargs):
+                observations.append((vol.commits, json.loads(journal.read_text())["status"]))
+                return "video-123"
+
+            def wait(*_args, **_kwargs):
+                entry = json.loads(journal.read_text())
+                observations.append((vol.commits, entry["status"], entry["video_id"]))
+
+            client.return_value.submit.side_effect = submit
+            client.return_value.wait.side_effect = wait
+            client.return_value.content.return_value = MP4
+            self.assertEqual(self.call(vol)["completed"], 1)
+            self.assertEqual(observations, [(1, "submitting"), (2, "running", "video-123")])
+            self.assertFalse(journal.exists())
+
+    def test_submission_timeout_does_not_resubmit_unknown_remote_job(self):
+        with tempfile.TemporaryDirectory() as directory, \
+             patch.object(video, "VOLUME_ROOT", directory), \
+             patch.object(video, "SGLangVideoClient") as client:
+            client.return_value.submit.side_effect = TimeoutError("response lost")
+            vol = FakeVolume()
+            self.assertEqual(self.call(vol)["failed"], 1)
+            journal = Path(directory) / self.prefix / "001.progress.json"
+            self.assertEqual(json.loads(journal.read_text())["status"], "submitting")
+            self.assertGreaterEqual(vol.commits, 1)
+            with self.assertRaises(RuntimeError):
+                self.call(vol)
+            client.return_value.submit.assert_called_once()
+
+    def test_resume_ignores_stale_part_without_resubmitting(self):
+        with tempfile.TemporaryDirectory() as directory, \
+             patch.object(video, "VOLUME_ROOT", directory), \
+             patch.object(video, "SGLangVideoClient") as client:
+            dest = Path(directory) / self.prefix
+            dest.mkdir(parents=True)
+            stale = dest / "001.mp4.part"
+            stale.write_bytes(b"incomplete previous download")
+            progress = dest / "001.progress.json"
+            signature = video.execution_hash(self.items[0], "manifest-hash")
+            progress.write_text(json.dumps({
+                "status": "running", "intent_hash": self.items[0]["intent_hash"],
+                "execution_hash": signature, "video_id": "video-existing",
+            }))
+            client.return_value.content.return_value = MP4
+            report = self.call(FakeVolume())
+            self.assertEqual(report["completed"], 1)
+            client.return_value.submit.assert_not_called()
+            client.return_value.wait.assert_called_once()
+            self.assertEqual(client.return_value.wait.call_args.args[0], "video-existing")
+            self.assertEqual((dest / "001.mp4").read_bytes(), MP4)
+            self.assertEqual(stale.read_bytes(), b"incomplete previous download")
+            self.assertFalse(progress.exists())
+            self.assertEqual(list(dest.glob("001.mp4.*.part")), [])
+
+    def test_publish_failure_cleans_new_part_and_preserves_remote_id(self):
+        with tempfile.TemporaryDirectory() as directory, \
+             patch.object(video, "VOLUME_ROOT", directory), \
+             patch.object(video, "SGLangVideoClient") as client:
+            dest = Path(directory) / self.prefix
+            dest.mkdir(parents=True)
+            client.return_value.submit.return_value = "video-existing"
+            client.return_value.content.return_value = MP4
+            original_replace = Path.replace
+
+            def fail_publish(path, target):
+                if path.name.startswith("001.mp4.") and path.suffix == ".part":
+                    raise OSError("simulated publication failure")
+                return original_replace(path, target)
+
+            with patch.object(Path, "replace", autospec=True, side_effect=fail_publish):
+                report = self.call(FakeVolume())
+            self.assertEqual(report["failed"], 1)
+            self.assertEqual(list(dest.glob("001.mp4.*.part")), [])
+            self.assertFalse((dest / "001.mp4").exists())
+            progress = json.loads((dest / "001.progress.json").read_text())
+            self.assertEqual(progress["video_id"], "video-existing")
+            client.return_value.submit.assert_called_once()
+            self.assertEqual(self.call(FakeVolume())["completed"], 1)
+            client.return_value.submit.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()

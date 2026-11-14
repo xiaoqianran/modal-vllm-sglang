@@ -2,6 +2,7 @@
 import hashlib
 from pathlib import Path
 import time
+import uuid
 
 from shared.batch import safe_id, intent_digest, counts
 from shared.files import atomic_json, read_json, sha256_file
@@ -157,18 +158,48 @@ def generate_batch(workflow, items, output_prefix, *, volume, model_manifest_sha
             continue
         if output.exists() or metadata.exists():
             raise FileExistsError(f"Unverified video or metadata exists: {shot_id}")
+        # 提交前记录状态，避免超时后重复生成。
+        progress_path = target_dir / f"{shot_id}.progress.json"
+        progress = read_json(progress_path) if progress_path.exists() else None
+        if progress is not None:
+            if (not isinstance(progress, dict)
+                    or progress.get("execution_hash") != signature
+                    or progress.get("intent_hash") != item["intent_hash"]):
+                raise FileExistsError(f"Conflicting remote submission record: {shot_id}")
+            if not progress.get("video_id"):
+                raise RuntimeError(
+                    f"Submission outcome unknown for {shot_id}; refusing automatic resubmission")
         item_started = time.perf_counter()
         try:
-            payload = _payload(workflow, item)
-            job_id = client.submit(payload, timeout=3600)
+            if progress is None:
+                atomic_json(progress_path, {
+                    "status": "submitting", "intent_hash": item["intent_hash"],
+                    "execution_hash": signature,
+                })
+                volume.commit()  # 先持久化，再提交请求。
+                payload = _payload(workflow, item)
+                job_id = client.submit(payload, timeout=3600)
+                atomic_json(progress_path, {
+                    "status": "running", "intent_hash": item["intent_hash"],
+                    "execution_hash": signature, "video_id": job_id,
+                })
+                volume.commit()  # 查询前持久化远端任务 ID。
+            else:
+                job_id = progress["video_id"]
             client.wait(job_id, timeout=3600, poll=2, status_timeout=120, attempts=1)
             clip = client.content(job_id, timeout=900, attempts=1)
-            tmp = output.with_suffix(".mp4.part")
-            with tmp.open("xb") as stream:
-                stream.write(clip)
+            # 使用独立临时文件，避免中断残留的 .part 阻碍恢复。
             if output.exists():
                 raise FileExistsError(f"Refusing to overwrite {output}")
-            tmp.replace(output)
+            tmp = output.with_name(f"{output.name}.{uuid.uuid4().hex}.part")
+            try:
+                with tmp.open("xb") as stream:
+                    stream.write(clip)
+                if output.exists():
+                    raise FileExistsError(f"Refusing to overwrite {output}")
+                tmp.replace(output)
+            finally:
+                tmp.unlink(missing_ok=True)
             record = {
                 "id": shot_id, "status": "completed",
                 "intent_hash": item["intent_hash"], "execution_hash": signature,
@@ -179,9 +210,12 @@ def generate_batch(workflow, items, output_prefix, *, volume, model_manifest_sha
             }
             atomic_json(metadata, record)
             volume.commit()
+            progress_path.unlink(missing_ok=True)
             report["results"].append(record)
         except Exception as exc:
-            record = {"id": shot_id, "status": "failed", "error": str(exc)}
+            # 保留远端任务 ID，便于下次恢复。
+            record = {"id": shot_id, "status": "failed",
+                      "error": f"{type(exc).__name__}: inspect progress journal before retry"}
             atomic_json(target_dir / f"{shot_id}.error.json", record)
             volume.commit()
             report["results"].append(record)

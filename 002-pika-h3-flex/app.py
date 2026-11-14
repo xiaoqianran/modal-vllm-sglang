@@ -64,6 +64,7 @@ class Pika:
             stop_process(self.engine)
             raise
         self.startup_seconds = round(time.perf_counter() - started, 2)
+        # 仅串行执行 SDK 批次；HTTP 代理运行在独立进程中。
         self.batch_lock = threading.Lock()
         print(f"Pika GPU ready in {self.startup_seconds}s: {GPU}", flush=True)
 

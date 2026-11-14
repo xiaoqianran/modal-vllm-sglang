@@ -106,6 +106,7 @@ class Handler(BaseHTTPRequestHandler):
                 body = json.dumps(payload).encode("utf-8")
             except (ValueError, json.JSONDecodeError) as exc:
                 return self._fail(400, exc)
+        # HTTP 请求可并发转发；这里不会锁定 GPU 生成任务。
         req = urllib.request.Request(
             UPSTREAM + self.path, data=body, method=method,
             headers={"Content-Type": "application/json"} if body else {},
