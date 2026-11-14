@@ -419,8 +419,6 @@ def run_cli(config_path):
     spec = validate(read_json(config_path))
     if args.enqueue or args.status or args.collect:
         from shared.job_client import run_jobs
-        if spec["service"] != "moss":
-            parser.error("Async job mode is currently enabled only for MOSS")
         if args.enqueue and not args.task:
             parser.error("--enqueue requires --task")
         return run_jobs(spec, args.task or [], output=args.output, limit=args.limit,

@@ -1,4 +1,4 @@
-"""Durable local receipts for detached Modal calls; never retry an ambiguous spawn."""
+"""Durable per-model receipts for detached Modal calls; never retry an ambiguous spawn."""
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import time
@@ -94,13 +94,16 @@ def parallel_collect(jobs, volume, output):
 
 
 def collect_remote(spec, selected, volume, output):
-    """按 Task 身份从 Volume 收集结果，不依赖本地调用登记表。"""
+    """按 Task 身份从 Volume 并发收集图片或视频，不依赖本地登记表。"""
     try:
         cache = json.loads(b"".join(volume.read_file(
             cache_directory(spec).removeprefix("/mnt/modal") + "/model-ready.json"
         )))
     except FileNotFoundError as exc:
-        raise RuntimeError("Remote model cache manifest not found") from exc
+        raise RuntimeError(
+            f"Remote cache manifest missing for {spec['service']}; "
+            "prepare or migrate its CPU model cache before remote collection"
+        ) from exc
     if cache.get("version") != 1 or cache.get("cache_spec") != intent_digest(component_specs(spec)):
         raise RuntimeError("Remote cache differs from current model configuration")
     fingerprint = intent_digest(cache)

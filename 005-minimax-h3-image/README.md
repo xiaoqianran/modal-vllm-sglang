@@ -19,3 +19,24 @@ uv run python 005-minimax-h3-image/run.py --task tasks/005-minimax-image-demo.js
 下载器 --check-only 检查 CPU 缓存。模型保留部署名称 H3 Class，SDK 与私有 HTTP 共用引擎。
 完整任务格式、恢复机制与验证说明见 [根目录说明](../README.md)。
 本轮代码迁移没有触发云端部署或付费 GPU 验收。
+
+## 异步任务和八路图片下载
+
+公共异步任务客户端支持 `--enqueue`、`--status`、`--collect`，
+也支持无需本地任务登记表的 `--collect --remote`。从仓库根目录执行：
+
+```powershell
+uv run --no-sync python 005-minimax-h3-image/run.py --task tasks/005-minimax-image-demo.json --enqueue --dry-run
+# 此命令将提交付费 GPU 生成，需先完成缓存准备及云端部署
+uv run --no-sync python 005-minimax-h3-image/run.py --task tasks/005-minimax-image-demo.json --enqueue
+uv run --no-sync python 005-minimax-h3-image/run.py --status
+uv run --no-sync python 005-minimax-h3-image/run.py --collect
+uv run --no-sync python 005-minimax-h3-image/run.py --collect --remote --task tasks/005-minimax-image-demo.json
+```
+
+普通收集和直接按 Task 收集共用 `ThreadPoolExecutor(max_workers=8)`，多个
+Task 同时指定时最多并发八张图片。每个服务的登记表独立保存为
+`outputs/.runner/jobs/<service>.json`；校验身份、模型缓存和 SHA-256 后才写入结果。
+收集命令不会启动 GPU，不修改推理参数。
+实际 Volume 检查发现当前缺少 `/003-minimax-h3-image/model-ready.json`，
+须先验证或迁移 CPU 模型缓存；截至本次修改，尚未完成真实图片下载验收。

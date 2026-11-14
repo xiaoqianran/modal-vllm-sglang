@@ -102,6 +102,14 @@ project 默认等于 name，scene 默认 001-main。相对素材路径以仓库�
 ## 4. 结果与恢复
 
 结果写入 outputs/<project>/<scene>/001.png 或 001.mp4。
+三个模型都支持异步 `--enqueue`、`--status`、`--collect`，以及不依赖本地提交收据、
+直接从 Volume 按 Task 身份收集的 `--collect --remote --task <JSON>`。
+多次传入 `--task` 时，图片与视频均在同一服务内使用
+`ThreadPoolExecutor(max_workers=8)` 跨 Task 并发下载，复用 SHA-256 校验和镜头级文件锁。
+各服务的提交收据分别位于 `outputs/.runner/jobs/moss.json`、
+`outputs/.runner/jobs/pika.json`、`outputs/.runner/jobs/minimax.json`。
+下载不会调用 GPU 生成；`--enqueue` 会提交付费生成，须预先准备缓存和部署云端服务。
+无参数的同步 `--task` 命令保留原有行为，其生成阶段不使用八路并发。
 每个镜头的 .runner 元数据记录请求签名、实际模型缓存指纹及结果 SHA256。
 重复原命令：完整本地结果直接复用；缺失本地文件先从 Volume 恢复，缺失的镜头才提交 GPU。
 添加新镜头不改变已有镜头的云端目录。已存在但与签名或哈希不一致的文件拒绝覆盖。

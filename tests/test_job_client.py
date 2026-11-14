@@ -280,6 +280,80 @@ class JobClientTests(unittest.TestCase):
         self.assertTrue((self.root / "outputs/demo/001-main/000.png").exists())
         self.assertFalse((self.root / "outputs/demo/001-main/001.png").exists())
 
+    def test_pika_video_across_two_tasks_uses_eight_download_workers(self):
+        from shared.model_service import load_task, prepare
+        self.spec = validate(read_json(ROOT / "002-pika-h3-flex/model.json"))
+        self.cache = {"version": 1, "cache_spec": intent_digest(component_specs(self.spec))}
+        video = b"\x00\x00\x00\x20ftyp" + b"0" * 48
+        task_paths = []
+        for group in ("a", "b"):
+            path = self.root / f"pika-{group}.json"
+            atomic_json(path, {"version": 1, "name": f"pika-{group}",
+                               "workflow": "pika-t2va", "items": [
+                                   {"id": f"{i:03}", "prompt": f"motion {group}-{i}"}
+                                   for i in range(6)]})
+            task_paths.append(path)
+            project, scene, operation, items = load_task(self.spec, path, root=self.root)
+            prefix = f"model-results/pika/{project}/{scene}/{operation}-{intent_digest(self.spec)[:20]}"
+            for item in items:
+                signature = prepare(self.spec, item)[1]
+                record = {"id": item["id"], "file": item["id"] + ".mp4", "status": "completed",
+                          "intent_hash": signature,
+                          "execution_hash": intent_digest({"intent": signature, "cache": intent_digest(self.cache)}),
+                          "sha256": hashlib.sha256(video).hexdigest(), "bytes": len(video)}
+                self.files[f"/{prefix}/{item['id']}.json"] = json.dumps(record).encode()
+                self.files[f"/{prefix}/{item['id']}.mp4"] = video
+        active = 0
+        maximum = 0
+        guard = threading.Lock()
+        original = self.volume.read_file.side_effect
+        def slow_read(path):
+            nonlocal active, maximum
+            if path.endswith(".mp4"):
+                with guard:
+                    active += 1
+                    maximum = max(active, maximum)
+                try:
+                    time.sleep(0.06)
+                    return original(path)
+                finally:
+                    with guard:
+                        active -= 1
+            return original(path)
+        self.volume.read_file.side_effect = slow_read
+        jobs = self.run_jobs("collect_remote", paths=task_paths)
+        self.assertEqual(len(jobs), 12)
+        self.assertEqual(maximum, 8)
+        for group in ("a", "b"):
+            folder = self.root / "outputs" / f"pika-{group}" / "001-main"
+            self.assertEqual(len(list(folder.glob("*.mp4"))), 6)
+            self.assertEqual((folder / "000.mp4").read_bytes(), video)
+        self.assertFalse((self.root / "outputs/.runner/jobs/pika.json").exists())
+        self.model.generate_one.spawn.assert_not_called()
+
+    def test_pika_enqueue_and_collect_uses_separate_video_receipt(self):
+        self.spec = validate(read_json(ROOT / "002-pika-h3-flex/model.json"))
+        self.cache = {"version": 1, "cache_spec": intent_digest(component_specs(self.spec))}
+        atomic_json(self.task, {"version": 1, "name": "pika-test",
+                                "workflow": "pika-t2va", "items": [{"id": "000", "prompt": "motion"}]})
+        jobs = self.run_jobs()
+        self.assertEqual(len(jobs), 1)
+        self.assertEqual(next(iter(jobs.values()))["kind"], "video")
+        self.assertTrue((self.root / "outputs/.runner/jobs/pika.json").exists())
+        self.model.generate_one.spawn.assert_called_once()
+
+    def test_minimax_remote_collect_and_separate_receipt(self):
+        self.spec = validate(read_json(ROOT / "005-minimax-h3-image/model.json"))
+        self.cache = {"version": 1, "cache_spec": intent_digest(component_specs(self.spec))}
+        atomic_json(self.task, {"version": 1, "name": "minimax-test",
+                                "workflow": "minimax-t2i", "items": [{"id": "000", "prompt": "lake"}]})
+        jobs = self.run_jobs("collect_remote")
+        self.assertEqual(next(iter(jobs.values()))["status"], "not_found")
+        self.assertFalse((self.root / "outputs/.runner/jobs/minimax.json").exists())
+        self.run_jobs()
+        self.assertTrue((self.root / "outputs/.runner/jobs/minimax.json").exists())
+        self.model.generate_one.spawn.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()
