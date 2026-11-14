@@ -100,11 +100,17 @@ class UnifiedModelsTests(unittest.TestCase):
             marker = materialized / ".sglang_overlay_materialized.json"
             marker.write_text("{}")
             materialize = Mock(return_value=str(materialized))
+            hf_diffusers = SimpleNamespace(maybe_download_model=materialize, snapshot_download=Mock())
             modules = {"huggingface_hub": SimpleNamespace(snapshot_download=Mock()),
-                       "sglang.multimodal_gen.runtime.utils.hf_diffusers_utils": SimpleNamespace(maybe_download_model=materialize)}
+                       "sglang": SimpleNamespace(),
+                       "sglang.multimodal_gen": SimpleNamespace(),
+                       "sglang.multimodal_gen.runtime": SimpleNamespace(),
+                       "sglang.multimodal_gen.runtime.utils": SimpleNamespace(hf_diffusers_utils=hf_diffusers),
+                       "sglang.multimodal_gen.runtime.utils.hf_diffusers_utils": hf_diffusers}
             with patch.dict(sys.modules, modules):
                 prepare_cache(spec, Mock(), root)
-                materialize.assert_called_once_with(spec["model"], force_diffusers_model=True)
+                materialize.assert_called_once_with(
+                    spec["model"], force_diffusers_model=True, revision=spec["revision"])
             paths, _ = verify_cache(spec, root)
             argv = command_argv(spec, paths)
             self.assertEqual(argv[argv.index("--model-path") + 1], spec["model"])

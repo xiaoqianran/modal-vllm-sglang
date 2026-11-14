@@ -5,6 +5,8 @@ from shared.batch import intent_digest
 from shared.cache import file_inventory
 from shared.files import atomic_json, read_json
 
+DOWNLOAD_MAX_WORKERS = 4
+
 
 def cache_root(spec):
     return Path(cache_directory(spec))
@@ -112,15 +114,23 @@ def prepare_cache(spec, volume, root=None, *, refresh=False, migrate_only=False)
     record = {"version": 1, "cache_spec": intent_digest(component_specs(spec)), "components": {}}
     for name, config in component_specs(spec).items():
         if config.get("mode", "hf") == "sglang_overlay":
-            from sglang.multimodal_gen.runtime.utils.hf_diffusers_utils import maybe_download_model
-            path = Path(maybe_download_model(config["model"], force_diffusers_model=True))
+            from sglang.multimodal_gen.runtime.utils import hf_diffusers_utils
+            # 保留 SGLang Overlay 物化，仅控制其调用的 HF 快照文件线程数。
+            from unittest.mock import patch
+            original = hf_diffusers_utils.snapshot_download
+            def limited_snapshot_download(*args, **kwargs):
+                kwargs.setdefault("max_workers", DOWNLOAD_MAX_WORKERS)
+                return original(*args, **kwargs)
+            with patch.object(hf_diffusers_utils, "snapshot_download", limited_snapshot_download):
+                path = Path(hf_diffusers_utils.maybe_download_model(
+                    config["model"], force_diffusers_model=True, revision=config["revision"]))
             if not path.resolve().is_relative_to(root.resolve()):
                 raise RuntimeError("Overlay must be materialized inside this model's persisted cache")
             resolved = path.name
         else:
             path = Path(snapshot_download(config["model"], revision=config["revision"],
                                          allow_patterns=config.get("allow_patterns"), cache_dir=str(root / "hub"),
-                                         force_download=refresh))
+                                         force_download=refresh, max_workers=DOWNLOAD_MAX_WORKERS))
             resolved = path.name
         record["components"][name] = {"path": path.relative_to(root).as_posix(),
                                       "resolved_revision": resolved,

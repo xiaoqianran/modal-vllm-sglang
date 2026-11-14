@@ -1,13 +1,15 @@
 """Legacy Volume migration and Pika recovery fault injection, without network/GPU."""
 import copy
+import sys
 import tempfile
+import types
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
 from shared.batch import intent_digest
 from shared.files import atomic_json, read_json
-from shared.model_cache import component_specs, prepare_cache, verify_cache, checked_inventory
+from shared.model_cache import DOWNLOAD_MAX_WORKERS, component_specs, prepare_cache, verify_cache, checked_inventory
 from shared.model_service import execute, create_app
 from shared.model_spec import discover, parameters
 
@@ -16,6 +18,64 @@ MP4 = b'\0\0\0\x20ftyp' + b'x' * 32
 
 
 class CompatibilityTests(unittest.TestCase):
+    def test_default_hf_download_uses_four_workers(self):
+        spec = SPECS['moss.t2i']
+        self.assertEqual(DOWNLOAD_MAX_WORKERS, 4)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            hub = types.ModuleType('huggingface_hub')
+            def snapshot(*args, **kwargs):
+                self.assertEqual(kwargs['max_workers'], 4)
+                path = root / 'hub' / 'snapshot'
+                path.mkdir(parents=True, exist_ok=True)
+                (path / 'model_index.json').write_text('{}')
+                (path / 'weights.safetensors').write_bytes(b'weights')
+                return str(path)
+            hub.snapshot_download = snapshot
+            with patch.dict(sys.modules, {'huggingface_hub': hub}):
+                result = prepare_cache(spec, Mock(), root)
+            self.assertTrue(result['ready'])
+            self.assertTrue(verify_cache(spec, root)[0])
+
+    def test_pika_overlay_keeps_materialization_with_four_snapshot_workers(self):
+        spec = SPECS['pika.t2va']
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            calls = []
+            hub = types.ModuleType('huggingface_hub')
+            hub.snapshot_download = Mock()
+            fake = types.ModuleType('sglang.multimodal_gen.runtime.utils.hf_diffusers_utils')
+            def snapshot(*args, **kwargs):
+                calls.append(kwargs['max_workers'])
+                folder = root / 'sglang' / 'materialized_models' / 'pika'
+                folder.mkdir(parents=True, exist_ok=True)
+                for name in ('model_index.json', '.sglang_overlay_materialized.json', 'weights.safetensors'):
+                    (folder / name).write_bytes(b'weights')
+                return str(folder)
+            def materialize(model, **kwargs):
+                self.assertEqual(model, spec['model'])
+                self.assertTrue(kwargs['force_diffusers_model'])
+                self.assertEqual(kwargs['revision'], spec['revision'])
+                return fake.snapshot_download(model)
+            fake.snapshot_download = snapshot
+            fake.maybe_download_model = materialize
+            # 模拟 SGLang 的同名模块，确保不会绕过 Overlay 物化入口。
+            with patch.dict(sys.modules, {
+                'huggingface_hub': hub,
+                'sglang': types.ModuleType('sglang'),
+                'sglang.multimodal_gen': types.ModuleType('sglang.multimodal_gen'),
+                'sglang.multimodal_gen.runtime': types.ModuleType('sglang.multimodal_gen.runtime'),
+                'sglang.multimodal_gen.runtime.utils': types.ModuleType('sglang.multimodal_gen.runtime.utils'),
+                'sglang.multimodal_gen.runtime.utils.hf_diffusers_utils': fake,
+            }):
+                volume = Mock()
+                result = prepare_cache(spec, volume, root)
+                self.assertTrue(result['ready'])
+                self.assertEqual(calls, [4])
+                self.assertIs(fake.snapshot_download, snapshot)
+                self.assertTrue(verify_cache(spec, root)[0])
+                volume.commit.assert_called_once()
+
     def legacy(self, root, service):
         spec = SPECS[service + ('.t2va' if service == 'pika' else '.t2i')]
         old = {'manifest_version': 2 if service == 'pika' else 1}
