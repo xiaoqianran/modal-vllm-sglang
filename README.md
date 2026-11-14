@@ -67,6 +67,9 @@ Hugging Face 组件记录实际解析的 snapshot；分支引用首次准备后�
 CPU 模型下载默认把 Hugging Face `snapshot_download()` 的文件工作线程设置为 8；
 Pika 保留 SGLang Overlay 物化过程，只约束其内部调用的快照下载。此项与
 图片/视频结果收集的 8 线程、以及 Xet 内部分块并发相互独立。
+CPU 下载会检查 Modal Secret `huggingface-secret`：存在且包含 `HF_TOKEN` 时
+自动注入 Hugging Face 身份认证；Secret 不存在则匿名下载，无需设置本地 Token。
+其他 Secret 访问错误会直接报错，避免悄悄降级。正在运行的下载容器不会热更新。
 Pika 使用引擎 Overlay 注册表物化基础组件，CPU 与 GPU 使用相同镜像。
 启动时检查组件必需文件与文件大小清单；缓存清单指纹参与生成记录校验。
 

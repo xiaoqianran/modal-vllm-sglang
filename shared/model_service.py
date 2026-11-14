@@ -279,6 +279,19 @@ def create_app(config_path):
     return app, Model
 
 
+def optional_hf_download_secrets():
+    """Use a configured HF_TOKEN, otherwise keep public downloads anonymous."""
+    import modal
+    try:
+        secret = modal.Secret.from_name("huggingface-secret", required_keys=["HF_TOKEN"])
+        secret.hydrate()
+    except modal.exception.NotFoundError:
+        print("HF download: huggingface-secret not found; using anonymous access", flush=True)
+        return []
+    print("HF download: huggingface-secret attached (token not displayed)", flush=True)
+    return [secret]
+
+
 def create_download_app(config_path):
     import modal
     from shared.modal_setup import model_volume
@@ -292,7 +305,8 @@ def create_download_app(config_path):
         image = image.env({"PYTHONPATH": "/opt"}).add_local_dir(str(Path(__file__).parent), "/opt/shared", copy=False)
 
     @app.function(name="download", image=image, serialized=True, cpu=4, memory=8192,
-                  timeout=86400, volumes={"/mnt/modal": volume})
+                  timeout=86400, volumes={"/mnt/modal": volume},
+                  secrets=optional_hf_download_secrets())
     def download(refresh: bool = False, migrate_only: bool = False):
         return prepare_cache(spec, volume, refresh=refresh, migrate_only=migrate_only)
 

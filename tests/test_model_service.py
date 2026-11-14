@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 from shared.files import atomic_json, download_volume_file
-from shared.model_service import create_app, create_download_app, execute, prepare
+from shared.model_service import create_app, create_download_app, execute, prepare, optional_hf_download_secrets
 from shared.model_spec import discover, parameters, validate
 from shared.task_lifecycle import SubmissionRejected
 
@@ -18,6 +18,19 @@ SPEC = {"service": "example", "operation": "t2i", "kind": "image", "model": "org
 
 
 class ModelServiceTests(unittest.TestCase):
+    def test_optional_hf_secret_attached_when_present(self):
+        import modal
+        with patch("modal.Secret.from_name") as lookup:
+            secret = lookup.return_value
+            self.assertEqual(optional_hf_download_secrets(), [secret])
+            lookup.assert_called_once_with("huggingface-secret", required_keys=["HF_TOKEN"])
+            secret.hydrate.assert_called_once_with()
+
+    def test_optional_hf_secret_missing_uses_anonymous_download(self):
+        import modal
+        with patch("modal.Secret.from_name", side_effect=modal.exception.NotFoundError("missing")):
+            self.assertEqual(optional_hf_download_secrets(), [])
+
     def test_optional_parameter_maps_are_normalized_without_mutating_input(self):
         minimal = {key: value for key, value in SPEC.items() if key not in {"defaults", "options"}}
         original = copy.deepcopy(minimal)
@@ -80,7 +93,8 @@ class ModelServiceTests(unittest.TestCase):
             atomic_json(path, SPEC)
             app, model = create_app(path)
             self.assertIn("Model", app.registered_classes)
-            download_app, download, check_cache = create_download_app(path)
+            with patch("shared.model_service.optional_hf_download_secrets", return_value=[]):
+                download_app, download, check_cache = create_download_app(path)
             self.assertIn("download", download_app.registered_functions)
 
     def test_lost_image_response_is_not_resubmitted(self):
