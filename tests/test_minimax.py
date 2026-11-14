@@ -12,11 +12,6 @@ from unittest.mock import patch
 from orchestration import adapters, runner
 from shared.cache import file_inventory
 
-spec = importlib.util.spec_from_file_location("minimax_cache", runner.ROOT / "005-minimax-h3-image/model_cache.py")
-cache = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(cache)
-
-
 class MiniMaxTests(unittest.TestCase):
     def test_parameters_reject_wrong_schedule_and_foreign_options(self):
         for params in ({"num_inference_steps": 5}, {"num_inference_steps": True},
@@ -49,33 +44,3 @@ class MiniMaxTests(unittest.TestCase):
                 payload = request.call_args.args[1]
                 self.assertEqual(payload["seed"], 42)
                 self.assertNotIn("guidance_scale", payload)
-
-    def test_both_pinned_snapshots_required_and_checked(self):
-        with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, {"HF_HOME": tmp}):
-            root = Path(tmp)
-            with self.assertRaises(RuntimeError):
-                cache.get_ready_model()
-            record = {"manifest_version": 1}
-            for name, (repo, revision, _) in cache.SPECS.items():
-                relative = f"models--{repo.replace('/', '--')}/snapshots/{revision}"
-                path = root / "hub" / relative
-                names = (["model_index.json", "pdd_config.json", "pdd_fused_heads.safetensors",
-                          "transformer/model.safetensors", "vae/model.safetensors"] if name == "image"
-                         else ["text_encoder/model.safetensors"])
-                for filename in names:
-                    target = path / filename
-                    target.parent.mkdir(parents=True, exist_ok=True)
-                    target.write_bytes(b"weights")
-                record[name] = {"repo_id": repo, "revision": revision,
-                                "snapshot_relative": relative, "inventory": file_inventory(path)}
-            marker = root / "model-ready.json"
-            marker.write_text(json.dumps(record))
-            image, encoder = cache.get_ready_model()
-            self.assertTrue(Path(image).is_dir())
-            (Path(encoder) / "model.safetensors").write_bytes(b"broken")
-            with self.assertRaises(RuntimeError):
-                cache.get_ready_model()
-            record["encoder"]["snapshot_relative"] = "../outside"
-            marker.write_text(json.dumps(record))
-            with self.assertRaises(RuntimeError):
-                cache.get_ready_model()

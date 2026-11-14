@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "name": "004-pika-video-demo",
+  "workflow": "pika-t2va",
+  "params": {
+    "target": {"short_edge": 480, "aspect_ratio": "16:9", "duration_seconds": 5.0}
+  },
+  "items": [
+    {"id": "001", "seed": 1101, "prompt": "A cinematic red fox runs in a snowy forest at sunrise. Soft wind and natural footstep sounds."},
+    {"id": "002", "seed": 1102, "prompt": "A mysterious coastal lighthouse at night, slow cinematic dolly forward. Ocean waves and distant seabirds."}
+  ]
+}

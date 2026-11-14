@@ -1,0 +1,89 @@
+{
+  "revision": "main",
+  "gpu": "RTX-PRO-6000",
+  "cpu": 4,
+  "memory": 49152,
+  "port": 30010,
+  "timeout": 14400,
+  "startup_timeout": 3600,
+  "scaledown_window": 30,
+  "service": "pika",
+  "app_name": "modal-forge-009-pika-h3-flex-fl2va",
+  "operation": "t2va",
+  "kind": "video",
+  "model": "Pika-Labs/Pika-H3-Flex",
+  "image": "lmsysorg/sglang:dev",
+  "proxy_port": 30011,
+  "frame_transport": "keyframes",
+  "command": [
+    "python",
+    "-m",
+    "sglang.multimodal_gen.runtime.entrypoints.cli.main",
+    "serve",
+    "--model-path",
+    "{model}",
+    "--host",
+    "127.0.0.1",
+    "--port",
+    "{port}",
+    "--performance-mode",
+    "memory",
+    "--layerwise-offload-components",
+    "text_encoder,vae",
+    "--layerwise-resident-layers",
+    "video_vae=36"
+  ],
+  "defaults": {
+    "task": "t2va",
+    "seconds": 5,
+    "num_inference_steps": 6,
+    "num_outputs_per_prompt": 1,
+    "conditions": [],
+    "target": {
+      "short_edge": 480,
+      "aspect_ratio": "auto",
+      "duration_seconds": 5.0
+    }
+  },
+  "operations": {
+    "t2va": {
+      "defaults": {
+        "task": "t2va"
+      }
+    },
+    "fl2va": {
+      "defaults": {
+        "task": "fl2va"
+      },
+      "inputs": {
+        "prompt": "string",
+        "first_frame": "image",
+        "last_frame": "image"
+      }
+    }
+  },
+  "options": {
+    "seconds": {
+      "type": "integer",
+      "minimum": 5,
+      "maximum": 15
+    },
+    "num_inference_steps": {
+      "type": "integer",
+      "enum": [
+        6
+      ]
+    },
+    "target": {
+      "type": "object"
+    }
+  },
+  "validator": "pika",
+  "cache": {
+    "mode": "sglang_overlay",
+    "required_files": [
+      "model_index.json",
+      ".sglang_overlay_materialized.json"
+    ]
+  }
+}

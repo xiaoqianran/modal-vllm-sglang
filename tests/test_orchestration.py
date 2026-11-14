@@ -13,6 +13,7 @@ from unittest.mock import patch
 
 from orchestration import adapters, runner, state
 from shared.files import read_json, sha256_file
+from shared.task_lifecycle import SubmissionRejected
 
 PNG = b"\x89PNG\r\n\x1a\n" + b"test-image" * 10
 MP4 = b"\x00\x00\x00\x1cftypisom" + b"test-video" * 10
@@ -82,6 +83,15 @@ class WorkflowTests(unittest.TestCase):
 
     def execute(self, directory):
         return runner.execute(directory, adapter_factory=self.services, timeout=1, poll=0.001)
+
+    def test_gateway_rejection_leaves_task_pending_for_explicit_resume(self):
+        directory = self.create("moss-t2i")
+        self.services.submit_error = SubmissionRejected("busy")
+        self.assertEqual(self.execute(directory)["counts"], {"pending": 1})
+        self.assertEqual(len(self.services.submissions), 1)
+        self.services.submit_error = None
+        self.assertEqual(self.execute(directory)["counts"], {"completed": 1})
+        self.assertEqual(len(self.services.submissions), 2)
 
     def test_stage_order_material_transfer_resume_and_no_secrets(self):
         task = read_json(self.task_path)

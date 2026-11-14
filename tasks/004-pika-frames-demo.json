@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "name": "004-pika-frames-demo",
+  "workflow": "pika-fl2va",
+  "items": [
+    {
+      "id": "001",
+      "seed": 2101,
+      "prompt": "Smooth cinematic motion between these two frames. Natural atmosphere, ambient audio, no cuts.",
+      "first_frame": {
+        "file": "inputs/pika/001_first.png"
+      },
+      "last_frame": {
+        "file": "inputs/pika/001_last.png"
+      }
+    }
+  ]
+}

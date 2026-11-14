@@ -13,6 +13,7 @@ from urllib.parse import urlsplit
 
 from shared.batch import intent_digest
 from shared.files import read_json, sha256_file
+from shared.task_lifecycle import recovery_action, SubmissionRejected
 from orchestration import adapters, state
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -48,7 +49,9 @@ def build_plan(task_path, *, root=ROOT, endpoints_path="endpoints.example.json")
     root = Path(root).resolve()
     task_path = state.local_path(root, task_path)
     task = read_json(task_path)
-    fields(task, {"version", "name", "workflow", "items"}, {"project", "scene"})
+    fields(task, {"version", "name", "workflow", "items"}, {"project", "scene", "params"})
+    if not isinstance(task.get("params", {}), dict):
+        raise ValueError("Task params must be an object")
     if type(task["version"]) is not int or task["version"] != 1:
         raise ValueError("Unsupported task version")
     identifier(task["name"])
@@ -67,6 +70,8 @@ def build_plan(task_path, *, root=ROOT, endpoints_path="endpoints.example.json")
         raise ValueError("Workflow version or id mismatch")
     if not isinstance(workflow["steps"], list) or not workflow["steps"]:
         raise ValueError("Workflow needs steps")
+    if len(workflow["steps"]) != 1 and task.get("params"):
+        raise ValueError("For multi-step workflows, put params on workflow steps")
     steps = {}
     for original in workflow["steps"]:
         step = copy.deepcopy(original)
@@ -78,7 +83,10 @@ def build_plan(task_path, *, root=ROOT, endpoints_path="endpoints.example.json")
             raise ValueError(f"Unknown capability: {step['uses']}")
         cap = adapters.CAPABILITIES[step["uses"]]
         fields(step["inputs"], cap["required"], {"seed"})
-        step["params"] = adapters.parameters(step["uses"], step.get("params", {}))
+        if not isinstance(step.get("params", {}), dict):
+            raise ValueError("Step params must be an object")
+        step["supplied_params"] = {**step.get("params", {}), **task.get("params", {})}
+        step["params"] = adapters.parameters(step["uses"], step["supplied_params"])
         step["deps"] = []
         steps[step_id] = step
     for step in steps.values():
@@ -116,6 +124,10 @@ def build_plan(task_path, *, root=ROOT, endpoints_path="endpoints.example.json")
     for item in task["items"]:
         if not isinstance(item, dict):
             raise ValueError("Item must be an object")
+        if not isinstance(item.get("params", {}), dict):
+            raise ValueError("Item params must be an object")
+        if len(steps) != 1 and item.get("params"):
+            raise ValueError("For multi-step workflows, put params on workflow steps")
         item_id = identifier(item.get("id"))
         if type(item.get("reuse_existing", False)) is not bool:
             raise ValueError("reuse_existing must be a boolean")
@@ -154,10 +166,17 @@ def build_plan(task_path, *, root=ROOT, endpoints_path="endpoints.example.json")
                 inputs[field] = copy.deepcopy(value)
             if "seed" not in inputs:
                 # Stable per identity, independent of item order or batch size.
-                seed_key = f"{task['name']}/{step_id}/{item['id']}".encode()
+                seed_scope = step["uses"].split(".")[1] if len(steps) == 1 else step_id
+                seed_key = f"{task['name']}/{seed_scope}/{item['id']}".encode()
                 inputs["seed"] = int.from_bytes(hashlib.sha256(seed_key).digest()[:4], "big") & 0x7fffffff
+                if len(steps) == 1 and "seed" in item:
+                    adapters.integer(item["seed"], "seed")
+                    if item["seed"] >= 2**32:
+                        raise ValueError("seed must be uint32")
+                    inputs["seed"] = item["seed"]
+            params = adapters.parameters(step["uses"], {**step["supplied_params"], **item.get("params", {})})
             jobs.append({"key": f"{step_id}/{item['id']}", "step": step_id, "item": item["id"],
-                         "uses": step["uses"], "params": step["params"], "inputs": inputs,
+                         "uses": step["uses"], "params": params, "inputs": inputs,
                          "reuse_existing": item.get("reuse_existing", False)})
     config = read_json(state.local_path(root, endpoints_path))
     fields(config, {"version", "services"})
@@ -367,12 +386,11 @@ def execute(directory, *, adapter_factory=adapters.Adapter, timeout=3600, poll=2
                     record.pop("error", None)
                     persist()
                     continue
-            if record["status"] in {"submitting", "collecting", "completed"} and not record.get("job_id"):
+            action = recovery_action(record)
+            if action == "uncertain":
                 record.update(status="uncertain", error="Submission/result cannot be recovered automatically")
                 persist()
-            if record["status"] in {"failed", "uncertain"} and not record.get("job_id"):
-                continue
-            if record["status"] == "failed":
+            if action in {"uncertain", "stop"}:
                 continue
             if plan.get("layout_version") == 3 and not record.get("job_id"):
                 siblings = [j for j in plan["jobs"] if j["item"] == job["item"]
@@ -458,6 +476,9 @@ def execute(directory, *, adapter_factory=adapters.Adapter, timeout=3600, poll=2
                 state.save(manifest_path, manifest)
                 record.update(status="completed", artifacts=manifest["artifacts"])
                 record.pop("error", None)
+                persist()
+            except SubmissionRejected:
+                record.update(status="pending", error="Gateway did not forward submission; resume later")
                 persist()
             except Exception as exc:
                 # Conservative for POST: transport and response errors may follow acceptance.

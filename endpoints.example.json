@@ -3,7 +3,7 @@
   "services": {
     "minimax": {
       "endpoint_env": "MINIMAX_ENDPOINT",
-      "revision": "minimax-h3-image-r2-class",
+      "revision": "unified-v1-384ef35563da",
       "headers_env": {
         "Modal-Key": "MINIMAX_MODAL_KEY",
         "Modal-Secret": "MINIMAX_MODAL_SECRET"
@@ -11,7 +11,7 @@
     },
     "moss": {
       "endpoint_env": "MOSS_ENDPOINT",
-      "revision": "moss-r1",
+      "revision": "unified-v1-e4ab12efda9a",
       "headers_env": {
         "Modal-Key": "MOSS_MODAL_KEY",
         "Modal-Secret": "MOSS_MODAL_SECRET"
@@ -19,7 +19,7 @@
     },
     "pika": {
       "endpoint_env": "PIKA_ENDPOINT",
-      "revision": "pika-r2-auth",
+      "revision": "unified-v1-416db09a6e79",
       "headers_env": {
         "Modal-Key": "PIKA_MODAL_KEY",
         "Modal-Secret": "PIKA_MODAL_SECRET"

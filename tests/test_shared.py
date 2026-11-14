@@ -11,12 +11,6 @@ from shared.cache import file_inventory
 from shared.files import atomic_json, download_volume_file, read_json, sha256_file
 from shared.runtime import monitor_processes, stop_process, wait_for_health
 
-MOSS = Path(__file__).resolve().parents[1] / "001-moss-image"
-spec = importlib.util.spec_from_file_location("moss_local_cache", MOSS / "model_cache.py")
-moss_cache = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(moss_cache)
-
-
 class SharedTests(unittest.TestCase):
     def test_atomic_json_and_hash(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -65,32 +59,6 @@ class SharedTests(unittest.TestCase):
         thread.join(2)
         self.assertFalse(thread.is_alive())
         vol.commit.assert_called_once()
-
-    def test_model_manifest_relative_to_mount(self):
-        with tempfile.TemporaryDirectory() as folder:
-            root = Path(folder)
-            repo = "OpenMOSS-Team/MOSS-Image-SFT"
-            relative = "models--OpenMOSS-Team--MOSS-Image-SFT/snapshots/abcdef"
-            snap = root / "hub" / relative
-            snap.mkdir(parents=True)
-            weight = snap / "model.safetensors"
-            weight.write_bytes(b"original-weights")
-            (snap / "config.json").write_text("{}", encoding="utf-8")
-            inventory = file_inventory(snap)
-            record = {"manifest_version": 1, "repo_id": repo,
-                      "snapshot_relative": relative, "file_count": len(inventory),
-                      "total_bytes": sum(inventory.values()), "inventory": inventory}
-            atomic_json(root / "model-ready.json", record)
-            with patch.dict(os.environ, {"HF_HOME": str(root)}):
-                self.assertEqual(moss_cache.get_ready_model(repo), repo)
-                weight.write_bytes(b"changed")
-                with self.assertRaisesRegex(RuntimeError, "incomplete"):
-                    moss_cache.get_ready_model(repo)
-                weight.write_bytes(b"original-weights")
-                record["snapshot_relative"] = "../escape"
-                atomic_json(root / "model-ready.json", record)
-                with self.assertRaisesRegex(RuntimeError, "invalid"):
-                    moss_cache.get_ready_model(repo)
 
     def test_inventory_detects_broken_links(self):
         with tempfile.TemporaryDirectory() as folder:

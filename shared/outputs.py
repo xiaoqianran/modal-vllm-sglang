@@ -1,7 +1,5 @@
 """Local output layout shared by independent model entrypoints."""
 import re
-import uuid
-from datetime import datetime, timezone
 from pathlib import Path
 
 from shared.files import atomic_json, sha256_file
@@ -17,14 +15,9 @@ def component(value):
     return value
 
 
-def new_id():
-    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + uuid.uuid4().hex[:8]
-
-
-def run_dir(task, run_id=None, *, scene="001-main", root=None, benchmark=False):
-    base = Path(root) if root is not None else REPO / ("benchmarks" if benchmark else "outputs")
-    # Inference products are organized by project / scene. Benchmark runs remain separate.
-    path = base / component(task) / component(run_id or new_id()) if benchmark else base / component(task) / component(scene)
+def run_dir(project, *, scene="001-main", root=None):
+    base = Path(root) if root is not None else REPO / "outputs"
+    path = base / component(project) / component(scene)
     path.mkdir(parents=True, exist_ok=True)
     return path
 

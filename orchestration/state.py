@@ -1,75 +1,15 @@
 """Single-writer state and verified, atomically published artifacts."""
-import json
-import os
-import tempfile
-from contextlib import contextmanager
 from pathlib import Path
 
 from shared.files import sha256_file
 
 
-def save(path, value):
-    write(path, (json.dumps(value, ensure_ascii=False, indent=2, allow_nan=False) + "\n").encode())
+from shared.files import atomic_json as save, atomic_write as write, file_lock as lock
 
 
-def write(path, data):
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, temporary = tempfile.mkstemp(prefix=path.name + ".", suffix=".tmp", dir=path.parent)
-    try:
-        with os.fdopen(fd, "wb") as stream:
-            stream.write(data)
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(temporary, path)
-    finally:
-        Path(temporary).unlink(missing_ok=True)
+from shared.files import local_path
 
-
-@contextmanager
-def lock(directory):
-    directory = Path(directory)
-    directory.mkdir(parents=True, exist_ok=True)
-    with (directory / ".runner.lock").open("a+b") as stream:
-        if stream.seek(0, 2) == 0:
-            stream.write(b"0")
-            stream.flush()
-        stream.seek(0)
-        try:
-            if os.name == "nt":
-                import msvcrt
-                msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
-            else:
-                import fcntl
-                fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except OSError as exc:
-            raise RuntimeError(f"Another runner holds {directory}") from exc
-        try:
-            yield
-        finally:
-            stream.seek(0)
-            if os.name == "nt":
-                msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
-            else:
-                fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
-
-
-def local_path(root, relative):
-    root = Path(root).resolve()
-    path = (root / relative).resolve()
-    if path == root or not path.is_relative_to(root):
-        raise ValueError(f"Path must stay inside {root}: {relative}")
-    return path
-
-
-def image_format(data):
-    if data.startswith(b"\x89PNG\r\n\x1a\n"):
-        return ".png", "image/png"
-    if data.startswith(b"\xff\xd8\xff"):
-        return ".jpg", "image/jpeg"
-    if data.startswith(b"RIFF") and data[8:12] == b"WEBP":
-        return ".webp", "image/webp"
-    raise ValueError("Expected PNG, JPEG or WebP content")
+from shared.media import image_format
 
 
 def publish(root, folder, name, data, *, filename=None, refuse_existing=False):

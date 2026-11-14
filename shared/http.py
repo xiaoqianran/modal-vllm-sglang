@@ -8,6 +8,7 @@ import os
 import time
 import urllib.error
 import urllib.request
+from shared.task_lifecycle import SubmissionRejected
 
 
 def modal_proxy_headers(service):
@@ -35,6 +36,8 @@ def request_bytes(url, payload=None, *, timeout=120, attempts=1, headers=None):
                 return response.read()
         except urllib.error.HTTPError as exc:
             detail = exc.read(1500).decode("utf-8", errors="replace")
+            if payload is not None and exc.headers.get("X-Generation-Rejected") == "1":
+                raise SubmissionRejected("Gateway did not forward this generation; retry the task later") from exc
             if exc.code in (400, 401, 403, 404, 413, 422) or attempt == attempts - 1:
                 raise RuntimeError(f"HTTP {exc.code}: {detail}") from exc
         except (urllib.error.URLError, TimeoutError, ConnectionError):

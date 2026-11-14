@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "id": "pika-fl2va",
+  "steps": [{
+    "id": "video", "uses": "pika.fl2va",
+    "inputs": {
+      "prompt": {"ref": "input.prompt"},
+      "first_frame": {"ref": "input.first_frame"},
+      "last_frame": {"ref": "input.last_frame"}
+    }
+  }],
+  "outputs": {"video": {"ref": "video.video"}}
+}

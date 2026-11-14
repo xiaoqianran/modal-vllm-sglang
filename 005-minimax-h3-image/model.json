@@ -1,0 +1,83 @@
+{
+  "revision": "5f90473023975e6271b0ed1dd84c4e88e4bbc6d3",
+  "gpu": "RTX-PRO-6000",
+  "cpu": 12,
+  "memory": 262144,
+  "port": 30000,
+  "timeout": 14400,
+  "startup_timeout": 3600,
+  "scaledown_window": 30,
+  "service": "minimax",
+  "app_name": "modal-forge-005-minimax-h3-image",
+  "operation": "t2i",
+  "kind": "image",
+  "model": "MiniMaxAI/MiniMax-H3-Image",
+  "image": "lmsysorg/sglang@sha256:7d2f322fbe8eda16ee65f969f8c9c2be602ecb0a29bf3c8b219945432f3992b2",
+  "build_commands": [
+    "python -m pip install 'sglang[diffusion] @ git+https://github.com/sgl-project/sglang.git@a9d721f36e16dab1835de0203b620256da1e612d#subdirectory=python'"
+  ],
+  "command": [
+    "sglang",
+    "serve",
+    "--model-path",
+    "{model_path}",
+    "--text-encoder-path",
+    "{encoder_path}/text_encoder",
+    "--host",
+    "0.0.0.0",
+    "--port",
+    "{port}",
+    "--warmup-mode",
+    "off"
+  ],
+  "defaults": {
+    "size": "2048x2048",
+    "num_inference_steps": 6,
+    "generator_device": "cpu",
+    "response_format": "b64_json"
+  },
+  "options": {
+    "size": {
+      "type": "string",
+      "pattern": "[1-9][0-9]*x[1-9][0-9]*"
+    },
+    "num_inference_steps": {
+      "type": "integer",
+      "enum": [
+        6
+      ]
+    }
+  },
+  "validator": "minimax",
+  "cache": {
+    "mode": "hf",
+    "allow_patterns": [
+      "model_index.json",
+      "pdd_config.json",
+      "pdd_fused_heads.safetensors",
+      "transformer/*",
+      "vae/*",
+      "tokenizer/*",
+      "processor/*"
+    ],
+    "required_files": [
+      "model_index.json",
+      "pdd_config.json",
+      "pdd_fused_heads.safetensors",
+      "transformer/*.safetensors",
+      "vae/*.safetensors"
+    ]
+  },
+  "components": {
+    "encoder": {
+      "model": "MiniMaxAI/MiniMax-H3",
+      "revision": "0919fb684102ef115126612f3fbb84d1027e7317",
+      "allow_patterns": [
+        "text_encoder/*"
+      ],
+      "required_files": [
+        "text_encoder/*.safetensors"
+      ]
+    }
+  }
+}

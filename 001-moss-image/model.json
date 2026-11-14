@@ -1,0 +1,71 @@
+{
+  "revision": "main",
+  "gpu": "RTX-PRO-6000",
+  "cpu": 4,
+  "memory": 8192,
+  "port": 8000,
+  "timeout": 14400,
+  "startup_timeout": 3600,
+  "scaledown_window": 30,
+  "service": "moss",
+  "app_name": "modal-forge-008-moss-image",
+  "operation": "t2i",
+  "kind": "image",
+  "model": "OpenMOSS-Team/MOSS-Image-SFT",
+  "image": "vllm/vllm-omni:v0.32.0",
+  "command": [
+    "vllm",
+    "serve",
+    "{model_path}",
+    "--served-model-name",
+    "{model}",
+    "--omni",
+    "--enforce-eager",
+    "--host",
+    "0.0.0.0",
+    "--port",
+    "{port}"
+  ],
+  "defaults": {
+    "size": "1024x1024",
+    "n": 1,
+    "num_inference_steps": 50,
+    "guidance_scale": 3.0,
+    "flow_shift": 5.0,
+    "response_format": "b64_json",
+    "extra_params": {
+      "uncond_skip_layers": [
+        22
+      ],
+      "slg_start": 0.01,
+      "slg_stop": 1.0
+    }
+  },
+  "options": {
+    "size": {
+      "type": "string",
+      "pattern": "[1-9][0-9]*x[1-9][0-9]*"
+    },
+    "num_inference_steps": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "guidance_scale": {
+      "type": "number",
+      "minimum": 0.001,
+      "maximum": 999
+    },
+    "flow_shift": {
+      "type": "number",
+      "minimum": 0.001,
+      "maximum": 999
+    }
+  },
+  "validator": "moss",
+  "cache": {
+    "mode": "hf",
+    "required_files": [
+      "config.json"
+    ]
+  }
+}
