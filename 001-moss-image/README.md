@@ -34,9 +34,21 @@ uv run python 001-moss-image/run.py --task tasks/003-stop-rain-001-rain-bus-stop
 uv run python 001-moss-image/run.py --status
 # 只下载已经完成的结果，不等待其余调用，不启动 GPU
 uv run python 001-moss-image/run.py --collect
+# 不依赖本地 moss.json，直接根据任务 JSON 从云端 Volume 收集对应结果
+uv run --no-sync python 001-moss-image/run.py --collect --remote --task tasks/004-seven-minutes-001-glass-corridor.json
 ```
 
 `--status`、`--collect` 可以加 `--task <路径>` 筛选；不加时读取整个登记表。
+新模式 `--collect --remote` 必须提供至少一个 `--task`，支持多次传入 `--task`。
+它仅通过 Task 内容、当前模型配置与云端模型缓存生成确定性路径和签名，
+检查 Volume 中已有的逐项完成元数据，验证任务意图、模型缓存和 SHA-256 后下载媒体。
+不读取或创建本地 `outputs/.runner/jobs/moss.json`，不需要 Modal FunctionCall ID，
+也不会提交新的生成任务或启动 GPU。只收集明确标记 `completed` 的项目；
+云端不存在元数据时显示 `not_found`，不代表任务一定没有排队或执行。
+如果任务内容、模型配置或缓存已经变化，必须使用生成时的原始 Task 和配置，
+不能通过忽略签名或强制覆盖来下载可能不匹配的媒体。
+这一模式不自动扫描历史云端目录，也不用于补回丢失的提交登记；
+远程任务的提交、状态恢复仍建议保留原本的 `moss.json`。
 可重复使用 `--task` 一次提交多份 JSON；同一场景的不同 ID 可以分别提交。
 原有不带 `--enqueue` 的同步生成命令继续可用。
 

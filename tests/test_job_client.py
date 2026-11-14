@@ -140,6 +140,88 @@ class JobClientTests(unittest.TestCase):
             self.run_jobs()
         self.model.generate_one.spawn.assert_called_once()
 
+    def remote_result(self, *, prompt="boat", status="completed"):
+        self.write_task(prompt=prompt)
+        from shared.model_service import load_task, prepare
+        project, scene, operation, items = load_task(self.spec, self.task, root=self.root)
+        signature = prepare(self.spec, items[0])[1]
+        prefix = f"model-results/{self.spec['service']}/{project}/{scene}/{operation}-{intent_digest(self.spec)[:20]}"
+        data = b"\x89PNG\r\n\x1a\n" + b"remote-image" * 4
+        record = {"id": "000", "file": "000.png", "status": status,
+                  "intent_hash": signature,
+                  "execution_hash": intent_digest({"intent": signature, "cache": intent_digest(self.cache)}),
+                  "sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data)}
+        self.files[f"/{prefix}/000.json"] = json.dumps(record).encode()
+        self.files[f"/{prefix}/000.png"] = data
+        return record, data
+
+    def test_remote_collect_restores_on_fresh_computer_without_local_receipts(self):
+        _, data = self.remote_result()
+        self.assertFalse((self.root / "outputs/.runner/jobs/moss.json").exists())
+        jobs = self.run_jobs("collect_remote")
+        self.assertEqual(next(iter(jobs.values()))["status"], "completed")
+        self.assertEqual((self.root / "outputs/demo/001-main/000.png").read_bytes(), data)
+        self.assertFalse((self.root / "outputs/.runner/jobs/moss.json").exists())
+        self.model.generate_one.spawn.assert_not_called()
+        self.from_id.assert_not_called()
+        self.run_jobs("collect_remote")
+        self.assertEqual((self.root / "outputs/demo/001-main/000.png").read_bytes(), data)
+
+    def test_remote_collect_missing_result_never_submits_or_creates_receipt(self):
+        jobs = self.run_jobs("collect_remote")
+        self.assertEqual(next(iter(jobs.values()))["status"], "not_found")
+        self.assertFalse((self.root / "outputs/.runner/jobs/moss.json").exists())
+        self.model.generate_one.spawn.assert_not_called()
+
+    def test_remote_collect_noncompleted_result_does_not_download(self):
+        self.remote_result(status="submitting")
+        jobs = self.run_jobs("collect_remote")
+        self.assertEqual(next(iter(jobs.values()))["status"], "submitting")
+        self.assertFalse((self.root / "outputs/demo/001-main/000.png").exists())
+
+    def test_remote_collect_rejects_changed_prompt(self):
+        self.remote_result()
+        self.write_task(prompt="changed prompt")
+        with self.assertRaisesRegex(ValueError, "conflict"):
+            self.run_jobs("collect_remote")
+        self.assertFalse((self.root / "outputs/demo/001-main/000.png").exists())
+
+    def test_remote_collect_rejects_cache_mismatch(self):
+        self.remote_result()
+        self.cache["resolved_revision"] = "different"
+        with self.assertRaisesRegex(ValueError, "conflict"):
+            self.run_jobs("collect_remote")
+        self.assertFalse((self.root / "outputs/demo/001-main/000.png").exists())
+
+    def test_remote_collect_rejects_bad_digest_and_existing_file(self):
+        record, data = self.remote_result()
+        record["sha256"] = "a" * 64
+        from shared.model_service import load_task
+        project, scene, operation, _ = load_task(self.spec, self.task, root=self.root)
+        prefix = f"model-results/{self.spec['service']}/{project}/{scene}/{operation}-{intent_digest(self.spec)[:20]}"
+        self.files[f"/{prefix}/000.json"] = json.dumps(record).encode()
+        with self.assertRaisesRegex(ValueError, "checksum"):
+            self.run_jobs("collect_remote")
+        target = self.root / "outputs/demo/001-main/000.png"
+        self.assertFalse(target.exists())
+        record["sha256"] = hashlib.sha256(data).hexdigest()
+        self.files[f"/{prefix}/000.json"] = json.dumps(record).encode()
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(b"different existing image")
+        with self.assertRaises(FileExistsError):
+            self.run_jobs("collect_remote")
+        self.assertEqual(target.read_bytes(), b"different existing image")
+
+    def test_remote_collect_rejects_unsafe_result_name(self):
+        record, _ = self.remote_result()
+        from shared.model_service import load_task
+        project, scene, operation, _ = load_task(self.spec, self.task, root=self.root)
+        prefix = f"model-results/{self.spec['service']}/{project}/{scene}/{operation}-{intent_digest(self.spec)[:20]}"
+        record["file"] = "../outside.png"
+        self.files[f"/{prefix}/000.json"] = json.dumps(record).encode()
+        with self.assertRaisesRegex(ValueError, "Invalid completed result"):
+            self.run_jobs("collect_remote")
+
 
 if __name__ == "__main__":
     unittest.main()

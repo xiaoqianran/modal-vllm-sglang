@@ -404,12 +404,18 @@ def run_cli(config_path):
     mode.add_argument("--enqueue", action="store_true")
     mode.add_argument("--status", action="store_true")
     mode.add_argument("--collect", action="store_true")
+    parser.add_argument("--remote", action="store_true",
+                        help="Collect by task metadata from Volume without a local job receipt")
     parser.add_argument("--output", type=Path)
     parser.add_argument("--limit", type=int, default=0)
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
     if args.limit < 0:
         parser.error("limit must be nonnegative")
+    if args.remote and not args.collect:
+        parser.error("--remote requires --collect")
+    if args.remote and not args.task:
+        parser.error("--collect --remote requires --task")
     spec = validate(read_json(config_path))
     if args.enqueue or args.status or args.collect:
         from shared.job_client import run_jobs
@@ -419,7 +425,7 @@ def run_cli(config_path):
             parser.error("--enqueue requires --task")
         return run_jobs(spec, args.task or [], output=args.output, limit=args.limit,
                         dry_run=args.dry_run,
-                        mode="enqueue" if args.enqueue else "collect" if args.collect else "status")
+                        mode="enqueue" if args.enqueue else "collect_remote" if args.remote else "collect" if args.collect else "status")
     if not args.task:
         parser.error("--task is required")
     destinations = set()

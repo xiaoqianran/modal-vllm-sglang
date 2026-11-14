@@ -75,6 +75,38 @@ def collect(job, volume, output):
     job["collected"] = True
 
 
+def collect_remote(spec, selected, volume, output):
+    """按 Task 身份从 Volume 收集结果，不依赖本地调用登记表。"""
+    try:
+        cache = json.loads(b"".join(volume.read_file(
+            cache_directory(spec).removeprefix("/mnt/modal") + "/model-ready.json"
+        )))
+    except FileNotFoundError as exc:
+        raise RuntimeError("Remote model cache manifest not found") from exc
+    if cache.get("version") != 1 or cache.get("cache_spec") != intent_digest(component_specs(spec)):
+        raise RuntimeError("Remote cache differs from current model configuration")
+    fingerprint = intent_digest(cache)
+    result = {}
+    for project, scene, prefix, item, signature in selected:
+        key = f"{project}/{scene}/{item['id']}/{spec['kind']}".lower()
+        job = {"id": item["id"], "project": project, "scene": scene, "prefix": prefix,
+               "kind": spec["kind"], "intent_hash": signature,
+               "execution_hash": intent_digest({"intent": signature, "cache": fingerprint})}
+        record = remote_record(volume, prefix, item["id"])
+        if record is None:
+            job["status"] = "not_found"
+        else:
+            check_record(job, record)
+            job["status"] = record.get("status", "unknown")
+            if job["status"] == "completed":
+                job["result"] = record
+                collect(job, volume, output)
+        result[key] = job
+        print(json.dumps({"job": key, "status": job["status"],
+                          "collected": job.get("collected", False)}, ensure_ascii=False))
+    return result
+
+
 def run_jobs(spec, paths, *, root=None, output=None, limit=0, dry_run=False, mode="enqueue"):
     import modal
     from shared.modal_setup import model_volume
@@ -100,6 +132,10 @@ def run_jobs(spec, paths, *, root=None, output=None, limit=0, dry_run=False, mod
         print(json.dumps({"mode": mode, "items": len(selected), "service": spec["service"]}))
         return []
     volume = model_volume()
+    if mode == "collect_remote":
+        if not paths:
+            raise ValueError("--collect --remote requires at least one --task")
+        return collect_remote(spec, selected, volume, output)
     fingerprint = None
     if mode == "enqueue":
         try:
