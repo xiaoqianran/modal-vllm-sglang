@@ -62,7 +62,8 @@ class WorkflowTests(unittest.TestCase):
         shutil.copytree(runner.ROOT / "tasks", self.root / "tasks")
         shutil.copy(runner.ROOT / "endpoints.example.json", self.root)
         self.env = patch.dict(os.environ, {"MOSS_ENDPOINT": "http://moss.test", "PIKA_ENDPOINT": "http://pika.test",
-                                          "MOSS_MODAL_KEY": "private-key", "MOSS_MODAL_SECRET": "private-secret"})
+                                          "MOSS_MODAL_KEY": "private-key", "MOSS_MODAL_SECRET": "private-secret",
+                                          "PIKA_MODAL_KEY": "pika-key", "PIKA_MODAL_SECRET": "pika-secret"})
         self.env.start()
         self.addCleanup(self.env.stop)
         self.task_path = self.root / "tasks/001-story-demo.json"
@@ -100,6 +101,8 @@ class WorkflowTests(unittest.TestCase):
             text = path.read_text(encoding="utf-8")
             self.assertNotIn("private-secret", text)
             self.assertNotIn("private-key", text)
+            self.assertNotIn("pika-secret", text)
+            self.assertNotIn("pika-key", text)
             self.assertNotIn("first_frame_base64", text)
 
     def test_seed_stable_on_reordering_and_defaults_frozen(self):
@@ -356,6 +359,9 @@ class WorkflowTests(unittest.TestCase):
             self.assertEqual(len(requests), 5)
             self.assertEqual(requests[0][2]["Modal-Key"], "private-key")
             self.assertEqual(requests[0][2]["Modal-Secret"], "private-secret")
+            for _, _, headers in requests[2:]:
+                self.assertEqual(headers["Modal-Key"], "pika-key")
+                self.assertEqual(headers["Modal-Secret"], "pika-secret")
             self.assertEqual(base64.b64decode(requests[2][1]["first_frame_base64"]), PNG)
             self.assertEqual(requests[-1][0], "/v1/videos/video-job/content")
         finally:

@@ -97,7 +97,7 @@ modal-vllm-sglang/
 
 以下是新契约示意，旧 CLI 不支持直接读取。第一版只支持三个引用形式：`item.<字段>`、`steps.<步骤>.<输出>` 和显式文件输入；`ref` 只在专门的输入绑定对象中解释，不在提示词中做字符串替换或执行表达式。
 
-Service 配置：
+Service 配置（以下为历史草案；现行 HTTP 鉴权请以 `endpoints.example.json` 为准）：
 
 ```json
 {
@@ -217,7 +217,7 @@ collect(remote_job_or_result, attempt_dir) -> ArtifactManifest
 
 ComfyUI 适配器负责上传输入图片、按显式映射填写节点字段、单次提交 graph、查询 history、下载指定节点的输出。输出节点与槽位必须明确，多个结果不能取“第一个看起来像图片”的文件。非图片上传能力需要单独声明。
 
-第一版只对已部署 HTTP 服务做组合。原有 `modal run` 批处理继续独立使用；后续如需减少冷启动，再增加专门的 Modal 执行方式，不在 runner 内启动 GPU 子进程。
+当前已统一为部署后的 Modal 推理服务。历史 `modal run` GPU 批处理已停用；跨模型组合仍使用私有 HTTP，单模型批量直接调用已部署 SDK Function。冷启动快照另行验收，不在 runner 内启动 GPU 子进程。
 
 ## 6. 稳定性必须落在状态机上
 

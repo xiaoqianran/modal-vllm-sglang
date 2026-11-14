@@ -1,6 +1,6 @@
 # 轻量 Workflow / Task 执行器
 
-已实现的第一版：MOSS 生图、Pika 文生视频、MOSS 首尾帧 → Pika 视频。**本页说明的是可选 HTTP 工作流**：本机 CPU 编排器调用已部署的 HTTP 服务，需要对应的服务地址及其开启的认证。若仅需直接批量生成 MOSS 分镜，请使用 `scripts/run_moss_batch.py`（见 [MOSS 批量续跑](moss-resume.md)）：该脚本通过 Modal 临时 App 执行，不需要先部署 HTTP 服务，也不需要 HTTP Proxy Token；本机仍需 Modal 账号凭据。编排器仅使用 Python 标准库，原模型目录、Modal App、GPU 配置和缓存路径保留。
+已实现的第一版：MOSS 生图、Pika 文生视频、MOSS 首尾帧 → Pika 视频。**本页说明的是可选 HTTP 工作流**：本机 CPU 编排器调用已部署的私有 HTTP 服务，需配置服务地址和 Proxy Auth 凭证。若只需单模型批量推理，先 Deploy 再使用 `001-moss-image/run.py`、`002-pika-h3-flex/run.py` 或 `005-minimax-h3-image/run.py`；三者均使用已登录 Modal SDK 查找部署中的 Class，无需 HTTP URL / Proxy Token。旧的临时 GPU App 入口已移除。
 
 ## 使用
 
@@ -14,17 +14,21 @@ uv run python -m orchestration run tasks/001-story-demo.json --dry-run
 
 预览展示最终参数、自动 seed、引用关系与生成调用次数，不估算未经测量的 GPU 费用。
 
-实际运行前，在当前终端设置服务地址与 MOSS 代理鉴权：
+实际运行前，在当前终端设置服务地址与 MOSS、Pika 代理鉴权：
 
 ```powershell
 $env:MOSS_ENDPOINT = 'https://your-moss-service.modal.run'
 $env:PIKA_ENDPOINT = 'https://your-pika-service.modal.run'
 $env:MOSS_MODAL_KEY = '<你的 Modal 代理 key>'
 $env:MOSS_MODAL_SECRET = '<你的 Modal 代理 secret>'
+$env:PIKA_MODAL_KEY = '<你的 Modal 代理 key>'
+$env:PIKA_MODAL_SECRET = '<你的 Modal 代理 secret>'
 uv run python -m orchestration run tasks/001-story-demo.json
 ```
 
 以上 run 会调用真实 GPU 服务。新版运行目录固定为 `outputs/<project>/<scene>/`，**不再创建 run-id 子目录**。已有同一任务会复用该场次的状态；仅追加新的镜头 ID 时可继续执行，已完成镜头不重复提交。
+
+本次 Pika HTTP 鉴权升级和 MiniMax Class 改造已更新 `endpoints.example.json` 的服务 revision。旧场次的冻结计划不会被静默覆盖；若原场次使用旧版服务且恢复校验不通过，应保留旧输出并使用新场次，而不是手动篡改状态文件。
 
 ```powershell
 uv run python -m orchestration status outputs/001-story-demo/001-main
@@ -33,7 +37,7 @@ uv run python -m orchestration resume outputs/001-story-demo/001-main
 
 `status` 显示已记录状态；`resume` 会重新验证产物哈希，并恢复可查询的任务。`--timeout 3600 --poll 2` 可用于 run/resume，分别设置生成提交超时、远端轮询预算（各自独立）和查询间隔。未全部完成时退出码为 1；配置错误为 2。
 
-若服务配置不同，复制 `endpoints.example.json` 为已被 Git 忽略的 `endpoints.local.json`，运行时传 `--endpoints endpoints.local.json`。配置只填写环境变量名称，不能直接填写 token。Pika 示例对应当前无需代理鉴权的入口；如果部署启用代理鉴权，在其 `headers_env` 增加 `Modal-Key` 和 `Modal-Secret` 的环境变量映射即可。执行器不修改云端鉴权设置。
+若服务配置不同，复制 `endpoints.example.json` 为已被 Git 忽略的 `endpoints.local.json`，运行时传 `--endpoints endpoints.local.json`。配置只填写环境变量名称，不能直接填写 token。当前 MOSS、Pika、MiniMax 示例均强制 Proxy Auth，须为涉及的模型设置有效凭证。执行器不修改云端鉴权设置；代码修改后需要重新部署才会在云端生效。
 
 ## 两份用户配置
 

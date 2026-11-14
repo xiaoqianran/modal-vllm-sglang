@@ -3,7 +3,7 @@
   "services": {
     "minimax": {
       "endpoint_env": "MINIMAX_ENDPOINT",
-      "revision": "minimax-h3-image-r1",
+      "revision": "minimax-h3-image-r2-class",
       "headers_env": {
         "Modal-Key": "MINIMAX_MODAL_KEY",
         "Modal-Secret": "MINIMAX_MODAL_SECRET"
@@ -19,8 +19,11 @@
     },
     "pika": {
       "endpoint_env": "PIKA_ENDPOINT",
-      "revision": "pika-r1",
-      "headers_env": {}
+      "revision": "pika-r2-auth",
+      "headers_env": {
+        "Modal-Key": "PIKA_MODAL_KEY",
+        "Modal-Secret": "PIKA_MODAL_SECRET"
+      }
     }
   }
 }

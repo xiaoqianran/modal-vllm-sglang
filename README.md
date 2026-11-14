@@ -1,160 +1,111 @@
 # modal-vllm-sglang
 
-## 日常入口
+**唯一 GPU 推理流程：CPU 准备模型 → `modal deploy app.py` → 调用已部署函数。**
+所有生图、生视频均通过持久部署的 Modal App；不再使用临时 `modal run` GPU 任务、`app.run()` 或 detached Session Worker。
 
-- **批量分镜生图（推荐）**：直接运行 `scripts/run_moss_batch.py`。内部使用 Modal `app.run()` + `remote_gen()`，不需要先 `modal deploy`，也不需要 HTTP Proxy Token；本机仍需已登录 Modal。
-- **HTTP 工作流（可选）**：只有调用已部署 HTTP 端点组合 MOSS、Pika 等服务时，才使用 `python -m orchestration plan/run/resume/status`，并按服务设置 HTTP 认证。
-- **部署 HTTP 服务（可选）**：需要对外提供 HTTP API 时才运行 `modal deploy app.py`，MOSS HTTP 服务保持 Proxy Auth 开启。
+## 三个服务
 
-直接运行一批 MOSS 分镜（在仓库根目录）：
+| 模型 | Modal App | GPU | 推理入口 |
+| --- | --- | --- | --- |
+| `001-moss-image` | `modal-forge-008-moss-image` | RTX PRO 6000 | 一个 GPU Class，共享 SDK 批量生图 + 私有 HTTP |
+| `002-pika-h3-flex` | `modal-forge-009-pika-h3-flex-fl2va` | RTX PRO 6000 | 一个 GPU Class，共享 SDK 批量视频 + 私有 HTTP |
+| `005-minimax-h3-image` | `modal-forge-005-minimax-h3-image` | RTX PRO 6000 | 一个 GPU Class，共享 SDK 批量生图 + 私有 HTTP |
 
-```powershell
-uv run --project 001-moss-image python scripts/run_moss_batch.py --project 002-again-love --task tasks/002-again-love-001-hotel-corridor.json --dry-run
-uv run --project 001-moss-image python scripts/run_moss_batch.py --project 002-again-love --task tasks/002-again-love-001-hotel-corridor.json
-```
+三种服务均 `min_containers=0`、`max_containers=1`；无任务时无需常驻 GPU。HTTP 接口始终要求 Modal Proxy Auth。**本地 SDK 通过已登录的 Modal 账号鉴权，不需要 HTTP URL、Modal-Key 或 Modal-Secret。**
 
-该命令直接创建临时 Modal App 执行 GPU 任务，输出至 `outputs/<project>/<scene>/`。中断后重复同一命令可校验并续跑；不需要 `MOSS_ENDPOINT`、`MOSS_MODAL_KEY` 或 `MOSS_MODAL_SECRET`。
+## Python 依赖与 uv
 
-| 模型目录 | 引擎 | 工作流 |
-| --- | --- | --- |
-| `001-moss-image/` | vLLM-Omni | `moss-t2i` |
-| `002-pika-h3-flex/` | SGLang | `pika-t2va`、`storyboard-to-video` |
-| [003-minimax-h3-image](003-minimax-h3-image/README.md) | SGLang | `minimax-t2i`（尚未云端验收） |
+根目录及每个模型目录是独立的本地 Python 项目：各自的 `pyproject.toml` 声明依赖范围，各自的 `uv.lock` 固定解析后的版本。**不要把 `uv.lock` 加入 `.gitignore`**，它应与对应的 `pyproject.toml` 一起提交。
 
-```powershell
-uv run python -m orchestration plan tasks/003-minimax-image-demo.json
-# 配置端点和鉴权后运行
-uv run python -m orchestration run tasks/003-minimax-image-demo.json
-uv run python -m orchestration resume outputs/003-minimax-image-demo/001-main
-uv run python -m orchestration status outputs/003-minimax-image-demo/001-main
-```
+- 在仓库根目录执行 `uv sync`：读取根目录 `pyproject.toml` 和 `uv.lock`，准备本地编排器/SDK 环境。
+- 在模型目录执行 `uv sync`：读取该模型自己的 `pyproject.toml` 和 `uv.lock`，准备该模型的本地 Modal CLI 环境。
+- 从任意目录明确选择项目：`uv sync --project 001-moss-image`。
+- CI 或希望严格验证提交依赖：`uv sync --locked`；如果 lock 与 pyproject 不一致就报错，不会静默改写。
 
-`workflows/` 写步骤和参数，`tasks/` 写镜头和提示词，`outputs/` 保存结果与进度。
-Modal 原生批处理是日常批量分镜的推荐入口；跨模型 HTTP 组合使用统一编排入口。
-新增模型按 [新增模型说明](docs/add-model.md)，保持现有结构。
+`pyproject.toml` 是依赖声明来源；有有效 `uv.lock` 时，`uv sync` 按 lock 安装精确版本。缺少或过期的 lock 会被重新解析并更新。云端 GPU 镜像仍由各自 `app.py` 构建，不能把本地 Modal CLI 环境等同于 GPU 镜像依赖。
 
-下面保留已有部署约束和入口细节。
+MOSS 现已从原来两个独立 GPU 函数改为一个 `Moss` Class，避免同时调用 HTTP 和 SDK 时分别启动 RTX PRO 6000。**只修改了 PC2 本地代码，云端仍在执行的旧版任务不会自动改变。任务完成后才应重新 Deploy**；这个 Class 改造仍需真实 GPU 验证。
 
-参考 modal-comfyui-caru-ini 的分层架构：保留项目独立入口，公共能力放在 shared/，将模型下载与 GPU 推理分离。
+## 1. 准备缓存（仅 CPU，不是推理）
 
-成品统一放在 `outputs/<剧目>/<场次>/`，镜头直接命名为 `001.png`、`001.mp4` 或 `001-first.png` / `001-last.png`，内部状态保留在场次内的 `plan.json`、`state.json` 和 `.runner/`；历史运行目录已校验迁移并归档。
-
-跨模型组合已加入轻量执行器，见 [Workflow / Task 使用说明](docs/workflow-runner.md)。支持 MOSS 生图、Pika 文生视频及 MOSS 首尾帧 → Pika 视频，按步骤处理整批镜头，提供本地状态持久化和安全恢复。
+只在首次准备权重或缓存损坏时执行。以下是每个目录内的命令：
 
 ```powershell
-# 离线预览，不访问 GPU 服务
-uv run python -m orchestration plan tasks/001-story-demo.json
-# 配置端点及鉴权后运行；详见使用说明
-uv run python -m orchestration run tasks/001-story-demo.json
-# 中断后继续已有运行，不要再次 run 创建新批次
-uv run python -m orchestration resume outputs/001-story-demo/001-main
+cd 001-moss-image
+uv run python -m modal run download_model.py --check-only
+# 若模型还未准备：uv run python -m modal run download_model.py
+
+cd ../002-pika-h3-flex
+uv run python -m modal run download_model.py --preflight-only
+# 若模型还未准备：uv run python -m modal run download_model.py
+
+cd ../005-minimax-h3-image
+uv run python -m modal run download_model.py --check-only
+# 若模型还未准备：uv run python -m modal run download_model.py
 ```
 
-真实 GPU 组合链尚未验收；当前验证为离线测试；此前 MOSS 单模型 GPU 生图已成功，新的组合编排仍需 GPU 验证。原模型目录和独立运行入口继续保留。[早期设计提案](docs/workflow-task-architecture.md) 留作参考，当前配置以使用说明为准。
+这些 `modal run download_model.py` 是 CPU 缓存准备工具，不创建 GPU 推理容器。已有 `modal-forge` Volume 和历史权重路径保持不变。
 
-## 目录
+## 2. 每个模型只 Deploy 一次
 
-    modal-vllm-sglang/
-    ├── shared/
-    │   ├── modal_setup.py       # Modal Volume、镜像及轻量代码挂载
-    │   ├── runtime.py           # 健康检查、子进程监控和清理
-    │   ├── cache.py             # 模型文件大小清单
-    │   ├── files.py             # 原子 JSON、哈希、Volume 下载
-    │   ├── http.py              # 安全重试与任务轮询
-    │   ├── inference_api.py     # vLLM 图片 / SGLang 视频 API 客户端
-    │   └── batch.py             # 输入签名、断点续跑、状态汇总
-    ├── 001-moss-image/
-    │   ├── download_model.py    # 独立 CPU 下载
-    │   ├── model_cache.py       # GPU 只读校验
-    │   ├── app.py               # vLLM 服务
-    │   ├── batch_storyboard.py  # 批量生图
-    │   └── benchmark.py         # 性能测试
-    ├── 002-pika-h3-flex/
-    │   ├── download_model.py    # CPU 下载及 SGLang Overlay 物化
-    │   ├── model_cache.py       # GPU 只读校验
-    │   ├── app.py               # SGLang 服务及 Pika 帧代理
-    │   ├── run_batch.py         # Modal Run 批量视频
-    │   └── batch_run.py         # HTTP 批量客户端
-    └── tests/                    # 共享模块离线测试
+在相应模型目录执行：
 
-## 设计约束
-
-- 下载单独占用 CPU，不在 GPU 启动时下载模型。
-- 继续复用现有 Modal Volume：名称 modal-forge；MOSS 对应 007-moss-image；Pika 对应 009-pika-h3-flex。
-- 云端模型缓存路径和既有 Modal App 名称均不随本地目录名称变化。
-- MOSS 的 vLLM、Pika 的 SGLang Overlay 和关键帧代理保持各自实现，不强行抽象成统一推理协议。
-- 轻量代码在镜像最后以 copy=False 挂载，避免修改业务脚本触发大型镜像层重建。
-- 仍从各子目录执行 Modal 命令；无需安装额外公共包。
-- 本次不改变 GPU 类型、推理参数、API 认证或并发限制。
-
-## 运行顺序
-
-### MOSS（首次需 CPU 准备）
-
-    cd 001-moss-image
-    uv run modal run download_model.py
-    uv run modal run download_model.py --check-only
-    uv run modal deploy app.py
-
-后续也可使用 uv run modal run benchmark.py 或 uv run modal run batch_storyboard.py。
-
-旧缓存即使已经存在，也必须首次通过 CPU 入口生成 model-ready.json。HF 缓存会优先复用已有文件；实际是否需要下载额外权重由模型版本和远端缓存决定。CPU 与 GPU 使用同一份相对路径清单，GPU 设置 HF_HUB_OFFLINE=1 与 TRANSFORMERS_OFFLINE=1。
-
-### Pika
-
-    cd 002-pika-h3-flex
-    uv run modal run download_model.py --preflight-only
-    uv run modal run download_model.py
-    uv run modal run run_batch.py --workflow workflow_t2va.json --task tasks/t2va_demo.json
-
-按需运行 uv run modal deploy app.py。Pika 现有公开服务仍不要求 Proxy Token，注意控制 URL 的传播和费用风险。
-
-## 测试
-
-在仓库根目录：
-
-    cd modal-vllm-sglang
-    002-pika-h3-flex\.venv\Scripts\python.exe -m unittest discover -s tests -v
-
-在 Pika 目录：
-
-    cd 002-pika-h3-flex
-    uv run python -m unittest discover -s tests -v
-
-本次只进行代码和 CPU 离线测试。尚未执行新的 Modal CPU 下载任务或 GPU 推理，无法保证新部署环境端到端通过。修改本地文件不会自动更新已部署的 Modal 服务。
-
-
-## 公共批处理与 HTTP 约定
-
-- shared/http.py：只对只读 GET 允许有限重试。生成类 POST 强制单次提交，避免超时后重复扣费及生成重复任务。
-- shared/batch.py：稳定的任务标识、输入签名、输出哈希和元数据匹配校验；所有条目使用相同的状态计数工具。
-- MOSS 图片批处理改为检查输入签名及结果文件 SHA256。历史上只有 PNG、没有条目级 JSON 的结果**不会直接跳过**，同一输出前缀下首次执行将重新生成，以避免静默复用错误内容。
-- Pika 的 HTTP 客户端、Modal Run、单视频请求统一使用 SGLangVideoClient，保留各自模型参数和视频任务路径。
-- 不自动改变原有云端 GPU 配置、模型缓存、Modal 资源参数和既有服务鉴权。
-- 修改后的 GPU 端到端验证仍需在 Modal 上执行，离线单测不能代替真实视频或图片推理。
-
-## 推理 API 抽离（2026-11-08）
-
-`shared/inference_api.py` 封装了两种不同的调用协议，底层继续使用 `shared/http.py`：
-
-- `VLLMImageClient(endpoint).generate(payload)`：调用 `/v1/images/generations`，返回 `(image_bytes, ".png" / ".jpg")`，不负责 MOSS 的尺寸、步数、CFG 等业务参数。
-- `SGLangVideoClient(endpoint)`：`submit(payload)` 提交一次并返回任务 ID、`wait(job_id)` 查询状态、`content(job_id)` 下载并验证 MP4；也可用 `generate(payload)` 顺序执行并返回 `(job_id, video_bytes)`。
-- 生成类 POST **不自动重试**。只有状态查询和结果下载允许可控重试，避免响应丢失后重复提交计费任务。
-- 保持两个独立推理引擎、各自模型配置、下载器、Modal App 和 GPU 参数，不引入统一的模型管理大类。
-- `001-moss-image/batch_storyboard.py` 与 `benchmark.py` 调用图片客户端；`002-pika-h3-flex/batch_run.py`、`generate.py` 和 `run_batch.py` 调用视频客户端。
-- `001-moss-image/benchmark_sglang.py` 是**独立的实验性 SGLang 图像基准**，使用单独锁定的镜像和依赖，暂不改变其运行配置及客户端。
-
-使用示例（`payload` 保留各模型要求的完整参数）：
-
-```python
-from shared.inference_api import VLLMImageClient, SGLangVideoClient
-
-image, extension = VLLMImageClient("http://127.0.0.1:8000").generate(image_payload)
-
-video_client = SGLangVideoClient("http://127.0.0.1:30010")
-job_id = video_client.submit(video_payload)
-video_client.wait(job_id, timeout=3600, poll=2)
-video = video_client.content(job_id)
+```powershell
+uv run python -m modal deploy app.py
 ```
 
-验证：在仓库根目录执行共享测试与 Pika 测试；检查 Modal CLI 的入口解析。真实端到端 GPU 推理仍需单独验证。
+Windows 上 `uv run modal` 可能触发 trampoline 路径错误，使用 `uv run python -m modal`。修改 `app.py` 或部署内函数后应重新 Deploy；普通任务无需重复部署。
+
+## 3. 调用 MOSS：只提供 JSON
+
+从仓库根目录执行，无需配置 HTTP 凭证：
+
+**运行 003 之前**，旧 `outputs/.sessions` 中已有两条已完成但未下载到本地的分镜记录。先执行 `uv run python scripts/recover_legacy_sessions.py --fetch` 下载可验证的历史结果（只读 Volume，不启动 GPU），避免重复付费生成。
+
+```powershell
+uv run python 001-moss-image/run.py `
+  --task tasks/003-stop-rain-001-rain-bus-stop.json `
+  --task tasks/003-stop-rain-002-bridge-underpass.json `
+  --task tasks/003-stop-rain-003-glass-greenhouse.json `
+  --task tasks/003-stop-rain-004-after-rain.json
+```
+
+以上四场次共 26 张图，一次 SDK 批量调用；在末尾加 `--dry-run` 可离线预览。重复同一命令会核查既有文件与 SHA256，继续生成缺失图片，绝不直接覆盖已有成果。结果写入 `outputs/003-stop-rain/<场次>/`。见 [MOSS 断点续跑](docs/moss-resume.md)。
+
+## 4. 调用 Pika：已部署 SDK 批量视频
+
+从仓库根目录执行（无需 HTTP 凭证）：
+
+```powershell
+uv run python 002-pika-h3-flex/run.py --workflow workflow_t2va.json --task tasks/t2va_demo.json --limit 1
+```
+
+首尾帧生视频改为 `--workflow workflow_fl2va.json --task tasks/fl2va_demo.json`。该脚本通过部署的 `Pika` Class 调用 `generate_batch`，默认按任务内容生成稳定的远端批次 ID，保留视频校验、Volume 输出与断点恢复。详见 [Pika 说明](002-pika-h3-flex/README.md)。
+
+## 5. MiniMax H3：指定 JSON 直接生成
+
+```powershell
+uv run python 005-minimax-h3-image/run.py --task tasks/005-minimax-image-demo.json --dry-run
+uv run python 005-minimax-h3-image/run.py --task tasks/005-minimax-image-demo.json
+```
+
+该 SDK 入口调用同一部署中的 `H3.generate_batch`，不需要 `MINIMAX_ENDPOINT` 或 Proxy Token。已验证的本地文件直接跳过；网络中断后先从 Volume 恢复已提交的图片，只有缺失图片才触发 GPU。需要修改尺寸时，在任务 JSON 顶层或 item 中使用 `"params":{"size":"4096x4096"}`。
+
+## 6. HTTP 跨模型工作流
+
+跨模型的 HTTP 编排仍由 `python -m orchestration plan/run/resume/status` 提供。HTTP 客户端需要对应的 `*_ENDPOINT` 和 `*_MODAL_KEY` / `*_MODAL_SECRET` 环境变量，三个模型的 SDK 批处理均不需要。见 [HTTP Workflow 说明](docs/workflow-runner.md)。
+
+MiniMax H3 的 `MINIMAX_GPU_SNAPSHOT=1` 为**可选实验开关**；001/002 尚未接入 GPU Snapshot。**Deploy 不等于自动生成显存快照**，SGLang/vLLM 的冷启动性能仍需真实 GPU 测试。
+
+## 7. 历史数据恢复
+
+旧 detached Session 已停用，但不会删除 `outputs/.sessions/tasks.sqlite3` 或云端 `session-results/`。若要列出旧任务或只下载已生成图片（不调用 GPU）：
+
+```powershell
+uv run python scripts/recover_legacy_sessions.py
+uv run python scripts/recover_legacy_sessions.py --fetch
+```
+
+`--fetch` 会检查结果 SHA256 并拒绝覆盖既有文件。原有目录和生成记录都需要保留。
+
+新增模型遵循 [模型接入规则](docs/add-model.md)。修改代码不等于完成云端验收，本轮未执行有费 GPU 生成。

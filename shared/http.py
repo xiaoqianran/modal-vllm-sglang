@@ -4,9 +4,19 @@ Retry *read-only* requests only. Never resubmit a generation POST
 automatically because the server may have accepted the first request.
 """
 import json
+import os
 import time
 import urllib.error
 import urllib.request
+
+
+def modal_proxy_headers(service):
+    """Require Proxy Auth before making a request that could start a GPU."""
+    key = os.environ.get(f"{service}_MODAL_KEY")
+    secret = os.environ.get(f"{service}_MODAL_SECRET")
+    if not key or not secret:
+        raise ValueError(f"Set {service}_MODAL_KEY and {service}_MODAL_SECRET")
+    return {"Modal-Key": key, "Modal-Secret": secret}
 
 
 def request_bytes(url, payload=None, *, timeout=120, attempts=1, headers=None):
