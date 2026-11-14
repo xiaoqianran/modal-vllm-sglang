@@ -43,3 +43,10 @@ uv run --no-sync python 002-pika-h3-flex/run.py --collect --remote --task tasks/
 这只是下载并发，与 GPU 视频生成并发是独立配置；没有实现 MP4 的分片断点续传。
 实际 Volume 检查发现当前缺少 `/009-pika-h3-flex/model-ready.json`，
 须先验证或迁移 CPU 模型缓存；截至本次修改，尚未完成真实视频下载验收。
+
+同步 `--task` 的结果下载也复用八线程收集器。已有旧缓存优先执行
+`uv run python -m modal run 002-pika-h3-flex/download_model.py --migrate-only`；
+该模式仅校验、迁移，不下载权重。部署后可用
+`uv run python 002-pika-h3-flex/run.py --check-deployment` 检查配置及异步接口，
+此自检会启动 GPU、加载权重，但不生成媒体。容器输入并发 `max_inputs` 默认 1，
+SDK 推理仍串行。性能日志字段及采样边界见 [根目录说明](../README.md#7-后续云端验收入口本次未执行)。

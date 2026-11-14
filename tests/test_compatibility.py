@@ -64,6 +64,33 @@ class CompatibilityTests(unittest.TestCase):
             self.assertEqual(read_json(root / 'model-ready.json'), old)
             self.assertFalse((root / 'model-ready.legacy.json').exists())
 
+    def test_migrate_only_never_imports_downloaders_and_is_idempotent(self):
+        for service in ('pika', 'minimax'):
+            with self.subTest(service=service), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                spec, _ = self.legacy(root, service)
+                volume = Mock()
+                with patch.dict('sys.modules', {'huggingface_hub': None}):
+                    first = prepare_cache(spec, volume, root, migrate_only=True)
+                    second = prepare_cache(spec, volume, root, migrate_only=True)
+                self.assertEqual(first['fingerprint'], second['fingerprint'])
+                volume.commit.assert_called_once()
+
+    def test_migrate_only_missing_or_damaged_cache_never_downloads(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            spec = SPECS['minimax.t2i']
+            with patch.dict('sys.modules', {'huggingface_hub': None}):
+                with self.assertRaisesRegex(RuntimeError, 'No existing'):
+                    prepare_cache(spec, Mock(), root, migrate_only=True)
+                spec, old = self.legacy(root, 'minimax')
+                next(root.glob('hub/**/text_encoder/*.safetensors')).unlink()
+                with self.assertRaises(RuntimeError):
+                    prepare_cache(spec, Mock(), root, migrate_only=True)
+            self.assertEqual(read_json(root / 'model-ready.json'), old)
+            with self.assertRaises(ValueError):
+                prepare_cache(spec, Mock(), root, migrate_only=True, refresh=True)
+
     def test_legacy_wrong_identity_and_path_are_rejected(self):
         for update in ({'repo_id': 'wrong/model'}, {'snapshot_relative': '../../outside'}):
             with tempfile.TemporaryDirectory() as directory:

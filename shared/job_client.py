@@ -12,6 +12,18 @@ from shared.outputs import record_artifact
 DOWNLOAD_WORKERS = 8
 
 
+def remote_cache_fingerprint(spec, volume):
+    try:
+        cache = json.loads(b"".join(volume.read_file(
+            cache_directory(spec).removeprefix("/mnt/modal") + "/model-ready.json")))
+    except FileNotFoundError as exc:
+        raise RuntimeError(f"Remote cache manifest missing for {spec['service']}; "
+                           "run download_model.py --migrate-only or prepare it on CPU first") from exc
+    if cache.get("version") != 1 or cache.get("cache_spec") != intent_digest(component_specs(spec)):
+        raise RuntimeError("Remote cache differs from current model configuration; prepare or migrate it on CPU")
+    return intent_digest(cache)
+
+
 def remote_record(volume, prefix, shot):
     try:
         return json.loads(b"".join(volume.read_file(f"/{prefix}/{shot}.json")))
@@ -69,20 +81,25 @@ def collect(job, volume, output):
     # 同一场景的不同镜头互不阻塞，同一镜头仍独占写入锁。
     with file_lock(folder, filename=f".runner.{job['id']}.{job['kind']}.lock"):
         target = folder / record["file"]
+        metrics = {"downloaded_bytes": 0, "reused": True}
         if target.exists():
             if sha256_file(target) != record["sha256"]:
                 raise FileExistsError(target)
         else:
-            download_volume_file(volume, f"/{job['prefix']}/{record['file']}", target,
-                                 expected_sha256=record["sha256"], kind=job["kind"], refuse_existing=True)
+            metrics = download_volume_file(volume, f"/{job['prefix']}/{record['file']}", target,
+                                           expected_sha256=record["sha256"], kind=job["kind"], refuse_existing=True)
         atomic_json(folder / ".runner" / "items" / job["id"] / job["kind"] / "metadata.json", record)
         record_artifact(folder, target, job["kind"], source=f"/{job['prefix']}/{record['file']}")
     job["collected"] = True
+    job["download_metrics"] = metrics
+    print(json.dumps({"event": "download_completed", "id": job["id"],
+                      "prefix": job["prefix"], **metrics}, ensure_ascii=False))
 
 
 def parallel_collect(jobs, volume, output):
     """八路下载；主线程收集结果，失败不影响其余镜头完成。"""
     errors = []
+    started = time.perf_counter()
     with ThreadPoolExecutor(max_workers=DOWNLOAD_WORKERS) as executor:
         future_jobs = {executor.submit(collect, job, volume, output): job for job in jobs}
         for future in as_completed(future_jobs):
@@ -90,23 +107,22 @@ def parallel_collect(jobs, volume, output):
                 future.result()
             except Exception as exc:
                 errors.append(exc)
+    collection_summary(future_jobs.values(), started, errors=len(errors))
     return errors
+
+
+def collection_summary(jobs, started, *, errors=0):
+    jobs = list(jobs)
+    seconds = time.perf_counter() - started
+    size = sum(job.get("download_metrics", {}).get("downloaded_bytes", 0) for job in jobs)
+    print(json.dumps({"event": "collect_summary", "items": len(jobs), "workers": DOWNLOAD_WORKERS,
+                      "errors": errors, "downloaded_bytes": size, "seconds": round(seconds, 3),
+                      "mib_per_second": size / (1024 * 1024 * seconds) if seconds else 0}, ensure_ascii=False))
 
 
 def collect_remote(spec, selected, volume, output):
     """按 Task 身份从 Volume 并发收集图片或视频，不依赖本地登记表。"""
-    try:
-        cache = json.loads(b"".join(volume.read_file(
-            cache_directory(spec).removeprefix("/mnt/modal") + "/model-ready.json"
-        )))
-    except FileNotFoundError as exc:
-        raise RuntimeError(
-            f"Remote cache manifest missing for {spec['service']}; "
-            "prepare or migrate its CPU model cache before remote collection"
-        ) from exc
-    if cache.get("version") != 1 or cache.get("cache_spec") != intent_digest(component_specs(spec)):
-        raise RuntimeError("Remote cache differs from current model configuration")
-    fingerprint = intent_digest(cache)
+    fingerprint = remote_cache_fingerprint(spec, volume)
     result = {}
     failures = []
     started = time.perf_counter()
@@ -143,8 +159,7 @@ def collect_remote(spec, selected, volume, output):
             except Exception as exc:
                 failures.append((key, exc))
                 print(json.dumps({"job": key, "status": "error", "error": str(exc)}, ensure_ascii=False))
-    print(json.dumps({"event": "collect_summary", "items": len(unique), "workers": DOWNLOAD_WORKERS,
-                      "seconds": round(time.perf_counter() - started, 2)}, ensure_ascii=False))
+    collection_summary([result.get(key, {}) for key in unique], started, errors=len(failures))
     if failures:
         raise failures[0][1]
     return result
@@ -181,13 +196,7 @@ def run_jobs(spec, paths, *, root=None, output=None, limit=0, dry_run=False, mod
         return collect_remote(spec, selected, volume, output)
     fingerprint = None
     if mode == "enqueue":
-        try:
-            cache = json.loads(b"".join(volume.read_file(cache_directory(spec).removeprefix("/mnt/modal") + "/model-ready.json")))
-        except FileNotFoundError as exc:
-            raise RuntimeError("Prepare model on CPU with download_model.py first") from exc
-        if cache.get("version") != 1 or cache.get("cache_spec") != intent_digest(component_specs(spec)):
-            raise RuntimeError("Prepared cache differs from model.json; prepare it again")
-        fingerprint = intent_digest(cache)
+        fingerprint = remote_cache_fingerprint(spec, volume)
     directory = output / ".runner" / "jobs"
     manifest = directory / (spec["service"] + ".json")
     with file_lock(directory):

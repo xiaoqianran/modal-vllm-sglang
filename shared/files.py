@@ -3,6 +3,7 @@ import hashlib
 import json
 import os
 import tempfile
+import time
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -38,6 +39,9 @@ def sha256_file(path):
 
 
 def download_volume_file(volume, remote_path, destination, *, expected_sha256=None, kind=None, refuse_existing=False):
+    started = time.perf_counter()
+    first_chunk_seconds = None
+    size = 0
     destination = Path(destination)
     destination.parent.mkdir(parents=True, exist_ok=True)
     fd, temporary = tempfile.mkstemp(prefix=destination.name + ".", suffix=".part", dir=destination.parent)
@@ -45,7 +49,10 @@ def download_volume_file(volume, remote_path, destination, *, expected_sha256=No
     try:
         with os.fdopen(fd, "wb") as stream:
             for chunk in volume.read_file(remote_path):
+                if first_chunk_seconds is None:
+                    first_chunk_seconds = time.perf_counter() - started
                 stream.write(chunk)
+                size += len(chunk)
         if expected_sha256 is not None and sha256_file(temp) != expected_sha256:
             raise ValueError("Downloaded content checksum mismatch")
         if kind is not None:
@@ -55,6 +62,10 @@ def download_volume_file(volume, remote_path, destination, *, expected_sha256=No
         if refuse_existing and destination.exists():
             raise FileExistsError(destination)
         os.replace(temp, destination)
+        seconds = time.perf_counter() - started
+        return {"downloaded_bytes": size, "seconds": seconds,
+                "first_chunk_seconds": first_chunk_seconds,
+                "mib_per_second": size / (1024 * 1024 * seconds) if seconds else 0}
     except BaseException:
         temp.unlink(missing_ok=True)
         raise

@@ -95,9 +95,13 @@ def verify_cache(spec, root=None):
     return paths, intent_digest(record)
 
 
-def prepare_cache(spec, volume, root=None, *, refresh=False):
+def prepare_cache(spec, volume, root=None, *, refresh=False, migrate_only=False):
     """Only called by the CPU downloader; a GPU startup never calls this."""
     root = Path(root) if root is not None else cache_root(spec)
+    if refresh and migrate_only:
+        raise ValueError("--refresh and --migrate-only are mutually exclusive")
+    if migrate_only and not (root / "model-ready.json").is_file():
+        raise RuntimeError("No existing cache manifest to migrate; no weights were downloaded")
     # Reuse the immutable prepared cache, including resolved commits for branch refs.
     if (root / "model-ready.json").exists() and not refresh:
         if "manifest_version" in read_json(root / "model-ready.json"):

@@ -56,9 +56,11 @@ Pika、MiniMax 替换目录名执行同样命令。普通任务无需重复 Depl
 没有任务时允许缩容至零，下次调用仍可能需要加载模型。
 
 现有模型保留旧 Volume 缓存目录：007-moss-image、009-pika-h3-flex、003-minimax-h3-image。
-新模型默认 models/<service>/。首次升级先运行 CPU 下载入口（不加 --refresh）：
+新模型默认 models/<service>/。首次升级先运行 CPU 入口的 `--migrate-only`（不加 --refresh）：
 旧清单经模型身份、快照路径、必需文件及文件大小校验后就地转换，不复制或下载权重。
 原清单保留为 model-ready.legacy.json；校验不通过时停止，不自动重新下载。
+`--migrate-only` 在清单缺失时也会停止；普通准备入口仅在没有清单时允许下载。
+`--check-only`、`--refresh`、`--migrate-only` 互斥。
 GPU 只接受新清单，因此必须先完成 CPU 转换再部署。详见 [升级说明](docs/unified-migration.md)。
 Hugging Face 组件记录实际解析的 snapshot；分支引用首次准备后复用已固定的缓存。
 显式更新或修复 HF 权重时使用 download_model.py --refresh；GPU 只验证和读取缓存，不下载权重。
@@ -109,7 +111,9 @@ project 默认等于 name，scene 默认 001-main。相对素材路径以仓库�
 各服务的提交收据分别位于 `outputs/.runner/jobs/moss.json`、
 `outputs/.runner/jobs/pika.json`、`outputs/.runner/jobs/minimax.json`。
 下载不会调用 GPU 生成；`--enqueue` 会提交付费生成，须预先准备缓存和部署云端服务。
-无参数的同步 `--task` 命令保留原有行为，其生成阶段不使用八路并发。
+同步 `--task` 的缓存恢复与生成结果下载也复用相同八线程收集器，生成阶段仍串行。
+下载并发与容器输入并发独立；`model.json` 的 `max_inputs` 默认 1，SDK 推理仍由锁串行化。
+提高 `max_inputs` 只允许更多请求进入容器，不会提高 GPU 推理并发。
 每个镜头的 .runner 元数据记录请求签名、实际模型缓存指纹及结果 SHA256。
 重复原命令：完整本地结果直接复用；缺失本地文件先从 Volume 恢复，缺失的镜头才提交 GPU。
 添加新镜头不改变已有镜头的云端目录。已存在但与签名或哈希不一致的文件拒绝覆盖。
@@ -138,3 +142,34 @@ uv run python -m unittest discover -s tests -v
 MOSS/Pika 镜像延续现有版本选择，Pika dev 镜像仍是可变标签，生产使用应固定经过验收的 digest。
 
 根目录和各模型使用 pyproject.toml 声明依赖，uv.lock 仅保存在本机、不提交 Git。
+
+## 7. 后续云端验收入口（本次未执行）
+
+```powershell
+# 仅 CPU，迁移已有缓存；不会下载模型权重
+uv run python -m modal run 002-pika-h3-flex/download_model.py --migrate-only
+uv run python -m modal run 005-minimax-h3-image/download_model.py --migrate-only
+# 部署后进行实时自检：会启动 GPU、加载模型，但不生成媒体
+uv run python 002-pika-h3-flex/run.py --check-deployment
+uv run python 005-minimax-h3-image/run.py --check-deployment
+# 只查看自检计划，无云端访问
+uv run python 002-pika-h3-flex/run.py --check-deployment --dry-run
+```
+
+自检校验部署配置签名、缓存指纹及异步接口版本，输出请求总耗时和容器内启动耗时。
+旧部署没有 `deployment_info()` 时会报错，需要重新部署；自检不能代替真实生成和断线恢复验收。
+
+`model_ready`、`generate_one_completed`、`batch_item_completed` 记录启动/执行耗时和资源快照。
+后台采样间隔由 `metrics_interval` 控制，默认 5 秒。RAM 和 CPU 使用 Linux cgroup v2 的
+容器统计（含引擎子进程）；显存使用 nvidia-smi，记录采样峰值，可能漏掉短暂尖峰。
+不支持的统计字段省略，采集不影响生成成功与否。资源峰值是容器生命周期统计，不是单请求独占统计。
+`startup_seconds` 从容器进入初始化开始计时，不含镜像拉取和平台排队；自检的
+`request_seconds` 包含客户端等待。结果元数据的 `execution_seconds` 包含请求、等待及响应获取，
+恢复视频时只代表本次恢复执行时间，不是模型纯推理速度。
+`download_completed` 输出首块等待、字节数、耗时和吞吐；`collect_summary` 输出批次吞吐。
+同步生成期间的收集统计包含等待生成结果的时间，比较纯下载性能请使用已完成任务的 `--collect --remote`。
+
+本次保留 Pika/MiniMax 的 CPU、RAM 配置。Pika 镜像仍为 dev：当前没有经过验证的
+Pika digest，不应把 MiniMax 的 digest 直接套用。获得验证版本后修改 Pika 的 `image`
+为 `lmsysorg/sglang@sha256:<digest>`，CPU 准备和 GPU 服务会共同采用该镜像；配置签名
+也随之改变，因此必须重新部署并使用新的任务身份验收。

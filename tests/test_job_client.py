@@ -113,6 +113,26 @@ class JobClientTests(unittest.TestCase):
         self.assertEqual(next(iter(jobs.values()))["status"], "uncertain")
         self.model.generate_one.spawn.assert_called_once()
 
+    def test_pika_and_minimax_lost_spawn_response_survives_client_restart(self):
+        for folder, service, operation in (('002-pika-h3-flex', 'pika', 't2va'),
+                                            ('005-minimax-h3-image', 'minimax', 't2i')):
+            with self.subTest(service=service), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                self.spec = validate(read_json(ROOT / folder / 'model.json'))
+                self.cache = {'version': 1, 'cache_spec': intent_digest(component_specs(self.spec))}
+                path = root / 'task.json'
+                atomic_json(path, {'version': 1, 'name': 'recovery', 'workflow': f'{service}-{operation}',
+                                   'items': [{'id': '001', 'prompt': 'boat'}]})
+                self.model.generate_one.spawn.reset_mock()
+                self.model.generate_one.spawn.side_effect = ConnectionError('lost response')
+                with self.assertRaises(ConnectionError):
+                    run_jobs(self.spec, [path], root=root)
+                jobs = run_jobs(self.spec, [path], root=root)
+                self.assertEqual(next(iter(jobs.values()))['status'], 'uncertain')
+                self.model.generate_one.spawn.assert_called_once()
+                receipt = read_json(root / f'outputs/.runner/jobs/{service}.json')
+                self.assertEqual(next(iter(receipt.values()))['status'], 'uncertain')
+
     def test_conflicting_files_fail_before_any_spawn(self):
         second = self.root / "second.json"
         task = read_json(self.task)
@@ -261,6 +281,66 @@ class JobClientTests(unittest.TestCase):
         self.assertEqual(maximum, 8)
         self.assertEqual(len(list((self.root / "outputs/demo/001-main").glob("*.png"))), 16)
         self.model.generate_one.spawn.assert_not_called()
+
+    def test_sync_downloads_use_eight_workers_for_cached_and_streamed_results(self):
+        from shared.model_service import load_task, prepare, run_task
+        for folder, service, operation, kind in (
+                ('001-moss-image', 'moss', 't2i', 'image'),
+                ('002-pika-h3-flex', 'pika', 't2va', 'video'),
+                ('005-minimax-h3-image', 'minimax', 't2i', 'image')):
+            self.spec = validate(read_json(ROOT / folder / 'model.json'))
+            self.cache = {'version': 1, 'cache_spec': intent_digest(component_specs(self.spec))}
+            for cached in (False, True):
+                with self.subTest(service=service, cached=cached), tempfile.TemporaryDirectory() as directory:
+                    root = Path(directory)
+                    path = root / 'task.json'
+                    atomic_json(path, {'version': 1, 'name': 'parallel', 'workflow': f'{service}-{operation}',
+                                       'items': [{'id': f'{i:03}', 'prompt': 'boat'} for i in range(12)]})
+                    project, scene, _, items = load_task(self.spec, path, root=root)
+                    prefix = f'model-results/{service}/{project}/{scene}/{operation}-{intent_digest(self.spec)[:20]}'
+                    suffix = '.mp4' if kind == 'video' else '.png'
+                    data = (b'\0\0\0\x20ftyp' if kind == 'video' else b'\x89PNG\r\n\x1a\n') + b'x' * 40
+                    files, records = {}, []
+                    for item in items:
+                        signature = prepare(self.spec, item)[1]
+                        record = {'id': item['id'], 'file': item['id'] + suffix, 'status': 'completed',
+                                  'intent_hash': signature,
+                                  'execution_hash': intent_digest({'intent': signature, 'cache': intent_digest(self.cache)}),
+                                  'sha256': hashlib.sha256(data).hexdigest()}
+                        records.append(record)
+                        files[f'/{prefix}/{record["file"]}'] = data
+                        if cached:
+                            files[f'/{prefix}/{item["id"]}.json'] = json.dumps(record).encode()
+                    active, maximum = 0, 0
+                    guard = threading.Lock()
+                    def read(remote):
+                        nonlocal active, maximum
+                        if remote.endswith('model-ready.json'):
+                            return [json.dumps(self.cache).encode()]
+                        if remote not in files:
+                            raise FileNotFoundError(remote)
+                        if remote.endswith(suffix):
+                            with guard:
+                                active += 1
+                                maximum = max(maximum, active)
+                            try:
+                                time.sleep(0.06)
+                            finally:
+                                with guard:
+                                    active -= 1
+                        return [files[remote]]
+                    volume = Mock()
+                    volume.read_file.side_effect = read
+                    with patch('shared.modal_setup.model_volume', return_value=volume), \
+                            patch('modal.Cls.from_name') as lookup:
+                        lookup.return_value.return_value.generate_batch_stream.remote_gen.return_value = iter(records)
+                        run_task(self.spec, path, root=root)
+                        if cached:
+                            lookup.assert_not_called()
+                        else:
+                            lookup.return_value.return_value.generate_batch_stream.remote_gen.assert_called_once()
+                    self.assertEqual(maximum, 8)
+                    self.assertEqual(len(list((root / 'outputs/parallel/001-main').glob('*' + suffix))), 12)
 
     def test_parallel_collect_preserves_successful_receipts_on_other_failure(self):
         self.write_task(count=2)

@@ -10,14 +10,15 @@ import hashlib
 import subprocess
 import threading
 import os
+import time
 from pathlib import Path
 
 from shared.batch import completed_output, intent_digest
-from shared.files import atomic_json, download_volume_file, read_json, sha256_file
+from shared.files import atomic_json, read_json, sha256_file
 from shared.media import image_format
 from shared.model_spec import parameters, validate, operation_spec, operations
-from shared.model_cache import cache_root, cache_directory, verify_cache, prepare_cache, command_argv, component_specs
-from shared.outputs import component, record_artifact
+from shared.model_cache import cache_directory, verify_cache, prepare_cache, command_argv
+from shared.outputs import component
 from shared.task_lifecycle import recovery_action, TERMINAL, SubmissionRejected
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -72,6 +73,7 @@ def execute(spec, items, prefix, volume, cache_fingerprint="unverified"):
     port = spec.get("proxy_port", spec.get("port", 8000) + 1)
     client = (VLLMImageClient if spec["kind"] == "image" else SGLangVideoClient)(f"http://127.0.0.1:{port}")
     for item, payload, signature in prepared:
+        started = time.perf_counter()
         metadata = folder / (item["id"] + ".json")
         old = read_json(metadata) if metadata.exists() else {}
         if old.get("intent_hash") not in (None, signature):
@@ -134,6 +136,7 @@ def execute(spec, items, prefix, volume, cache_fingerprint="unverified"):
         if target.exists() and sha256_file(target) != digest:
             raise FileExistsError(f"Refusing overwrite: {target}")
         record = {"id": item["id"], "file": target.name, "status": "collecting", "bytes": len(data),
+                  "execution_seconds": time.perf_counter() - started,
                   "intent_hash": signature, "execution_hash": execution_hash, "sha256": digest}
         if spec["kind"] == "video":
             record["job_id"] = job
@@ -177,32 +180,54 @@ def create_app(config_path):
              volumes={"/mnt/modal": volume}, min_containers=0, max_containers=1,
              scaledown_window=spec.get("scaledown_window", 30),
              startup_timeout=startup, timeout=spec.get("timeout", 14400))
-    @modal.concurrent(max_inputs=1 if spec["service"] == "moss" else 8)
+    @modal.concurrent(max_inputs=spec.get("max_inputs", 1))
     @class_name(spec.get("modal_class", "Model"))
     class Model:
         @modal.enter()
         def start(self):
+            from shared.metrics import ResourceMonitor
+            started = time.perf_counter()
             self.batch_lock = threading.Lock()
             self.stopping = threading.Event()
-            paths, self.cache_fingerprint = verify_cache(spec)
-            self.process = subprocess.Popen(command_argv(spec, paths))
+            self.resources = ResourceMonitor(interval=spec.get("metrics_interval", 5))
+            self.resources.start()
+            self.process = None
             self.gateway = None
             try:
+                paths, self.cache_fingerprint = verify_cache(spec)
+                self.process = subprocess.Popen(command_argv(spec, paths))
                 wait_for_health(self.process, f"http://127.0.0.1:{spec.get('port', 8000)}/health", timeout=startup - 60)
                 self.gateway = subprocess.Popen(["python", "-m", "shared.inference_gateway", "--config", "/opt/model.json"])
                 port = spec.get("proxy_port", spec.get("port", 8000) + 1)
                 wait_for_health(self.gateway, f"http://127.0.0.1:{port}/health", timeout=120)
             except BaseException:
+                self.resources.stop()
                 if self.gateway is not None:
                     stop_process(self.gateway)
-                stop_process(self.process)
+                if self.process is not None:
+                    stop_process(self.process)
                 raise
 
             self.monitor = monitor_processes((self.process, self.gateway), volume, label=spec["service"],
                               stopping=self.stopping, on_failure=lambda: os._exit(1))
+            self.startup_seconds = time.perf_counter() - started
             print(json.dumps({"event": "model_ready", "service": spec["service"],
                               "container": os.environ.get("MODAL_TASK_ID"),
-                              "cache_fingerprint": self.cache_fingerprint}), flush=True)
+                              "cache_fingerprint": self.cache_fingerprint,
+                              "startup_seconds": self.startup_seconds,
+                              "resources": self.resources.snapshot()}), flush=True)
+
+        @modal.method()
+        def deployment_info(self):
+            """Explicit live check: starts the GPU container, but generates no media."""
+            return {"service": spec["service"], "spec_hash": intent_digest(spec),
+                    "cache_fingerprint": self.cache_fingerprint,
+                    "methods": ["generate_one", "generate_batch_stream", "deployment_info"],
+                    "image": spec["image"], "max_inputs": spec.get("max_inputs", 1),
+                    "sdk_inference_concurrency": 1,
+                    "cpu": spec.get("cpu", 4), "memory": spec.get("memory", 32768),
+                    "startup_seconds": self.startup_seconds,
+                    "resources": self.resources.snapshot()}
 
         @modal.web_server(port=spec.get("proxy_port", spec.get("port", 8000) + 1),
                           label=spec.get("endpoint_label", spec["service"] + "-serve"), startup_timeout=startup, requires_proxy_auth=True)
@@ -211,16 +236,22 @@ def create_app(config_path):
 
         @modal.method()
         def generate_one(self, item, prefix, expected_cache_fingerprint, expected_spec_hash):
+            requested = time.perf_counter()
             if expected_spec_hash != intent_digest(spec):
                 raise RuntimeError("Local configuration differs from deployed model.json; deploy it first")
             if expected_cache_fingerprint != self.cache_fingerprint:
                 raise RuntimeError("Prepared model changed; restart with the current cache")
             with self.batch_lock:
+                started = time.perf_counter()
                 print(json.dumps({"event": "generate_one", "id": item["id"], "prefix": prefix,
                                   "container": os.environ.get("MODAL_TASK_ID"),
                                   "input": modal.current_input_id()}), flush=True)
                 record = next(execute(spec, [item], prefix, volume, self.cache_fingerprint))
                 print(json.dumps({"event": "generate_one_completed", "id": item["id"], "prefix": prefix,
+                                  "service": spec["service"],
+                                  "lock_wait_seconds": started - requested,
+                                  "execution_seconds": time.perf_counter() - started,
+                                  "resources": self.resources.snapshot(),
                                   "container": os.environ.get("MODAL_TASK_ID"),
                                   "input": modal.current_input_id()}), flush=True)
                 return record
@@ -232,10 +263,16 @@ def create_app(config_path):
             if expected_cache_fingerprint != self.cache_fingerprint:
                 raise RuntimeError("Prepared model changed; restart with the current cache")
             with self.batch_lock:
-                yield from execute(spec, items, prefix, volume, self.cache_fingerprint)
+                for record in execute(spec, items, prefix, volume, self.cache_fingerprint):
+                    print(json.dumps({"event": "batch_item_completed", "service": spec["service"],
+                                      "id": record["id"], "prefix": prefix,
+                                      "execution_seconds": record.get("execution_seconds"),
+                                      "resources": self.resources.snapshot()}), flush=True)
+                    yield record
 
         @modal.exit()
         def stop(self):
+            self.resources.stop()
             self.stopping.set()
             self.monitor.join(timeout=60)
 
@@ -256,8 +293,8 @@ def create_download_app(config_path):
 
     @app.function(name="download", image=image, serialized=True, cpu=4, memory=8192,
                   timeout=86400, volumes={"/mnt/modal": volume})
-    def download(refresh: bool = False):
-        return prepare_cache(spec, volume, refresh=refresh)
+    def download(refresh: bool = False, migrate_only: bool = False):
+        return prepare_cache(spec, volume, refresh=refresh, migrate_only=migrate_only)
 
     @app.function(name="check_cache", image=image, serialized=True, cpu=2, memory=8192,
                   timeout=600, volumes={"/mnt/modal": volume})
@@ -266,6 +303,12 @@ def create_download_app(config_path):
         return {"ready": True, "fingerprint": fingerprint}
 
     return app, download, check_cache
+
+
+def run_download_cli(download, check_cache, *, check_only=False, refresh=False, migrate_only=False):
+    if sum((check_only, refresh, migrate_only)) > 1:
+        raise ValueError("Choose only one of --check-only, --refresh, --migrate-only")
+    print(check_cache.remote() if check_only else download.remote(refresh=refresh, migrate_only=migrate_only))
 
 
 def load_task(spec, path, *, root=ROOT, limit=0):
@@ -334,35 +377,33 @@ def run_task(spec, path, *, root=ROOT, output=None, dry_run=False, limit=0):
         output_root = Path(root) / output_root
     folder = output_root / name / scene
     volume = model_volume()
-    try:
-        remote_cache = cache_directory(spec).removeprefix("/mnt/modal") + "/model-ready.json"
-        cache_record = json.loads(b"".join(volume.read_file(remote_cache)))
-    except FileNotFoundError as exc:
-        raise RuntimeError("Prepare the model on CPU with download_model.py first") from exc
-    if cache_record.get("version") != 1 or cache_record.get("cache_spec") != intent_digest(component_specs(spec)):
-        raise RuntimeError("Prepared cache differs from model.json; prepare it again on CPU with --refresh")
-    cache_fingerprint = intent_digest(cache_record)
+    from shared.job_client import remote_cache_fingerprint
+    cache_fingerprint = remote_cache_fingerprint(spec, volume)
     execution_hashes = {shot: intent_digest({"intent": signature, "cache": cache_fingerprint}) for shot, signature in plans.items()}
 
-    def receive(record):
-        shot = record["id"]
-        filename = record["file"]
-        if (shot not in plans or record.get("status") != "completed" or record.get("intent_hash") != plans[shot]
-                or record.get("execution_hash") != execution_hashes[shot]
-                or filename not in {shot + s for s in (".png", ".jpg", ".webp", ".mp4")}):
+    from shared.job_client import check_record, parallel_collect
+
+    def result_job(record):
+        shot = record.get("id")
+        if shot not in plans or record.get("status") != "completed":
             raise ValueError("Remote result does not match task/model")
-        target = folder / filename
-        if target.exists():
-            if sha256_file(target) != record["sha256"]:
-                raise FileExistsError(target)
-        else:
-            download_volume_file(volume, f"/{prefix}/{filename}", target,
-                                 expected_sha256=record["sha256"], kind=spec["kind"], refuse_existing=True)
-        atomic_json(folder / ".runner" / "items" / shot / spec["kind"] / "metadata.json", record)
-        record_artifact(folder, target, spec["kind"], source=f"/{prefix}/{filename}")
+        job = {"id": shot, "project": name, "scene": scene, "prefix": prefix,
+               "kind": spec["kind"], "intent_hash": plans[shot],
+               "execution_hash": execution_hashes[shot], "result": record}
+        check_record(job, record)
+        target = folder / record["file"]
+        if target.exists() and sha256_file(target) != record["sha256"]:
+            raise FileExistsError(target)
+        return job
+
+    def collect_results(jobs):
+        errors = parallel_collect(jobs, volume, output_root)
+        if errors:
+            raise errors[0]
 
     with file_lock(folder):
         pending = []
+        completed = []
         for item in items:
             shot = item["id"]
             metadata = folder / ".runner" / "items" / shot / spec["kind"] / "metadata.json"
@@ -380,7 +421,7 @@ def run_task(spec, path, *, root=ROOT, output=None, dry_run=False, limit=0):
                         raise FileExistsError(f"Existing unverified output: {shot}") from exc
                     if len(existing) != 1:
                         raise FileExistsError(f"Ambiguous output: {shot}")
-                    receive(recovered)
+                    completed.append(result_job(recovered))
                 continue
             try:
                 record = json.loads(b"".join(volume.read_file(f"/{prefix}/{shot}.json")))
@@ -388,13 +429,14 @@ def run_task(spec, path, *, root=ROOT, output=None, dry_run=False, limit=0):
                 pending.append(item)
                 continue
             if record.get("status") == "completed":
-                receive(record)
+                completed.append(result_job(record))
             else:
                 pending.append(item)
+        collect_results(completed)
         if pending:
             model = modal.Cls.from_name(spec.get("app_name", "modal-model-" + spec["service"]), spec.get("modal_class", "Model"))()
-            for record in model.generate_batch_stream.remote_gen(pending, prefix, cache_fingerprint, intent_digest(spec)):
-                receive(record)
+            collect_results(result_job(record) for record in model.generate_batch_stream.remote_gen(
+                pending, prefix, cache_fingerprint, intent_digest(spec)))
 
 
 def run_cli(config_path):
@@ -404,6 +446,8 @@ def run_cli(config_path):
     mode.add_argument("--enqueue", action="store_true")
     mode.add_argument("--status", action="store_true")
     mode.add_argument("--collect", action="store_true")
+    mode.add_argument("--check-deployment", action="store_true",
+                      help="Live GPU startup and deployment contract check; generates no media")
     parser.add_argument("--remote", action="store_true",
                         help="Collect by task metadata from Volume without a local job receipt")
     parser.add_argument("--output", type=Path)
@@ -417,6 +461,25 @@ def run_cli(config_path):
     if args.remote and not args.task:
         parser.error("--collect --remote requires --task")
     spec = validate(read_json(config_path))
+    if args.check_deployment:
+        if args.task or args.remote or args.limit or args.output:
+            parser.error("--check-deployment cannot be combined with task/download options")
+        if args.dry_run:
+            print(json.dumps({"mode": "check_deployment", "service": spec["service"], "starts_gpu": True}))
+            return
+        import modal
+        from shared.job_client import remote_cache_fingerprint
+        from shared.modal_setup import model_volume
+        fingerprint = remote_cache_fingerprint(spec, model_volume())
+        model = modal.Cls.from_name(spec.get("app_name", "modal-model-" + spec["service"]),
+                                    spec.get("modal_class", "Model"))()
+        started = time.perf_counter()
+        info = model.deployment_info.remote()
+        if (info.get("spec_hash") != intent_digest(spec) or info.get("cache_fingerprint") != fingerprint
+                or not {"generate_one", "generate_batch_stream"} <= set(info.get("methods", []))):
+            raise RuntimeError("Deployment contract mismatch; prepare cache and redeploy current code")
+        print(json.dumps({**info, "request_seconds": time.perf_counter() - started}, ensure_ascii=False))
+        return info
     if args.enqueue or args.status or args.collect:
         from shared.job_client import run_jobs
         if args.enqueue and not args.task:

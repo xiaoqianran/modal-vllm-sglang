@@ -12,21 +12,22 @@ Python 薄入口导出 `Model`，Modal 注册名由 `model.json` 的 `modal_clas
 2. 对三个模型分别执行 CPU 准备及检查：
 
 ```powershell
-uv run python -m modal run 001-moss-image/download_model.py
+uv run python -m modal run 001-moss-image/download_model.py --migrate-only
 uv run python -m modal run 001-moss-image/download_model.py --check-only
-uv run python -m modal run 002-pika-h3-flex/download_model.py
+uv run python -m modal run 002-pika-h3-flex/download_model.py --migrate-only
 uv run python -m modal run 002-pika-h3-flex/download_model.py --check-only
-uv run python -m modal run 005-minimax-h3-image/download_model.py
+uv run python -m modal run 005-minimax-h3-image/download_model.py --migrate-only
 uv run python -m modal run 005-minimax-h3-image/download_model.py --check-only
 ```
 
 存在旧清单时原地校验并转换，权重路径不变；所有组件通过校验才发布新清单。
-无缓存时普通准备会下载；已有缓存损坏时停止。`--refresh` 明确允许重新准备权重，不应用于普通格式迁移。
+`--migrate-only` 在清单缺失或已有缓存损坏时停止，绝不调用下载器。新环境需要下载时，使用不带该选项的普通准备入口。`--refresh` 明确允许重新准备权重，不应用于普通格式迁移。
 转换前的清单保存在同目录 `model-ready.legacy.json`。GPU 启动不执行迁移或下载。
 校验是文件列表和大小校验，不能检测同长度的内容损坏。
 
 3. CPU 检查成功后，分别 `uv run python -m modal deploy <模型目录>/app.py`。
-4. 用新 run.py 或 HTTP 入口做每模型单任务验收，再恢复正常使用。
+4. 用 `run.py --check-deployment` 核对新版接口、配置签名和缓存指纹（会启动 GPU，但不生成媒体）。
+5. 再用新 run.py 或 HTTP 入口做每模型单任务生成、客户端断线恢复与收集验收，再恢复正常使用。
 
 HTTP endpoint 标签保留旧值；部署后仍需从 Modal 输出核实实际 URL，核对环境变量 MOSS_ENDPOINT、PIKA_ENDPOINT、MINIMAX_ENDPOINT。
 网关无跨 SDK/HTTP 的生成锁。SDK 原有批次锁保留；共享引擎决定并发处理方式。
