@@ -65,7 +65,7 @@
   "cache": {
     "mode": "hf",
     "required_files": [
-      "config.json"
+      "model_index.json"
     ]
   },
   "cache_directory": "/mnt/modal/007-moss-image",

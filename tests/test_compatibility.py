@@ -22,7 +22,7 @@ class CompatibilityTests(unittest.TestCase):
         for name, config in component_specs(spec).items():
             relative = 'models--' + config['model'].replace('/', '--') + '/snapshots/' + (config['revision'] if config['revision'] != 'main' else 'a' * 40)
             path = root / ('sglang/materialized_models/pika' if service == 'pika' else 'hub/' + relative)
-            files = {'moss': ['config.json', 'weights.safetensors'], 'pika': ['model_index.json', '.sglang_overlay_materialized.json', 'weights.safetensors'], 'minimax': ['model_index.json', 'pdd_config.json', 'pdd_fused_heads.safetensors', 'transformer/w.safetensors', 'vae/w.safetensors'] if name == 'model' else ['text_encoder/w.safetensors']}[service]
+            files = {'moss': ['model_index.json', 'weights.safetensors'], 'pika': ['model_index.json', '.sglang_overlay_materialized.json', 'weights.safetensors'], 'minimax': ['model_index.json', 'pdd_config.json', 'pdd_fused_heads.safetensors', 'transformer/w.safetensors', 'vae/w.safetensors'] if name == 'model' else ['text_encoder/w.safetensors']}[service]
             for file in files:
                 target = path / file
                 target.parent.mkdir(parents=True, exist_ok=True)

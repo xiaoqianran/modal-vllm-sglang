@@ -59,7 +59,7 @@ class UnifiedModelsTests(unittest.TestCase):
             snapshot = root / "hub/snapshots/first"
             snapshot.mkdir(parents=True)
             (snapshot / "weights.safetensors").write_bytes(b"weights")
-            (snapshot / "config.json").write_text("{}")
+            (snapshot / "model_index.json").write_text("{}")
             download = Mock(return_value=str(snapshot))
             with patch.dict(sys.modules, {"huggingface_hub": SimpleNamespace(snapshot_download=download)}):
                 prepare_cache(spec, Mock(), root)
@@ -77,7 +77,7 @@ class UnifiedModelsTests(unittest.TestCase):
             snapshot = root / "hub/models--OpenMOSS-Team--MOSS-Image-SFT/snapshots/resolved-commit"
             snapshot.mkdir(parents=True)
             (snapshot / "weights.safetensors").write_bytes(b"weights")
-            (snapshot / "config.json").write_text("{}")
+            (snapshot / "model_index.json").write_text("{}")
             download = Mock(return_value=str(snapshot))
             with patch.dict(sys.modules, {"huggingface_hub": SimpleNamespace(snapshot_download=download)}):
                 volume = Mock()
