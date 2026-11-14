@@ -67,5 +67,8 @@
     "required_files": [
       "config.json"
     ]
-  }
+  },
+  "cache_directory": "/mnt/modal/007-moss-image",
+  "endpoint_label": "modal-forge-008-moss-image-serve",
+  "modal_class": "Moss"
 }

@@ -16,6 +16,6 @@ uv run python -m modal deploy 001-moss-image/app.py
 uv run python 001-moss-image/run.py --task tasks/003-stop-rain-001-rain-bus-stop.json
 ```
 
-下载器 --check-only 检查 CPU 缓存。模型统一注册为 Model Class，SDK 与私有 HTTP 共用引擎。
+下载器 --check-only 检查 CPU 缓存。模型保留部署名称 Moss Class，SDK 与私有 HTTP 共用引擎。
 完整任务格式、恢复机制与验证说明见 [根目录说明](../README.md)。
 本轮代码迁移没有触发云端部署或付费 GPU 验收。

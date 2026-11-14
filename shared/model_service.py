@@ -15,11 +15,18 @@ from shared.batch import completed_output, intent_digest
 from shared.files import atomic_json, download_volume_file, read_json, sha256_file
 from shared.media import image_format
 from shared.model_spec import parameters, validate, operation_spec, operations
-from shared.model_cache import cache_root, verify_cache, prepare_cache, command_argv, component_specs
+from shared.model_cache import cache_root, cache_directory, verify_cache, prepare_cache, command_argv, component_specs
 from shared.outputs import component, record_artifact
 from shared.task_lifecycle import recovery_action, TERMINAL, SubmissionRejected
 
 ROOT = Path(__file__).resolve().parent.parent
+
+
+def class_name(name):
+    def decorate(cls):
+        cls.__name__ = name
+        return cls
+    return decorate
 
 
 def media_suffix(data, kind):
@@ -142,7 +149,7 @@ def execute(spec, items, prefix, volume, cache_fingerprint="unverified"):
 
 def build_image(spec, *, offline):
     from shared.modal_setup import runtime_image
-    root = cache_root(spec).as_posix()
+    root = cache_directory(spec)
     env = {**spec.get("env", {}), "HF_HOME": root,
            "SGLANG_DIFFUSION_CACHE_ROOT": root + "/sglang"}
     if offline:
@@ -170,6 +177,7 @@ def create_app(config_path):
              scaledown_window=spec.get("scaledown_window", 30),
              startup_timeout=startup, timeout=spec.get("timeout", 14400))
     @modal.concurrent(max_inputs=8)
+    @class_name(spec.get("modal_class", "Model"))
     class Model:
         @modal.enter()
         def start(self):
@@ -189,7 +197,7 @@ def create_app(config_path):
                 raise
 
         @modal.web_server(port=spec.get("proxy_port", spec.get("port", 8000) + 1),
-                          label=spec["service"] + "-serve", startup_timeout=startup, requires_proxy_auth=True)
+                          label=spec.get("endpoint_label", spec["service"] + "-serve"), startup_timeout=startup, requires_proxy_auth=True)
         def serve(self):
             pass
 
@@ -305,7 +313,8 @@ def run_task(spec, path, *, root=ROOT, output=None, dry_run=False, limit=0):
     folder = output_root / name / scene
     volume = model_volume()
     try:
-        cache_record = json.loads(b"".join(volume.read_file(f"/models/{spec['service']}/model-ready.json")))
+        remote_cache = cache_directory(spec).removeprefix("/mnt/modal") + "/model-ready.json"
+        cache_record = json.loads(b"".join(volume.read_file(remote_cache)))
     except FileNotFoundError as exc:
         raise RuntimeError("Prepare the model on CPU with download_model.py first") from exc
     if cache_record.get("version") != 1 or cache_record.get("cache_spec") != intent_digest(component_specs(spec)):
@@ -361,7 +370,7 @@ def run_task(spec, path, *, root=ROOT, output=None, dry_run=False, limit=0):
             else:
                 pending.append(item)
         if pending:
-            model = modal.Cls.from_name(spec.get("app_name", "modal-model-" + spec["service"]), "Model")()
+            model = modal.Cls.from_name(spec.get("app_name", "modal-model-" + spec["service"]), spec.get("modal_class", "Model"))()
             for record in model.generate_batch_stream.remote_gen(pending, prefix, cache_fingerprint, intent_digest(spec)):
                 receive(record)
 

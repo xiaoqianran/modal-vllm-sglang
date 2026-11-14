@@ -53,6 +53,12 @@ def validate(spec):
         if not isinstance(spec[key], str) or not spec[key].strip():
             raise ValueError(f"Missing {key}")
     validate_revision(spec["revision"])
+    if "cache_directory" in spec:
+        from pathlib import PurePosixPath
+        directory = PurePosixPath(spec["cache_directory"])
+        if (not directory.is_absolute() or ".." in directory.parts or "\\" in str(directory)
+                or not directory.is_relative_to("/mnt/modal") or str(directory) == "/mnt/modal"):
+            raise ValueError("cache_directory must be inside /mnt/modal")
     if not isinstance(spec["command"], list) or not spec["command"] or not all(isinstance(x, str) for x in spec["command"]):
         raise ValueError("command must be a nonempty argv list")
     if not isinstance(spec["defaults"], dict) or not isinstance(spec["options"], dict):
@@ -118,6 +124,8 @@ def parameters(spec, supplied, operation=None):
     if not isinstance(supplied, dict) or supplied.keys() - spec["options"].keys():
         raise ValueError("Unsupported model parameters")
     result = {"model": spec["model"], **copy.deepcopy(spec["defaults"]), **copy.deepcopy(supplied)}
+    if spec.get("validator") == "pika" and "seconds" in supplied and "target" not in supplied:
+        result["target"]["duration_seconds"] = supplied["seconds"]
     for key, rule in spec["options"].items():
         if key not in result:
             continue

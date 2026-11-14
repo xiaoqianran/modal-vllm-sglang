@@ -46,8 +46,8 @@ class UnifiedModelsTests(unittest.TestCase):
         with patch("shared.modal_setup.runtime_image") as factory:
             build_image(SPECS["pika.t2va"], offline=True)
             env = factory.call_args.kwargs["env"]
-            self.assertEqual(env["HF_HOME"], "/mnt/modal/models/pika")
-            self.assertEqual(env["SGLANG_DIFFUSION_CACHE_ROOT"], "/mnt/modal/models/pika/sglang")
+            self.assertEqual(env["HF_HOME"], "/mnt/modal/009-pika-h3-flex")
+            self.assertEqual(env["SGLANG_DIFFUSION_CACHE_ROOT"], "/mnt/modal/009-pika-h3-flex/sglang")
             self.assertEqual(env["HF_HUB_OFFLINE"], "1")
             build_image(SPECS["pika.t2va"], offline=False)
             self.assertEqual(factory.call_args.kwargs["env"]["HF_HUB_OFFLINE"], "0")
@@ -127,7 +127,7 @@ class UnifiedModelsTests(unittest.TestCase):
     def test_invalid_model_params_rejected_by_both_entrypoints(self):
         for capability, overrides in (("moss.t2i", {"typo": 1}), ("moss.t2i", {"guidance_scale": 0}),
                 ("minimax.t2i", {"size": "1024x1024"}), ("minimax.t2i", {"num_inference_steps": True}),
-                ("pika.t2va", {"num_inference_steps": 7}), ("pika.t2va", {"seconds": 6})):
+                ("pika.t2va", {"num_inference_steps": 7}), ("pika.t2va", {"seconds": 4})):
             spec = SPECS[capability]
             with self.subTest(capability=capability, params=overrides):
                 with self.assertRaises(ValueError):

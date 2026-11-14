@@ -85,5 +85,8 @@
       "model_index.json",
       ".sglang_overlay_materialized.json"
     ]
-  }
+  },
+  "cache_directory": "/mnt/modal/009-pika-h3-flex",
+  "endpoint_label": "modal-forge-009-pika-h3-flex-fl2va-serve",
+  "modal_class": "Pika"
 }

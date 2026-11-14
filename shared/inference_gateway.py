@@ -14,8 +14,6 @@ from pathlib import Path
 from shared.media import image_format
 from shared.model_spec import operations, operation_spec, parameters
 from shared.files import read_json
-from shared.generation_gate import GenerationGate
-from shared.inference_api import SGLangVideoClient
 
 SPEC = None
 SG_PORT, PROXY_PORT = 30010, 30011
@@ -131,16 +129,6 @@ class Handler(BaseHTTPRequestHandler):
             UPSTREAM + self.path, data=body, method=method,
             headers={"Content-Type": "application/json"} if body else {},
         )
-        gate = self.server.generation_gate
-        if method == "POST":
-            client = SGLangVideoClient(UPSTREAM)
-            try:
-                admitted = gate.acquire(lambda job: client.status(job, timeout=10, attempts=1).get("status"))
-            except Exception:
-                return self._fail(503, "Cannot confirm previous generation status; submission not forwarded", rejected=True)
-            if not admitted:
-                return self._fail(409, "Generation busy or acceptance unknown; submission not forwarded", rejected=True)
-        completed, job_id = False, None
         try:
             try:
                 upstream = urllib.request.urlopen(req, timeout=SPEC.get("timeout", 7200))
@@ -152,23 +140,15 @@ class Handler(BaseHTTPRequestHandler):
                     code = upstream.status
                     content_type = upstream.headers.get("Content-Type", "application/json")
                 # Read the complete engine response before replying to the caller.
-                # A disconnected caller cannot prevent tracking a returned video ID.
+                # Reject malformed success responses without inventing a task ID.
                 if 200 <= code < 300:
                     if SPEC["kind"] == "video":
                         result = json.loads(response)
                         value = result.get("id") if isinstance(result, dict) else None
                         if type(value) not in (str, int) or not str(value).strip():
                             raise ValueError("Video submission response has no id")
-                        job_id = str(value)
-                    else:
-                        completed = True
-                elif code in {400, 401, 403, 404, 405, 413, 422, 429}:
-                    completed = True  # Explicit rejection; no generation accepted.
         except (OSError, ValueError, urllib.error.URLError):
             return self._fail(503, "Engine response unavailable; generation acceptance may be unknown")
-        finally:
-            if method == "POST":
-                gate.finish(completed=completed, job_id=job_id)
         if method == "POST":
             self.send_response(code)
             self.send_header("Content-Type", content_type)
@@ -231,7 +211,6 @@ def main():
 
     threading.Thread(target=clean_expired_frames, daemon=True).start()
     server = ThreadingHTTPServer(("0.0.0.0", PROXY_PORT), Handler)
-    server.generation_gate = GenerationGate()
     server.serve_forever()
 
 

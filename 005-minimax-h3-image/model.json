@@ -79,5 +79,8 @@
         "text_encoder/*.safetensors"
       ]
     }
-  }
+  },
+  "cache_directory": "/mnt/modal/003-minimax-h3-image",
+  "endpoint_label": "modal-forge-005-minimax-h3-image-serve",
+  "modal_class": "H3"
 }

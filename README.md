@@ -50,13 +50,16 @@ uv run python -m modal deploy 001-moss-image/app.py
 
 Pika、MiniMax 替换目录名执行同样命令。普通任务无需重复 Deploy。
 修改 model.json 或 shared 中的云端代码后，需要重新 Deploy。
-所有模型使用 Model Class，单容器、SDK 批次内串行；私有 HTTP 与 SDK 统一经过公共生成网关。
-同一模型一次只执行一个生成任务，视频提交返回 ID 后仍占用名额，直到确认远端任务结束。
-查询和下载不占生成名额。忙碌时新提交明确拒绝，任务保持 pending，可稍后重新运行；不自动重试 POST。
-若引擎可能已接受请求但没有返回 ID，网关保持阻塞，需要核查任务并重启整个模型容器，不能单独重启网关解锁。
+三个模型保留部署 Class 名称 Moss、Pika、H3，使用同一套公共实现；新模型默认 Model。
+单容器内 SDK 批次串行；私有 HTTP 与 SDK 共用生成网关，但网关不额外限制生成并发。
+查询与下载可以独立转发。POST 不自动重试；提交结果不明时，由各任务日志阻止该任务重复提交。
 没有任务时允许缩容至零，下次调用仍可能需要加载模型。
 
-CPU 缓存统一为 Modal Volume modal-forge 下的 models/<service>/。
+现有模型保留旧 Volume 缓存目录：007-moss-image、009-pika-h3-flex、003-minimax-h3-image。
+新模型默认 models/<service>/。首次升级先运行 CPU 下载入口（不加 --refresh）：
+旧清单经模型身份、快照路径、必需文件及文件大小校验后就地转换，不复制或下载权重。
+原清单保留为 model-ready.legacy.json；校验不通过时停止，不自动重新下载。
+GPU 只接受新清单，因此必须先完成 CPU 转换再部署。详见 [升级说明](docs/unified-migration.md)。
 Hugging Face 组件记录实际解析的 snapshot；分支引用首次准备后复用已固定的缓存。
 显式更新或修复 HF 权重时使用 download_model.py --refresh；GPU 只验证和读取缓存，不下载权重。
 Pika 使用引擎 Overlay 注册表物化基础组件，CPU 与 GPU 使用相同镜像。

@@ -40,9 +40,10 @@ def sha256_file(path):
 def download_volume_file(volume, remote_path, destination, *, expected_sha256=None, kind=None, refuse_existing=False):
     destination = Path(destination)
     destination.parent.mkdir(parents=True, exist_ok=True)
-    temp = destination.with_suffix(destination.suffix + ".part")
+    fd, temporary = tempfile.mkstemp(prefix=destination.name + ".", suffix=".part", dir=destination.parent)
+    temp = Path(temporary)
     try:
-        with temp.open("wb") as stream:
+        with os.fdopen(fd, "wb") as stream:
             for chunk in volume.read_file(remote_path):
                 stream.write(chunk)
         if expected_sha256 is not None and sha256_file(temp) != expected_sha256:
