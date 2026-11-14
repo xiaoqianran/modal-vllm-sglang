@@ -301,7 +301,7 @@ def create_download_app(config_path):
     if spec.get("cache", {}).get("mode") == "sglang_overlay":
         image = build_image(spec, offline=False)
     else:
-        image = modal.Image.debian_slim(python_version="3.11").pip_install("huggingface_hub>=0.30,<2", "hf_xet")
+        image = modal.Image.debian_slim(python_version="3.12").pip_install("huggingface_hub>=0.30,<2", "hf_xet")
         image = image.env({"PYTHONPATH": "/opt"}).add_local_dir(str(Path(__file__).parent), "/opt/shared", copy=False)
 
     @app.function(name="download", image=image, serialized=True, cpu=4, memory=8192,
