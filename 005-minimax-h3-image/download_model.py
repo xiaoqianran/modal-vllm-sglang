@@ -12,7 +12,7 @@ from shared.files import atomic_json
 from shared.modal_setup import model_volume
 
 volume = model_volume()
-app = modal.App("modal-forge-003-minimax-h3-image-download")
+app = modal.App("modal-forge-005-minimax-h3-image-download")
 image = (modal.Image.debian_slim(python_version="3.11")
          .pip_install("huggingface_hub>=0.30,<2", "hf_xet")
          .env({"HF_HOME": HF_HOME, "PYTHONPATH": "/opt/minimax:/opt"})

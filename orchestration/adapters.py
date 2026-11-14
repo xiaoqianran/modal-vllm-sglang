@@ -4,6 +4,7 @@ import copy
 import re
 
 from shared.inference_api import SGLangVideoClient, VLLMImageClient
+from shared.minimax_params import parameters as minimax_parameters
 from orchestration.state import image_format, local_path, valid
 
 VERSION = 1
@@ -27,21 +28,7 @@ def parameters(uses, supplied):
     if not isinstance(supplied, dict):
         raise ValueError("params must be an object")
     if uses == "minimax.t2i":
-        result = {"model": "MiniMaxAI/MiniMax-H3-Image", "size": "2048x2048",
-                  "num_inference_steps": 6, "generator_device": "cpu", "response_format": "b64_json"}
-        if supplied.keys() - {"size", "num_inference_steps"}:
-            raise ValueError("MiniMax supports size and num_inference_steps only")
-        result.update(copy.deepcopy(supplied))
-        integer(result["num_inference_steps"], "num_inference_steps", 1)
-        if result["num_inference_steps"] != 6:
-            raise ValueError("MiniMax H3 Image requires exactly 6 steps")
-        size = result["size"]
-        if not isinstance(size, str) or not re.fullmatch(r"[1-9][0-9]*x[1-9][0-9]*", size):
-            raise ValueError("size must be WIDTHxHEIGHT")
-        width, height = map(int, size.split("x"))
-        if width % 32 or height % 32 or not 4194304 <= width * height <= 20971520:
-            raise ValueError("MiniMax size must be aligned to 32 pixels and between 4 and 20 MP")
-        return result
+        return minimax_parameters(supplied)
     if uses == "moss.t2i":
         result = {"model": "OpenMOSS-Team/MOSS-Image-SFT", "size": "1024x1024", "n": 1,
                   "num_inference_steps": 50, "guidance_scale": 3.0, "flow_shift": 5.0,

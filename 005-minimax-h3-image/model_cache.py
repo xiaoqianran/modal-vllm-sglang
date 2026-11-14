@@ -6,8 +6,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from shared.cache import file_inventory
+from shared.minimax_params import MODEL
 
-MODEL = "MiniMaxAI/MiniMax-H3-Image"
+SGLANG_REVISION = "a9d721f36e16dab1835de0203b620256da1e612d"
 MODEL_REVISION = "5f90473023975e6271b0ed1dd84c4e88e4bbc6d3"
 ENCODER = "MiniMaxAI/MiniMax-H3"
 ENCODER_REVISION = "0919fb684102ef115126612f3fbb84d1027e7317"

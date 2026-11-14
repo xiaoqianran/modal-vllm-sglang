@@ -12,7 +12,7 @@ from unittest.mock import patch
 from orchestration import adapters, runner
 from shared.cache import file_inventory
 
-spec = importlib.util.spec_from_file_location("minimax_cache", runner.ROOT / "003-minimax-h3-image/model_cache.py")
+spec = importlib.util.spec_from_file_location("minimax_cache", runner.ROOT / "005-minimax-h3-image/model_cache.py")
 cache = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(cache)
 
@@ -33,7 +33,7 @@ class MiniMaxTests(unittest.TestCase):
             for name in ("tasks", "workflows"):
                 shutil.copytree(runner.ROOT / name, root / name)
             shutil.copy(runner.ROOT / "endpoints.example.json", root)
-            plan = runner.build_plan("tasks/003-minimax-image-demo.json", root=root)
+            plan = runner.build_plan("tasks/005-minimax-image-demo.json", root=root)
             self.assertEqual(plan["jobs"][0]["params"]["num_inference_steps"], 6)
             png = b"\x89PNG\r\n\x1a\n" + b"test" * 20
             env = {"MINIMAX_ENDPOINT": "http://minimax.test", "MINIMAX_MODAL_KEY": "key",
