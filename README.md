@@ -15,14 +15,14 @@
 
 ## Python 依赖与 uv
 
-根目录及每个模型目录是独立的本地 Python 项目：各自的 `pyproject.toml` 声明依赖范围，各自的 `uv.lock` 固定解析后的版本。**不要把 `uv.lock` 加入 `.gitignore`**，它应与对应的 `pyproject.toml` 一起提交。
+根目录和三个模型目录各有一份 `pyproject.toml`，负责声明依赖及版本范围。**本项目不向 Git 提交 `uv.lock`**：四份 Lockfile 仅保留在本机，并通过 `.gitignore` 忽略，避免将某个地区的镜像站下载地址固定到共享仓库。
 
-- 在仓库根目录执行 `uv sync`：读取根目录 `pyproject.toml` 和 `uv.lock`，准备本地编排器/SDK 环境。
-- 在模型目录执行 `uv sync`：读取该模型自己的 `pyproject.toml` 和 `uv.lock`，准备该模型的本地 Modal CLI 环境。
-- 从任意目录明确选择项目：`uv sync --project 001-moss-image`。
-- CI 或希望严格验证提交依赖：`uv sync --locked`；如果 lock 与 pyproject 不一致就报错，不会静默改写。
+- 根目录运行 `uv sync`：基于本项目的 `pyproject.toml` 和本地 `uv.lock` 创建或同步环境；缺少 Lockfile 会自动生成。
+- 模型目录运行 `uv sync`，或者从根目录执行 `uv sync --project 001-moss-image`：分别处理该模型自己的配置和本地 Lockfile。
+- 不同地区使用各自的 `uv` 镜像配置。若已有 Lockfile 仍引用旧镜像站，可在对应项目**本地**删除 `uv.lock` 再执行 `uv sync` 重新解析。
+- `uv sync --locked` 仅适用于本地已有且与配置一致的 Lockfile；本仓库不提交 Lockfile，因此首次检出或 CI 应先正常执行 `uv sync`。
 
-`pyproject.toml` 是依赖声明来源；有有效 `uv.lock` 时，`uv sync` 按 lock 安装精确版本。缺少或过期的 lock 会被重新解析并更新。云端 GPU 镜像仍由各自 `app.py` 构建，不能把本地 Modal CLI 环境等同于 GPU 镜像依赖。
+`pyproject.toml` 仍是依赖声明的来源；`uv sync` 在本地 Lockfile 可用时使用已锁定的精确版本，缺少或过期时重新解析。该策略便于跨地区镜像源切换，代价是不同机器不保证安装完全一致的依赖版本。云端 GPU 镜像仍由各自 `app.py` 构建。
 
 MOSS 现已从原来两个独立 GPU 函数改为一个 `Moss` Class，避免同时调用 HTTP 和 SDK 时分别启动 RTX PRO 6000。**只修改了 PC2 本地代码，云端仍在执行的旧版任务不会自动改变。任务完成后才应重新 Deploy**；这个 Class 改造仍需真实 GPU 验证。
 
