@@ -1,17 +1,15 @@
 """CPU-only resume and integrity tests for the MOSS single-batch runner."""
 import hashlib
 import importlib.util
-from importlib.machinery import ModuleSpec
 import json
 from pathlib import Path
 import tempfile
 import unittest
-from contextlib import nullcontext
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parent.parent
 spec = importlib.util.spec_from_file_location(
-    "moss_resume_under_test", ROOT / "scripts" / "generate_again_love_v3.py"
+    "moss_resume_under_test", ROOT / "001-moss-image" / "run.py"
 )
 runner = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(runner)
@@ -120,19 +118,13 @@ class StoryboardResumeTests(unittest.TestCase):
         self_data = {shot["id"]: data
                      for shot, data in zip(self.shots, (self.data, data2))}
 
-        class FakeLoader:
-            def create_module(self, spec):
-                return None
+        class FakeCls:
+            def __call__(self):
+                return type("Instance", (), {"generate_batch_stream": FakeStream()})()
 
-            def exec_module(self, module):
-                module.volume = volume
-                module.GPU = "fake"
-                module.app = type("App", (), {"run": lambda self: nullcontext()})()
-                module.generate_batch_stream = FakeStream()
-
-        fake_spec = ModuleSpec("fake_moss_backend", FakeLoader())
-        with patch.object(runner, "ROOT", self.root), patch.object(
-                runner.importlib.util, "spec_from_file_location", return_value=fake_spec):
+        with patch.object(runner, "ROOT", self.root), \
+             patch("shared.modal_setup.model_volume", return_value=volume), \
+             patch("modal.Cls.from_name", return_value=FakeCls()):
             with self.assertRaises(ConnectionError):
                 runner.run("my-drama", [self.task_path])
             self.assertEqual(len(runner.select_pending(self.base, self.shots)), 1)
@@ -142,6 +134,41 @@ class StoryboardResumeTests(unittest.TestCase):
                                      ["001-first__002"]])
             status = json.loads((self.base / ".runner" / "moss-v3-progress.json").read_text())
             self.assertEqual(status["status"], "completed")
+
+    def test_deployed_uses_modal_lookup_and_no_second_generation(self):
+        """SDK lookup is the sole inference path, with verified local reuse."""
+        volume = FakeVolume({
+            f"/{self.prefix}/{shot['id']}.png": self.data for shot in self.shots
+        })
+        calls = []
+        image_data = self.data
+
+        class FakeStream:
+            def remote_gen(self, pending, prefix):
+                calls.append((pending, prefix))
+                yield {"status": "ready", "total": len(pending), "gpu": "fake"}
+                for shot in pending:
+                    yield {"status": "ok", "id": shot["id"],
+                           "file": shot["id"] + ".png",
+                           "sha256": hashlib.sha256(image_data).hexdigest()}
+                yield {"status": "finished", "total": len(pending)}
+
+        class FakeCls:
+            def __call__(self):
+                return type("Instance", (), {"generate_batch_stream": FakeStream()})()
+
+        with patch.object(runner, "ROOT", self.root), \
+             patch("shared.modal_setup.model_volume", return_value=volume), \
+             patch("modal.Cls.from_name", return_value=FakeCls()) as lookup:
+            runner.run("my-drama", [self.task_path])
+            lookup.assert_called_once_with(
+                "modal-forge-008-moss-image", "Moss"
+            )
+            self.assertEqual(len(calls), 1)
+            self.assertEqual(calls[0][1], self.prefix)
+            self.assertFalse(runner.select_pending(self.base, self.shots))
+            runner.run("my-drama", [self.task_path])
+            lookup.assert_called_once()
 
 
 if __name__ == "__main__":

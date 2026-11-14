@@ -1,16 +1,12 @@
-"""Resumable MOSS storyboard batch: one GPU session, streaming downloads, stable checkpoints.
+"""MOSS: run JSON storyboard tasks on the already deployed Modal Class.
 
 Examples:
-    uv run --project 001-moss-image python scripts/generate_again_love_v3.py
-    uv run --project 001-moss-image python scripts/generate_again_love_v3.py --dry-run
-    uv run --project 001-moss-image python scripts/generate_again_love_v3.py --recover-prefix PREFIX
-
-Future drama: --project my-drama --task tasks/my-drama-scene-001.json --task ...
+    uv run python 001-moss-image/run.py --project my-drama --task tasks/my-drama-001.json
+    uv run python 001-moss-image/run.py --project my-drama --task tasks/my-drama-001.json --dry-run
 """
 import argparse
 from contextlib import contextmanager
 import hashlib
-import importlib.util
 import json
 import os
 from pathlib import Path
@@ -18,15 +14,8 @@ import sys
 from datetime import datetime, timezone
 
 ROOT = Path(__file__).resolve().parent.parent
-MODEL_DIR = ROOT / "001-moss-image"
-sys.path[:0] = [str(ROOT), str(MODEL_DIR)]
+sys.path.insert(0, str(ROOT))
 from shared.files import atomic_json, download_volume_file, read_json, sha256_file
-
-DEFAULT_TASKS = [ROOT / "tasks" / ("002-again-love-" + scene + ".json")
-                 for scene in ("001-hotel-corridor", "002-social-media",
-                               "003-apartment-distance", "004-lip-reading",
-                               "005-hidden-video")]
-
 
 def moment():
     return datetime.now(timezone.utc).isoformat()
@@ -180,43 +169,43 @@ def run(project, paths, *, dry_run=False, recover_prefix=None):
               f"pending={len(pending)} stable_prefix={prefix}", flush=True)
         if dry_run or not pending:
             return
-        # Only import Modal when an actual remote fetch or GPU call is necessary.
-        spec = importlib.util.spec_from_file_location("moss_stream_backend", MODEL_DIR / "batch_storyboard.py")
-        backend = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(backend)
+        # A single, deployed Modal App supplies both the SDK batch and HTTP API.
+        import modal
+        from shared.modal_setup import model_volume
+        volume = model_volume()
         by_id = {shot["id"]: shot for shot in shots}
         state_path = base / ".runner" / "moss-v3-progress.json"
         state = {"project": project, "total": len(shots), "prefix": prefix,
                  "started_utc": moment(), "status": "running", "last_event": None}
         atomic_json(state_path, state)
         if recover_prefix:
-            recovered = recover_legacy(backend.volume, recover_prefix.strip("/"), base, pending)
+            recovered = recover_legacy(volume, recover_prefix.strip("/"), base, pending)
             print(f"RECOVERED_FROM_LEGACY={recovered}", flush=True)
             pending = select_pending(base, shots)
         if not pending:
             state.update(status="completed", local_done=len(shots), updated_utc=moment())
             atomic_json(state_path, state)
             return
-        print(f"MODAL_SUBMIT pending={len(pending)} GPU={backend.GPU}; one function, one model startup", flush=True)
+        model = modal.Cls.from_name("modal-forge-008-moss-image", "Moss")()
+        print(f"MODAL_SUBMIT pending={len(pending)} APP=modal-forge-008-moss-image; one shared GPU Class", flush=True)
         print("WAITING_FOR_GPU_OR_MODEL (no remote log before worker allocation)", flush=True)
         errors = []
         try:
-            with backend.app.run():
-                for event in backend.generate_batch_stream.remote_gen(
-                        [{"id": s["id"], "prompt": s["prompt"]} for s in pending], prefix):
-                    status = event["status"]
-                    state["last_event"] = event
-                    if status in ("ok", "skipped"):
-                        shot = by_id[event["id"]]
-                        receive_image(backend.volume, prefix, base, shot, event)
-                    elif status == "error":
-                        errors.append(event)
-                        print(f"SHOT_ERROR {event['id']} {event.get('error')}", flush=True)
-                    else:
-                        print(f"REMOTE_{status.upper()} {json.dumps(event, ensure_ascii=False)}", flush=True)
-                    state.update(local_done=len(shots)-len(select_pending(base, shots)),
-                                 updated_utc=moment(), remote_errors=errors)
-                    atomic_json(state_path, state)
+            for event in model.generate_batch_stream.remote_gen(
+                    [{"id": s["id"], "prompt": s["prompt"]} for s in pending], prefix):
+                status = event["status"]
+                state["last_event"] = event
+                if status in ("ok", "skipped"):
+                    shot = by_id[event["id"]]
+                    receive_image(volume, prefix, base, shot, event)
+                elif status == "error":
+                    errors.append(event)
+                    print(f"SHOT_ERROR {event['id']} {event.get('error')}", flush=True)
+                else:
+                    print(f"REMOTE_{status.upper()} {json.dumps(event, ensure_ascii=False)}", flush=True)
+                state.update(local_done=len(shots)-len(select_pending(base, shots)),
+                             updated_utc=moment(), remote_errors=errors)
+                atomic_json(state_path, state)
         except BaseException as exc:
             state.update(status="interrupted", error=str(exc), updated_utc=moment())
             atomic_json(state_path, state)
@@ -234,12 +223,14 @@ def run(project, paths, *, dry_run=False, recover_prefix=None):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--project", default="002-again-love")
-    parser.add_argument("--task", action="append", type=Path, help="JSON scene task; repeatable")
+    parser.add_argument("--project", help="Optional project override; inferred from first JSON")
+    parser.add_argument("--task", action="append", type=Path, required=True,
+                        help="JSON scene task, repeatable; no implicit GPU batch")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--recover-prefix", help="Recover verified images from an earlier remote prefix")
     args = parser.parse_args()
-    run(args.project, args.task or DEFAULT_TASKS,
+    project = args.project or read_json(args.task[0])["project"]
+    run(project, args.task,
         dry_run=args.dry_run, recover_prefix=args.recover_prefix)
 
 

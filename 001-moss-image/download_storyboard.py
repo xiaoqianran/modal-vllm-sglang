@@ -1,4 +1,4 @@
-"""Download one explicitly selected storyboard report, without GPU inference."""
+"""Read-only legacy storyboard report downloader; never starts GPU inference."""
 import argparse
 from pathlib import Path
 import sys

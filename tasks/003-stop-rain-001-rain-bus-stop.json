@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "name": "003-stop-rain-001-rain-bus-stop",
+  "project": "003-stop-rain",
+  "scene": "001-rain-bus-stop",
+  "workflow": "moss-t2i",
+  "items": [
+    {
+      "id": "001",
+      "prompt": "Original hand-painted 2D animated film frame, mature naturalistic Chinese young-adult character designs where people appear, delicate expressive linework, painterly organic textures and atmospheric depth. Square 1:1 frame. Macro shot of a single bead of rain suspended from a serrated ginkgo leaf. Inside its lens-shaped reflection a tiny provincial town and a cream-and-green bus appear upside down. Almost no sky visible; layered emerald leaves form a dark natural vignette. Backlight scatters through the droplet into a clean white rim; buttery yellow morning bokeh remains far behind. Meticulous surface tension and restrained wonder. Avoid visible lettering, subtitles, logos, neon and cyberpunk visuals."
+    },
+    {
+      "id": "002",
+      "prompt": "Original hand-painted 2D animated film frame, mature naturalistic Chinese young-adult character designs where people appear, delicate expressive linework, painterly organic textures and atmospheric depth. Square 1:1 frame. Extreme wide establishing shot of a small summer-town bus stop under a sprawling plane tree after rainfall. Shen Wu, a 19-year-old Chinese university student with a natural adult face, dark brown shoulder-length softly wavy hair with wispy bangs, warm brown eyes, a loose sage-grey hooded jacket over an ivory blouse, charcoal long skirt, cream over-ear headphones and a small worn black backpack sits alone on the far left end of a timber bench, a compact olive suitcase close to her knees; other passengers cluster loosely on the right. The bus shelter glass catches faint reflections, pale lavender hydrangeas spill over the pavement. Luminous overcast daylight, fresh moss-green leaves, pale limestone and muted soft lavender. Important: isolate the young woman in negative space, do not center her. Avoid visible lettering, subtitles, logos, neon and cyberpunk visuals."
+    },
+    {
+      "id": "003",
+      "prompt": "Original hand-painted 2D animated film frame, mature naturalistic Chinese young-adult character designs where people appear, delicate expressive linework, painterly organic textures and atmospheric depth. Square 1:1 frame. Observational medium-wide view along the bus shelter showing an elderly Chinese woman clutching a silent phone; beside her shoulder floats a very faint translucent fish-shaped apparition made of rainwater, its scale edges catching light. Ordinary commuters do not react. Wet umbrella fabric and softly painted concrete textures, predominantly cool grey-green with a single soft amber highlight on her hand. The magical fish is small and easy to miss, not a glowing hologram. In this instant the fish hangs beside her shoulder; do not show a sequence of movement. Avoid visible lettering, subtitles, logos, neon and cyberpunk visuals."
+    },
+    {
+      "id": "004",
+      "prompt": "Original hand-painted 2D animated film frame, mature naturalistic Chinese young-adult character designs where people appear, delicate expressive linework, painterly organic textures and atmospheric depth. Square 1:1 frame. An intimate layered street composition: in the near left foreground a tired office worker's umbrella sheds three small white birds sculpted from falling rain, in the right midground a child holds her mother's hand while a tiny unopened pale-gold flower bud hovers close to her collar, background pedestrians blur under wet trees. The apparitions feel ephemeral and physical, like reflections in water. Elegant depth of field, silver cloudy sky, different muted greens, no elaborate fantasy spectacle. Avoid visible lettering, subtitles, logos, neon and cyberpunk visuals."
+    },
+    {
+      "id": "005",
+      "prompt": "Original hand-painted 2D animated film frame, mature naturalistic Chinese young-adult character designs where people appear, delicate expressive linework, painterly organic textures and atmospheric depth. Square 1:1 frame. Tight three-quarter close-up of Shen Wu, a 19-year-old Chinese university student with a natural adult face, dark brown shoulder-length softly wavy hair with wispy bangs, warm brown eyes, a loose sage-grey hooded jacket over an ivory blouse, charcoal long skirt, cream over-ear headphones and a small worn black backpack, seated beneath the shelter, pressing one cream headphone cup against her ear with tense fingertips. Distant raindrops and tiny indistinct reflections overlap softly inside her dark iris. The background crowds dissolve into broad cool desaturated watercolor strokes, a faint strip of daylight traces her cheek and the rim of her headphones. Her expression is tired rather than frightened; ample dark empty space behind her head. Avoid visible lettering, subtitles, logos, neon and cyberpunk visuals."
+    },
+    {
+      "id": "006",
+      "prompt": "Original hand-painted 2D animated film frame, mature naturalistic Chinese young-adult character designs where people appear, delicate expressive linework, painterly organic textures and atmospheric depth. Square 1:1 frame. An unusually still wide symmetrical view through the glass bus shelter. Shen Wu, a 19-year-old Chinese university student with a natural adult face, dark brown shoulder-length softly wavy hair with wispy bangs, warm brown eyes, a loose sage-grey hooded jacket over an ivory blouse, charcoal long skirt, cream over-ear headphones and a small worn black backpack is partly visible in shadow at the left edge, observing Zhou Jibai, a 20-year-old Chinese university student with mature yet gentle facial proportions, tousled short black hair, calm dark eyes, an off-white short-sleeved linen shirt, charcoal trousers and a faded dark canvas shoulder bag across a clear empty corridor of space on the right. He is crouching to retrieve a loose rain-soaked bus timetable sheet, surrounded by utterly ordinary air while other commuters carry a few barely visible natural apparitions. Glass mullions organize the frame; pristine early afternoon green reflected in the puddles. Avoid framing him as a magical hero; his lack of visual effects is the mystery. Avoid visible lettering, subtitles, logos, neon and cyberpunk visuals."
+    }
+  ]
+}
