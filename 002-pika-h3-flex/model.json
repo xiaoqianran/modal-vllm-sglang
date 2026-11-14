@@ -13,7 +13,7 @@
   "kind": "video",
   "model": "Pika-Labs/Pika-H3-Flex",
   "image": "lmsysorg/sglang:dev",
-  "proxy_port": 30011,
+  "proxy_port": 30020,
   "frame_transport": "keyframes",
   "command": [
     "python",

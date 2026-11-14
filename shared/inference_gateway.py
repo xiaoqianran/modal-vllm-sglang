@@ -17,7 +17,7 @@ from shared.model_spec import operations, operation_spec, parameters
 from shared.files import read_json
 
 SPEC = None
-SG_PORT, PROXY_PORT = 30010, 30011
+SG_PORT, PROXY_PORT = 30010, 30020
 
 UPSTREAM = f"http://127.0.0.1:{SG_PORT}"
 FRAME_DIR = Path("/tmp/pika-frames")

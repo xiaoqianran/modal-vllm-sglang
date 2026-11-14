@@ -56,3 +56,7 @@ SDK 推理仍串行。性能日志字段及采样边界见 [根目录说明](../
 不直接用快照替代 Overlay，避免破坏 `.sglang_overlay_materialized.json` 等缓存结构。
 下载容器维持 4 vCPU / 8 GiB RAM，不启动 GPU。该设置不控制 Xet 的内部块级并发，
 也不保证修复 Hugging Face 限流或 Modal 心跳超时。已在运行的下载容器不会热更新代码。
+
+SGLang HTTP 主服务监听 `127.0.0.1:30010`，其 ZMQ Broker 使用 `30011`。
+共享 HTTP 生成网关独立监听 `30020`，避免与 Broker 冲突；修改网关端口后
+须重新部署模型服务。旧任务的结果应先查验，不可仅凭本地 `queued` 状态重复提交。

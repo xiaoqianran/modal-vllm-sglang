@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from shared.files import atomic_json, download_volume_file
+from shared.files import atomic_json, download_volume_file, read_json
 from shared.model_service import create_app, create_download_app, execute, prepare, optional_hf_download_secrets
 from shared.model_spec import discover, parameters, validate
 from shared.task_lifecycle import SubmissionRejected
@@ -18,6 +18,15 @@ SPEC = {"service": "example", "operation": "t2i", "kind": "image", "model": "org
 
 
 class ModelServiceTests(unittest.TestCase):
+    def test_pika_gateway_does_not_share_sglang_broker_port(self):
+        from shared.inference_gateway import PROXY_PORT
+        from shared.model_spec import validate
+        config = validate(read_json(Path(__file__).resolve().parents[1] / "002-pika-h3-flex" / "model.json"))
+        self.assertEqual(config["port"], 30010)
+        self.assertEqual(config["proxy_port"], 30020)
+        self.assertEqual(PROXY_PORT, 30020)
+        self.assertNotEqual(config["proxy_port"], config["port"] + 1)
+
     def test_optional_hf_secret_attached_when_present(self):
         import modal
         with patch("modal.Secret.from_name") as lookup:
