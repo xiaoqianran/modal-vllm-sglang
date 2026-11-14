@@ -11,8 +11,9 @@ import urllib.request
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from video import SG_PORT, PROXY_PORT
 
-UPSTREAM = "http://127.0.0.1:30010"
+UPSTREAM = f"http://127.0.0.1:{SG_PORT}"
 FRAME_DIR = Path("/tmp/pika-frames")
 MAX_REQUEST = 64 * 1024 * 1024
 MAX_FRAME = 20 * 1024 * 1024
@@ -160,7 +161,7 @@ def main():
                     pass
 
     threading.Thread(target=clean_expired_frames, daemon=True).start()
-    ThreadingHTTPServer(("0.0.0.0", 30011), Handler).serve_forever()
+    ThreadingHTTPServer(("0.0.0.0", PROXY_PORT), Handler).serve_forever()
 
 
 if __name__ == "__main__":

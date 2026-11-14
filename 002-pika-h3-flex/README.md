@@ -1,119 +1,60 @@
-# 002 Pika H3 Flex · SGLang fixed workflow
+# Pika H3 Flex · 唯一 GPU 推理主流程
 
-GPU 推理资源：部署和 Modal Run 批处理均为 **4 核 CPU、48 GiB RAM**（49152 MiB）。此降配尚未完成新的 GPU 验收。
-日常批量视频使用下方 `run_batch.py`，其 `scaledown_window=2`；HTTP 部署入口仍为 120 秒，保留异步轮询间隙的缓冲。
+**CPU 模型准备 → `modal deploy app.py` → `run.py` 指定 JSON。**
 
-## 模型下载与推理严格分离
+## 简化后的源码职责
 
-CPU 下载使用和推理一致的 SGLang Diffusion 镜像与模型注册机制。它会处理
-Pika Overlay、官方锁定的 MiniMax-H3 基础组件，以及模型物化目录；
-不再通过直接下载 Pika 仓库全部文件来代替模型准备。
+| 文件 | 职责 |
+| --- | --- |
+| `app.py` | 唯一的 `Pika` GPU Class，启动一次 SGLang 和 HTTP 代理；SDK 和 HTTP 共享同一容器 |
+| `video.py` | T2VA / FL2VA 参数、输入哈希、一次视频生成、SHA256 校验、断点恢复 |
+| `run.py` | 本地 JSON CLI；已登录 Modal 后查找部署的 `Pika.generate_batch` |
+| `proxy.py` | 仅处理 HTTP 请求转发与 FL2VA Base64 首尾帧落盘，供跨模型 Workflow 使用 |
+| `download_model.py` / `model_cache.py` | CPU 预检、权重物化和 GPU 加载前缓存校验 |
 
-第一次运行先检查环境，再执行 CPU 模型准备：
+删除了旧的 `run_batch.py`、`batch_run.py`、`generate.py` 和只为单视频使用的请求示例；单视频直接用 `--limit 1`。
 
-    uv run modal run download_model.py --preflight-only
-    uv run modal run download_model.py
+## 资源和接口
 
-下载和物化完全成功后，会生成共享 Volume 中的
-`/009-pika-h3-flex/model-ready.json`，包含逐文件大小清单。
-失败时不主动删除上一份完成标记，但推理启动时会重新校验文件清单，
-任何损坏或缺失均拒绝执行。
+- 模型：`Pika-Labs/Pika-H3-Flex`；GPU：`RTX-PRO-6000`；4 CPU / 48 GiB RAM
+- 容器：Class 级 `min_containers=0`、`max_containers=1`、`scaledown_window=30` 秒
+- 推理：SGLang Diffusion，固定六步，`performance=memory`、offload `text_encoder,vae`、resident `video_vae=36`
+- 同一个 SGLang 端口 `30010` 同时供 SDK 批量和 HTTP 代理 `30011` 调用
+- HTTP：保留 `/v1/videos` 及轮询/下载接口，`requires_proxy_auth=True`；SDK：使用本机 Modal 登录凭证，不需要 HTTP URL/Token
+- Class 允许 HTTP 与 SDK 同时进入同一容器；SDK 批量调用内部串行。SGLang 对同时提交的 HTTP 视频任务仍负责队列调度，**真实 GPU 并发、排队、显存压力需要验收**，不要把单容器误认为单任务锁。
 
-随后运行 GPU 批处理：
+## 准备与部署
 
-    uv run modal run run_batch.py --workflow workflow_t2va.json --task tasks/t2va_demo.json
+在 `002-pika-h3-flex` 目录：
 
-也可以按需部署 HTTP 服务：
+```powershell
+uv run python -m modal run download_model.py --preflight-only
+# 缓存未准备或校验失败时才执行：
+uv run python -m modal run download_model.py
+# 准备好后只需 Deploy 一次；代码变更后重新 Deploy：
+uv run python -m modal deploy app.py
+```
 
-    uv run modal deploy app.py
+CPU 过程只生成现有 `modal-forge` Volume 下的 `009-pika-h3-flex` 缓存与 `model-ready.json`，不运行 GPU 推理。GPU 运行时禁止联网补权重。
 
-GPU 推理必须使用 `HF_HUB_OFFLINE=1`、`TRANSFORMERS_OFFLINE=1`，
-并共享 `SGLANG_DIFFUSION_CACHE_ROOT` 和 `HF_HOME`。SGLang 的启动模型标识
-保留为 `Pika-Labs/Pika-H3-Flex`，以匹配其官方 Overlay 注册表。
-缓存不存在或未通过检查时应直接失败，不能在 GPU 容器中补充下载。
-已准备的模型仍需要在 GPU 启动时重新加载至显存。
+## 指定 JSON 运行
 
-注意：不要同时运行两份 CPU 下载程序，也不要在推理期间升级模型或更换
-SGLang `dev` 镜像。Modal Volume 不提供分布式文件锁。
-本次修改不会自动执行下载或 GPU 推理。
+从仓库根目录：
 
-Pika-H3-Flex native six-step stochastic re-noising; both T2VA (text-to-video-and-audio) and FL2VA (first+last frames + prompt) share one FL2VA model partition.
+```powershell
+# 文本生视频，先尝试一个镜头
+uv run python 002-pika-h3-flex/run.py --workflow workflow_t2va.json --task tasks/t2va_demo.json --limit 1
 
-## System
+# 首尾帧生视频
+uv run python 002-pika-h3-flex/run.py --workflow workflow_fl2va.json --task tasks/fl2va_demo.json
+```
 
-- app.py: Modal RTX PRO 6000 (96GB), SGLang memory mode (RTX PRO 6000 96GB): text_encoder and VAE layerwise offload, video_vae=36 resident layers; no explicit weight quantization.
-- proxy.py: public port 30011, waits for SGLang health on internal port 30010, stages inline frame bytes in the SAME running container and translates them into official keyframe conditions.
-- workflow_t2va.json / workflow_fl2va.json: fixed video parameters (5 seconds, 480p short edge, six steps).
-- tasks/*.json: prompt lists. FL2VA items have first_frame + last_frame relative to this module directory.
-- batch_run.py: run every item, resume completed and unchanged MP4s, download files, save run JSONs.
-- generate.py: legacy single-request client, for low-level testing; does not upload local images.
+本地入口通过 `modal.Cls.from_name("modal-forge-009-pika-h3-flex-fl2va", "Pika")()` 调用 `generate_batch`，不会创建第二个 GPU App。前后帧按 SHA256 上传 Volume，结果验证哈希后下载到 `outputs/<project>/<scene>/`。
 
-## Deploy
+默认 `run_id` 由本次任务输入生成，重复运行相同任务可找到原远端路径并复用已完成片段；需要恢复旧版随机批次时手动提供 `--run-id <原 ID>`。
 
-    cd 002-pika-h3-flex
-    uv sync
-    uv run modal deploy app.py
+**不可覆盖**：已有本地/云端视频只在输入签名、模型清单及 SHA256 均匹配时复用；否则拒绝覆盖。旧版视频元数据的哈希口径与新版不同，遇到旧文件校验失败请先备份并人工核对，不能直接用新脚本覆盖。
 
-Service: modal-forge-009-pika-h3-flex-fl2va
-Default GPU: RTX-PRO-6000; min_containers=0, max_containers=1, scaledown_window=120.
-Modal Proxy Auth is disabled; the endpoint is publicly accessible and does not need tokens.
-Weights cache in existing modal-forge Volume, /009-pika-h3-flex subpath.
+## 验证边界
 
-## Batch generation (Windows PowerShell)
-
-    $url = "https://yuqueaaa--modal-forge-009-pika-h3-flex-fl2va-serve.us-east.modal.run"
-
-    uv run python batch_run.py --endpoint $url --workflow workflow_t2va.json --task tasks/t2va_demo.json
-    uv run python batch_run.py --endpoint $url --workflow workflow_fl2va.json --task tasks/fl2va_demo.json
-
-To generate 10 clips, add 10 entries to the task JSON. All fixed video parameters remain in the workflow JSON.
-
-FL2VA mode uses two images with frame_index=0 and -1, role=keyframe. The local client base64-encodes PNG/JPEG/WebP images into ONE video submission; the HTTP gateway saves them to per-container /tmp, translates to file:// URI and forwards the request to internal SGLang. No public image host, R2, or extra upload call is needed.
-
-Output: results/<mode>/<task name>/<id>.mp4, <id>.json, report.json. Completed jobs are skipped ONLY when prompt, workflow, seed, model, frames and MP4 checksum still match. Changed inputs regenerate output, failures write <id>.error.json. Start with one GPU container and serial requests to avoid duplicate GPU loading.
-
-Important: the SGLang video job registry lives in the GPU container. The HTTP service now uses a 120-second idle window to reduce accidental scale-down between polling calls. Container interruptions can still invalidate in-memory jobs; rerun the task to recover saved outputs.
-
-Do not use MiniMax-H3 original Euler sampler or force flow_shift; Pika model requires its trained six-step schedule.
-
-## Verification and limits
-
-SGLang official reference:
-https://github.com/sgl-project/sglang/blob/main/docs/cookbook/diffusion/MiniMax/MiniMax-H3.mdx
-
-The batch format and local tests are not proof of actual successful GPU model inference. Full GPU model loading, VRAM peak, and MP4 validation must be separately checked.
-
-The API is public with no authentication. Anyone who knows the URL may trigger GPU inference and incur cost. Keep the endpoint confidential or add access control when needed.
-
-## Modal run (recommended batch entrypoint, without deployment)
-
-Compatibility fix (2026-11-08): The original `lmsysorg/sglang:v0.5.23` language-model CLI rejected Pika-specific Diffusion arguments. Both inference entrypoints use `lmsysorg/sglang:dev` and the Diffusion CLI with `--model-path` set to the downloaded local snapshot. The default FL2VA partition handles both T2VA and FL2VA. To verify the Diffusion runtime and Pika model registry without allocating a GPU, run `uv run modal run run_batch.py --preflight`. The dev Docker tag is mutable and should be pinned to a stable compatible release when available.
-
-
-run_batch.py is independent from app.py. Each invocation starts one Modal GPU container, loads Pika H3 Flex only once, sequentially generates videos, then exits. No HTTP URL or Proxy Token required. app.py stays available as an optional HTTP service.
-
-Both entrypoints reuse the SAME "modal-forge" Volume checkpoint cache subdirectory "009-pika-h3-flex". Cached checkpoint files survive container shutdown, but GPU-loaded weights do not.
-
-PowerShell:
-
-    cd D:\a_programming_list\Ai-application\A-modal\modal-vllm-sglang\002-pika-h3-flex
-    uv run modal run run_batch.py --workflow workflow_t2va.json --task tasks/t2va_demo.json
-    uv run modal run run_batch.py --workflow workflow_fl2va.json --task tasks/fl2va_demo.json
-
-To run ONLY the first item:
-
-    uv run modal run run_batch.py --workflow workflow_fl2va.json --task tasks/fl2va_demo.json --limit 1
-
-Images may use paths relative to this module or absolute paths. Images are uploaded once to the existing Volume rather than passed as Base64 Modal arguments. The GPU uses those images as first/last keyframes through file:// conditions. This path uses six Pika steps, SGLang performance=memory with text_encoder,vae layerwise offload and video_vae=36 resident layers; no explicit weight quantization. CPU↔GPU transfers can increase latency.
-
-Results: results/<mode>/<task name>/<run id>/*.mp4, *.json, report.json.
-Cloud: 009-pika-batch/<mode>/<task name>/<run id>/ in the Volume.
-After every completed video the cloud output is committed. Use the SAME --run-id on subsequent invocations to resume. Matching videos and hashes are skipped; changed prompts, frames or workflow regenerate. Failures stop the batch without starting further items.
-
-Offline tests (no GPU):
-
-    uv run python -m unittest discover -s tests -v
-
-## 共享模块
-
-shared/ 包含 Modal 镜像、Volume、进程监控、文件清单和结果存储公共能力。Pika Overlay、六步采样和关键帧代理仍是 Pika 专属逻辑。为复用权重，云端 009-pika-h3-flex 缓存路径保持不变。
+目前只完成本地代码、模拟 SGLang API 的测试和 Modal SDK 注册检查。**没有重新 Deploy，也没有进行真实付费 GPU 生成验收**。默认不启用 GPU Snapshot，Deploy 本身不能消除模型加载冷启动。历史 SGLang 兼容性资料见 [验证记录](docs/2026-11-08-pika-h3-flex-validation.md)。

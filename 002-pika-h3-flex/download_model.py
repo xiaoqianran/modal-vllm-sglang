@@ -57,12 +57,22 @@ def download():
 @app.function(image=image, cpu=2, memory=8192, timeout=600)
 def preflight():
     """只检查 SGLang 模型注册，不下载权重，也不挂载 GPU。"""
+    import subprocess
     from sglang.multimodal_gen.runtime.utils.hf_diffusers_utils import maybe_download_model
     from sglang.multimodal_gen.runtime.utils.model_overlay import resolve_model_overlay
 
     overlay = resolve_model_overlay(MODEL)
     if not overlay or not callable(maybe_download_model):
         raise RuntimeError("当前 SGLang 镜像不支持 Pika Overlay")
+    check = subprocess.run(
+        ["python", "-m", "sglang.multimodal_gen.runtime.entrypoints.cli.main",
+         "serve", "--help"],
+        capture_output=True, text=True, timeout=180,
+    )
+    required = ("--performance-mode", "--layerwise-offload-components",
+                "--layerwise-resident-layers")
+    if check.returncode or any(flag not in check.stdout + check.stderr for flag in required):
+        raise RuntimeError("Pika SGLang CLI flags are incompatible")
     print(json.dumps(overlay, indent=2), flush=True)
     return overlay
 

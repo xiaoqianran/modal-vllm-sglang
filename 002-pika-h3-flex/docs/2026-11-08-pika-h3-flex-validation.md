@@ -1,5 +1,7 @@
 # Pika H3 Flex｜Modal Run 真实验证与故障记录（2026-11-08）
 
+> 历史实验记录：下文所有 `run_batch.py`、临时 `modal run` 命令仅说明当时的实验过程，旧入口已经删除。新的唯一 GPU 入口是先 `python -m modal deploy app.py`，再使用 `python run.py` 调用部署的 `Pika` Class；下文不再作为当前操作教程。
+
 ## 一、当前结论
 
 截至本次检查，`002-pika-h3-flex/run_batch.py` 的 Modal Run 入口已修复并通过 SGLang Diffusion CLI 预检查；**尚未成功生成 MP4**。
