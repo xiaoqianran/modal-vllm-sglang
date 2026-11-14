@@ -42,6 +42,10 @@ uv run --no-sync python 001-moss-image/run.py --collect --remote --task tasks/00
 新模式 `--collect --remote` 必须提供至少一个 `--task`，支持多次传入 `--task`。
 它仅通过 Task 内容、当前模型配置与云端模型缓存生成确定性路径和签名，
 检查 Volume 中已有的逐项完成元数据，验证任务意图、模型缓存和 SHA-256 后下载媒体。
+下载采用本地 `ThreadPoolExecutor(max_workers=8)` 八路并发，默认同时处理至多八张图片；
+普通 `--collect` 也启用八路下载，同一镜头独立文件锁保证不重复覆盖。
+不同镜头可并行查询及下载，某张失败不取消其他已开始的下载；
+失败会在其他任务处理完后报告，下一次可安全重试收集。不会启动 GPU。
 不读取或创建本地 `outputs/.runner/jobs/moss.json`，不需要 Modal FunctionCall ID，
 也不会提交新的生成任务或启动 GPU。只收集明确标记 `completed` 的项目；
 云端不存在元数据时显示 `not_found`，不代表任务一定没有排队或执行。

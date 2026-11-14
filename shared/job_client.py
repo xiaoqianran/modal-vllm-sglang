@@ -1,11 +1,15 @@
 """Durable local receipts for detached Modal calls; never retry an ambiguous spawn."""
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
+import time
 from pathlib import Path
 
 from shared.batch import intent_digest
 from shared.files import atomic_json, download_volume_file, file_lock, read_json, sha256_file
 from shared.model_cache import cache_directory, component_specs
 from shared.outputs import record_artifact
+
+DOWNLOAD_WORKERS = 8
 
 
 def remote_record(volume, prefix, shot):
@@ -62,7 +66,8 @@ def collect(job, volume, output):
     record = job["result"]
     check_record(job, record)
     folder = output / job["project"] / job["scene"]
-    with file_lock(folder):
+    # 同一场景的不同镜头互不阻塞，同一镜头仍独占写入锁。
+    with file_lock(folder, filename=f".runner.{job['id']}.{job['kind']}.lock"):
         target = folder / record["file"]
         if target.exists():
             if sha256_file(target) != record["sha256"]:
@@ -73,6 +78,19 @@ def collect(job, volume, output):
         atomic_json(folder / ".runner" / "items" / job["id"] / job["kind"] / "metadata.json", record)
         record_artifact(folder, target, job["kind"], source=f"/{job['prefix']}/{record['file']}")
     job["collected"] = True
+
+
+def parallel_collect(jobs, volume, output):
+    """八路下载；主线程收集结果，失败不影响其余镜头完成。"""
+    errors = []
+    with ThreadPoolExecutor(max_workers=DOWNLOAD_WORKERS) as executor:
+        future_jobs = {executor.submit(collect, job, volume, output): job for job in jobs}
+        for future in as_completed(future_jobs):
+            try:
+                future.result()
+            except Exception as exc:
+                errors.append(exc)
+    return errors
 
 
 def collect_remote(spec, selected, volume, output):
@@ -87,7 +105,10 @@ def collect_remote(spec, selected, volume, output):
         raise RuntimeError("Remote cache differs from current model configuration")
     fingerprint = intent_digest(cache)
     result = {}
-    for project, scene, prefix, item, signature in selected:
+    failures = []
+    started = time.perf_counter()
+    def fetch(entry):
+        project, scene, prefix, item, signature = entry
         key = f"{project}/{scene}/{item['id']}/{spec['kind']}".lower()
         job = {"id": item["id"], "project": project, "scene": scene, "prefix": prefix,
                "kind": spec["kind"], "intent_hash": signature,
@@ -101,9 +122,28 @@ def collect_remote(spec, selected, volume, output):
             if job["status"] == "completed":
                 job["result"] = record
                 collect(job, volume, output)
-        result[key] = job
-        print(json.dumps({"job": key, "status": job["status"],
-                          "collected": job.get("collected", False)}, ensure_ascii=False))
+        return key, job
+
+    unique = {}
+    for project, scene, prefix, item, signature in selected:
+        key = f"{project}/{scene}/{item['id']}/{spec['kind']}".lower()
+        unique.setdefault(key, (project, scene, prefix, item, signature))
+    with ThreadPoolExecutor(max_workers=DOWNLOAD_WORKERS) as executor:
+        futures = {executor.submit(fetch, entry): key for key, entry in unique.items()}
+        for future in as_completed(futures):
+            key = futures[future]
+            try:
+                _, job = future.result()
+                result[key] = job
+                print(json.dumps({"job": key, "status": job["status"],
+                                  "collected": job.get("collected", False)}, ensure_ascii=False))
+            except Exception as exc:
+                failures.append((key, exc))
+                print(json.dumps({"job": key, "status": "error", "error": str(exc)}, ensure_ascii=False))
+    print(json.dumps({"event": "collect_summary", "items": len(unique), "workers": DOWNLOAD_WORKERS,
+                      "seconds": round(time.perf_counter() - started, 2)}, ensure_ascii=False))
+    if failures:
+        raise failures[0][1]
     return result
 
 
@@ -191,6 +231,7 @@ def run_jobs(spec, paths, *, root=None, output=None, limit=0, dry_run=False, mod
             print(json.dumps({"job": key, **job}, ensure_ascii=False))
         if mode != "enqueue":
             keys = keys if paths else list(jobs)
+            to_collect = []
             for key in dict.fromkeys(keys):
                 if key not in jobs:
                     print(json.dumps({"job": key, "status": "not_submitted"}))
@@ -199,7 +240,11 @@ def run_jobs(spec, paths, *, root=None, output=None, limit=0, dry_run=False, mod
                 refresh(job, volume, modal.FunctionCall.from_id)
                 atomic_json(manifest, jobs)
                 if mode == "collect" and job["status"] == "completed":
-                    collect(job, volume, output)
-                    atomic_json(manifest, jobs)
+                    to_collect.append(job)
                 print(json.dumps({"job": key, **job}, ensure_ascii=False))
+            if to_collect:
+                errors = parallel_collect(to_collect, volume, output)
+                atomic_json(manifest, jobs)
+                if errors:
+                    raise errors[0]
         return jobs

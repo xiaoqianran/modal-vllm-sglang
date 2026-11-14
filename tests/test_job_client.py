@@ -3,6 +3,8 @@ import hashlib
 import io
 import json
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -221,6 +223,62 @@ class JobClientTests(unittest.TestCase):
         self.files[f"/{prefix}/000.json"] = json.dumps(record).encode()
         with self.assertRaisesRegex(ValueError, "Invalid completed result"):
             self.run_jobs("collect_remote")
+
+    def test_remote_collect_uses_eight_workers_for_same_scene(self):
+        from shared.model_service import load_task, prepare
+        self.write_task(count=16)
+        project, scene, operation, items = load_task(self.spec, self.task, root=self.root)
+        prefix = f"model-results/{self.spec['service']}/{project}/{scene}/{operation}-{intent_digest(self.spec)[:20]}"
+        data = b"\x89PNG\r\n\x1a\n" + b"parallel" * 12
+        for item in items:
+            record = {"id": item["id"], "file": item["id"] + ".png", "status": "completed",
+                      "intent_hash": prepare(self.spec, item)[1],
+                      "execution_hash": intent_digest({"intent": prepare(self.spec, item)[1],
+                                                       "cache": intent_digest(self.cache)}),
+                      "sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data)}
+            self.files[f"/{prefix}/{item['id']}.json"] = json.dumps(record).encode()
+            self.files[f"/{prefix}/{item['id']}.png"] = data
+        previous = self.volume.read_file.side_effect
+        active = 0
+        maximum = 0
+        lock = threading.Lock()
+        def slow_read(path):
+            nonlocal active, maximum
+            if path.endswith(".png"):
+                with lock:
+                    active += 1
+                    maximum = max(maximum, active)
+                try:
+                    time.sleep(0.08)
+                    return previous(path)
+                finally:
+                    with lock:
+                        active -= 1
+            return previous(path)
+        self.volume.read_file.side_effect = slow_read
+        jobs = self.run_jobs("collect_remote")
+        self.assertEqual(len(jobs), 16)
+        self.assertEqual(maximum, 8)
+        self.assertEqual(len(list((self.root / "outputs/demo/001-main").glob("*.png"))), 16)
+        self.model.generate_one.spawn.assert_not_called()
+
+    def test_parallel_collect_preserves_successful_receipts_on_other_failure(self):
+        self.write_task(count=2)
+        jobs = self.run_jobs()
+        for index, job in enumerate(jobs.values()):
+            data = b"\x89PNG\r\n\x1a\n" + b"x" * 32
+            record = {"id": job["id"], "file": job["id"] + ".png", "status": "completed",
+                      "intent_hash": job["intent_hash"], "execution_hash": job["execution_hash"],
+                      "sha256": hashlib.sha256(data).hexdigest() if index == 0 else "b" * 64}
+            self.files[f"/{job['prefix']}/{job['id']}.json"] = json.dumps(record).encode()
+            self.files[f"/{job['prefix']}/{job['id']}.png"] = data
+        with self.assertRaisesRegex(ValueError, "checksum"):
+            self.run_jobs("collect", paths=[])
+        receipt = read_json(self.root / "outputs/.runner/jobs/moss.json")
+        self.assertTrue(receipt["demo/001-main/000/image"]["collected"])
+        self.assertNotIn("collected", receipt["demo/001-main/001/image"])
+        self.assertTrue((self.root / "outputs/demo/001-main/000.png").exists())
+        self.assertFalse((self.root / "outputs/demo/001-main/001.png").exists())
 
 
 if __name__ == "__main__":
