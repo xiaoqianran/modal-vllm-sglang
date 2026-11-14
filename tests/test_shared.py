@@ -3,15 +3,33 @@ import importlib.util
 import json
 import os
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
+from http.client import IncompleteRead
 
 from shared.cache import file_inventory
 from shared.files import atomic_json, download_volume_file, read_json, sha256_file
 from shared.runtime import monitor_processes, stop_process, wait_for_health
+from shared.http import request_bytes
 
 class SharedTests(unittest.TestCase):
+    def test_truncated_get_retries_but_post_never_retries(self):
+        response = Mock()
+        response.__enter__ = Mock(return_value=response)
+        response.__exit__ = Mock(return_value=False)
+        with patch("shared.http.urllib.request.urlopen", return_value=response) as call, \
+                patch("shared.http.time.sleep"):
+            response.read.side_effect = [IncompleteRead(b"part"), b"complete"]
+            self.assertEqual(request_bytes("http://localhost/content", attempts=2), b"complete")
+            self.assertEqual(call.call_count, 2)
+            call.reset_mock()
+            response.read.side_effect = IncompleteRead(b"part")
+            with self.assertRaises(IncompleteRead):
+                request_bytes("http://localhost/generate", {"prompt": "test"})
+            call.assert_called_once()
+
     def test_atomic_json_and_hash(self):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "sub" / "report.json"
@@ -59,6 +77,21 @@ class SharedTests(unittest.TestCase):
         thread.join(2)
         self.assertFalse(thread.is_alive())
         vol.commit.assert_called_once()
+
+    def test_monitor_exits_failed_container_but_not_normal_shutdown(self):
+        for shutdown in (False, True):
+            with self.subTest(shutdown=shutdown):
+                stopping = threading.Event()
+                if shutdown:
+                    stopping.set()
+                process, volume, failed = Mock(), Mock(), Mock()
+                process.poll.return_value = 1
+                volume.commit.side_effect = OSError("commit unavailable")
+                thread = monitor_processes([process], volume, label="test",
+                                           stopping=stopping, on_failure=failed)
+                thread.join(2)
+                self.assertFalse(thread.is_alive())
+                self.assertEqual(failed.call_count, 0 if shutdown else 1)
 
     def test_inventory_detects_broken_links(self):
         with tempfile.TemporaryDirectory() as folder:

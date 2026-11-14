@@ -5,6 +5,7 @@ HTTP protocol, response validation and asynchronous video-job lifecycle.
 """
 import base64
 import binascii
+import urllib.error
 from urllib.parse import quote
 
 from shared.http import poll_job, request_bytes, request_json
@@ -65,10 +66,17 @@ class SGLangVideoClient:
         return str(job_id)
 
     def status(self, job_id, *, timeout=180, attempts=2):
-        return request_json(
-            self.endpoint + self._job_path(job_id),
-            timeout=timeout, attempts=attempts, **self.options,
-        )
+        try:
+            return request_json(
+                self.endpoint + self._job_path(job_id),
+                timeout=timeout, attempts=attempts, **self.options,
+            )
+        except RuntimeError as exc:
+            cause = exc.__cause__
+            if isinstance(cause, urllib.error.HTTPError) and cause.code == 404:
+                raise RuntimeError(f"Video {job_id} is unavailable on this engine; recovery cannot continue. "
+                                   "Inspect persisted results before explicitly creating a new task.") from exc
+            raise
 
     def wait(self, job_id, *, timeout=3600, poll=2, status_timeout=180,
              attempts=2, on_status=None):

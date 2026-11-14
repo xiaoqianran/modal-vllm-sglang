@@ -126,3 +126,50 @@ class RecoveryTests(unittest.TestCase):
                 self.assertEqual(recovery_action({"status": status, "job_id": "1"}), "resume")
         for status in ("failed", "cancelled"):
             self.assertEqual(recovery_action({"status": status, "job_id": "1"}), "stop")
+
+class FrameCleanupTests(unittest.TestCase):
+    def test_only_terminal_jobs_release_frames(self):
+        import tempfile
+        from pathlib import Path
+        from shared import inference_gateway
+        with tempfile.TemporaryDirectory() as folder:
+            running = Path(folder) / "running.png"
+            finished = Path(folder) / "finished.png"
+            running.write_bytes(b"frame")
+            finished.write_bytes(b"frame")
+            states = {"running": "running", "finished": "completed"}
+
+            class Response:
+                def __init__(self, state):
+                    self.state = state
+                def __enter__(self):
+                    return self
+                def __exit__(self, *_):
+                    return False
+                def read(self, *_):
+                    return json.dumps({"status": self.state}).encode("utf-8")
+
+            def fetch(request, **kwargs):
+                job = str(request).rsplit("/", 1)[-1]
+                return Response(states[job])
+
+            with patch.object(inference_gateway, "FRAME_JOBS", {
+                    "running": [running], "finished": [finished]}), \
+                 patch.object(inference_gateway.urllib.request, "urlopen", side_effect=fetch):
+                inference_gateway.clean_finished_frames()
+                self.assertTrue(running.exists())
+                self.assertFalse(finished.exists())
+                self.assertEqual(inference_gateway.FRAME_JOBS, {"running": [running]})
+
+    def test_status_query_failure_preserves_frames(self):
+        import tempfile
+        from pathlib import Path
+        from shared import inference_gateway
+        with tempfile.TemporaryDirectory() as folder:
+            frame = Path(folder) / "recoverable.png"
+            frame.write_bytes(b"frame")
+            with patch.object(inference_gateway, "FRAME_JOBS", {"job": [frame]}), \
+                 patch.object(inference_gateway.urllib.request, "urlopen", side_effect=OSError("offline")):
+                inference_gateway.clean_finished_frames()
+                self.assertTrue(frame.exists())
+                self.assertIn("job", inference_gateway.FRAME_JOBS)

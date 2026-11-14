@@ -2,15 +2,16 @@
 import base64
 import binascii
 import json
-import os
 import shutil
 import threading
 import time
 import urllib.error
 import urllib.request
 import uuid
+from http.client import HTTPException
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import quote, urlparse
 from shared.media import image_format
 from shared.model_spec import operations, operation_spec, parameters
 from shared.files import read_json
@@ -22,7 +23,26 @@ UPSTREAM = f"http://127.0.0.1:{SG_PORT}"
 FRAME_DIR = Path("/tmp/pika-frames")
 MAX_REQUEST = 64 * 1024 * 1024
 MAX_FRAME = 20 * 1024 * 1024
-FRAME_TTL_SECONDS = 7200
+FRAME_JOBS = {}
+FRAME_LOCK = threading.Lock()
+
+
+def clean_finished_frames():
+    with FRAME_LOCK:
+        jobs = list(FRAME_JOBS.items())
+    for job, paths in jobs:
+        try:
+            with urllib.request.urlopen(UPSTREAM + "/v1/videos/" + quote(job, safe=""), timeout=5) as response:
+                state = json.load(response)
+            if state.get("status") not in {"completed", "failed", "cancelled"}:
+                continue
+            for path in paths:
+                path.unlink(missing_ok=True)
+            with FRAME_LOCK:
+                FRAME_JOBS.pop(job, None)
+        except (OSError, ValueError, HTTPException):
+            # Unknown jobs/submissions retain their inputs until the container exits.
+            continue
 
 
 def _decode_frame(value):
@@ -147,7 +167,11 @@ class Handler(BaseHTTPRequestHandler):
                         value = result.get("id") if isinstance(result, dict) else None
                         if type(value) not in (str, int) or not str(value).strip():
                             raise ValueError("Video submission response has no id")
-        except (OSError, ValueError, urllib.error.URLError):
+                        if SPEC.get("frame_transport") == "keyframes" and payload.get("conditions"):
+                            paths = [Path(urllib.request.url2pathname(urlparse(c["uri"]).path)) for c in payload["conditions"]]
+                            with FRAME_LOCK:
+                                FRAME_JOBS[str(value)] = paths
+        except (OSError, ValueError, HTTPException, urllib.error.URLError):
             return self._fail(503, "Engine response unavailable; generation acceptance may be unknown")
         if method == "POST":
             self.send_response(code)
@@ -169,10 +193,18 @@ class Handler(BaseHTTPRequestHandler):
             self.close_connection = True
 
     def do_GET(self):
-        self._forward("GET")
+        self._handle("GET")
 
     def do_POST(self):
-        self._forward("POST")
+        self._handle("POST")
+
+    def _handle(self, method):
+        try:
+            self._forward(method)
+        except (OSError, HTTPException) as exc:
+            # Headers may already be sent; close rather than append an error body.
+            self.close_connection = True
+            self.log_error("Response interrupted: %s", exc)
 
 
 def main():
@@ -195,21 +227,12 @@ def main():
             pass
         time.sleep(3)
     print("Engine ready; starting shared generation gateway", flush=True)
-    def clean_expired_frames():
-        """删除两小时以前的临时帧，避免长时间运行耗尽容器磁盘。"""
+    def clean_frames():
         while True:
             time.sleep(600)
-            if not FRAME_DIR.exists():
-                continue
-            for frame in FRAME_DIR.iterdir():
-                try:
-                    if (frame.is_file() and not frame.is_symlink()
-                            and time.time() - frame.stat().st_mtime > FRAME_TTL_SECONDS):
-                        frame.unlink()
-                except OSError:
-                    pass
+            clean_finished_frames()
 
-    threading.Thread(target=clean_expired_frames, daemon=True).start()
+    threading.Thread(target=clean_frames, daemon=True).start()
     server = ThreadingHTTPServer(("0.0.0.0", PROXY_PORT), Handler)
     server.serve_forever()
 

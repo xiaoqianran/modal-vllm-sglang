@@ -34,22 +34,32 @@ def stop_process(process, *, timeout=20):
         process.wait(timeout=5)
 
 
-def monitor_processes(processes, volume, *, label, poll_interval=2, commit_interval=None):
+def monitor_processes(processes, volume, *, label, poll_interval=2, commit_interval=None,
+                      stopping=None, on_failure=None, cleanup_timeout=60):
     """Monitor linked services; stop siblings on exit and commit persisted files."""
     processes = tuple(processes)
+    stopping = stopping if stopping is not None else threading.Event()
     def run():
         last_commit = time.monotonic()
         try:
             while all(process.poll() is None for process in processes):
+                if stopping.is_set():
+                    return
                 if commit_interval and time.monotonic() - last_commit >= commit_interval:
                     try:
                         volume.commit()
                     except Exception as exc:
                         print(f"{label} periodic commit failed: {exc}", flush=True)
                     last_commit = time.monotonic()
-                time.sleep(poll_interval)
+                stopping.wait(poll_interval)
             print(f"{label} process exits: {[p.poll() for p in processes]}", flush=True)
         finally:
+            # Bound failure cleanup even if Volume.commit hangs.
+            watchdog = None
+            if not stopping.is_set() and on_failure is not None:
+                watchdog = threading.Timer(cleanup_timeout, on_failure)
+                watchdog.daemon = True
+                watchdog.start()
             for process in processes:
                 try:
                     stop_process(process)
@@ -59,6 +69,9 @@ def monitor_processes(processes, volume, *, label, poll_interval=2, commit_inter
                 volume.commit()
             except Exception as exc:
                 print(f"{label} final commit failed: {exc}", flush=True)
+            if watchdog is not None:
+                watchdog.cancel()
+                on_failure()
     thread = threading.Thread(target=run, daemon=True)
     thread.start()
     return thread

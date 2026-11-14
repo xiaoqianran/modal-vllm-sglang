@@ -9,6 +9,7 @@ import base64
 import hashlib
 import subprocess
 import threading
+import os
 from pathlib import Path
 
 from shared.batch import completed_output, intent_digest
@@ -163,7 +164,7 @@ def create_app(config_path):
     """One GPU lifecycle shared by all configured models."""
     import modal
     from shared.modal_setup import model_volume
-    from shared.runtime import stop_process, wait_for_health
+    from shared.runtime import monitor_processes, stop_process, wait_for_health
     config_path = Path(config_path)
     spec = validate(read_json(config_path))
     volume = model_volume()
@@ -182,6 +183,7 @@ def create_app(config_path):
         @modal.enter()
         def start(self):
             self.batch_lock = threading.Lock()
+            self.stopping = threading.Event()
             paths, self.cache_fingerprint = verify_cache(spec)
             self.process = subprocess.Popen(command_argv(spec, paths))
             self.gateway = None
@@ -195,6 +197,9 @@ def create_app(config_path):
                     stop_process(self.gateway)
                 stop_process(self.process)
                 raise
+
+            self.monitor = monitor_processes((self.process, self.gateway), volume, label=spec["service"],
+                              stopping=self.stopping, on_failure=lambda: os._exit(1))
 
         @modal.web_server(port=spec.get("proxy_port", spec.get("port", 8000) + 1),
                           label=spec.get("endpoint_label", spec["service"] + "-serve"), startup_timeout=startup, requires_proxy_auth=True)
@@ -212,10 +217,8 @@ def create_app(config_path):
 
         @modal.exit()
         def stop(self):
-            for name in ("gateway", "process"):
-                if getattr(self, name, None) is not None:
-                    stop_process(getattr(self, name))
-            volume.commit()
+            self.stopping.set()
+            self.monitor.join(timeout=60)
 
     return app, Model
 
