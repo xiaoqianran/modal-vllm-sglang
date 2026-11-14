@@ -1,8 +1,8 @@
 {
   "revision": "5f90473023975e6271b0ed1dd84c4e88e4bbc6d3",
   "gpu": "RTX-PRO-6000",
-  "cpu": 12,
-  "memory": 262144,
+  "cpu": 4,
+  "memory": 32768,
   "port": 30000,
   "proxy_port": 30020,
   "timeout": 14400,
