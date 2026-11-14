@@ -5,7 +5,7 @@ from shared.batch import intent_digest
 from shared.cache import file_inventory
 from shared.files import atomic_json, read_json
 
-DOWNLOAD_MAX_WORKERS = 4
+DOWNLOAD_MAX_WORKERS = 8
 
 
 def cache_root(spec):

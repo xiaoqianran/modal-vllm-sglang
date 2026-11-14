@@ -64,7 +64,7 @@ Pika、MiniMax 替换目录名执行同样命令。普通任务无需重复 Depl
 GPU 只接受新清单，因此必须先完成 CPU 转换再部署。详见 [升级说明](docs/unified-migration.md)。
 Hugging Face 组件记录实际解析的 snapshot；分支引用首次准备后复用已固定的缓存。
 显式更新或修复 HF 权重时使用 download_model.py --refresh；GPU 只验证和读取缓存，不下载权重。
-CPU 模型下载默认把 Hugging Face `snapshot_download()` 的文件工作线程设置为 4；
+CPU 模型下载默认把 Hugging Face `snapshot_download()` 的文件工作线程设置为 8；
 Pika 保留 SGLang Overlay 物化过程，只约束其内部调用的快照下载。此项与
 图片/视频结果收集的 8 线程、以及 Xet 内部分块并发相互独立。
 Pika 使用引擎 Overlay 注册表物化基础组件，CPU 与 GPU 使用相同镜像。

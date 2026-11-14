@@ -18,14 +18,14 @@ MP4 = b'\0\0\0\x20ftyp' + b'x' * 32
 
 
 class CompatibilityTests(unittest.TestCase):
-    def test_default_hf_download_uses_four_workers(self):
+    def test_default_hf_download_uses_eight_workers(self):
         spec = SPECS['moss.t2i']
-        self.assertEqual(DOWNLOAD_MAX_WORKERS, 4)
+        self.assertEqual(DOWNLOAD_MAX_WORKERS, 8)
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             hub = types.ModuleType('huggingface_hub')
             def snapshot(*args, **kwargs):
-                self.assertEqual(kwargs['max_workers'], 4)
+                self.assertEqual(kwargs['max_workers'], 8)
                 path = root / 'hub' / 'snapshot'
                 path.mkdir(parents=True, exist_ok=True)
                 (path / 'model_index.json').write_text('{}')
@@ -37,7 +37,7 @@ class CompatibilityTests(unittest.TestCase):
             self.assertTrue(result['ready'])
             self.assertTrue(verify_cache(spec, root)[0])
 
-    def test_pika_overlay_keeps_materialization_with_four_snapshot_workers(self):
+    def test_pika_overlay_keeps_materialization_with_eight_snapshot_workers(self):
         spec = SPECS['pika.t2va']
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -71,7 +71,7 @@ class CompatibilityTests(unittest.TestCase):
                 volume = Mock()
                 result = prepare_cache(spec, volume, root)
                 self.assertTrue(result['ready'])
-                self.assertEqual(calls, [4])
+                self.assertEqual(calls, [8])
                 self.assertIs(fake.snapshot_download, snapshot)
                 self.assertTrue(verify_cache(spec, root)[0])
                 volume.commit.assert_called_once()

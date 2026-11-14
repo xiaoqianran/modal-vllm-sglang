@@ -52,7 +52,7 @@ uv run --no-sync python 002-pika-h3-flex/run.py --collect --remote --task tasks/
 SDK 推理仍串行。性能日志字段及采样边界见 [根目录说明](../README.md#7-后续云端验收入口本次未执行)。
 
 权重下载仍使用 SGLang 的 `maybe_download_model()` 完成 Overlay 物化；
-其中调用 Hugging Face `snapshot_download()` 时默认控制为 4 个文件下载线程，
+其中调用 Hugging Face `snapshot_download()` 时默认控制为 8 个文件下载线程，
 不直接用快照替代 Overlay，避免破坏 `.sglang_overlay_materialized.json` 等缓存结构。
 下载容器维持 4 vCPU / 8 GiB RAM，不启动 GPU。该设置不控制 Xet 的内部块级并发，
 也不保证修复 Hugging Face 限流或 Modal 心跳超时。已在运行的下载容器不会热更新代码。
