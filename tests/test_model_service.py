@@ -27,6 +27,11 @@ class ModelServiceTests(unittest.TestCase):
         self.assertEqual(PROXY_PORT, 30020)
         self.assertNotEqual(config["proxy_port"], config["port"] + 1)
 
+    def test_minimax_http_gateway_uses_dedicated_port(self):
+        config = validate(read_json(Path(__file__).resolve().parents[1] / "005-minimax-h3-image" / "model.json"))
+        self.assertEqual(config["port"], 30000)
+        self.assertEqual(config["proxy_port"], 30020)
+        self.assertNotEqual(config["proxy_port"], config["port"] + 1)
     def test_optional_hf_secret_attached_when_present(self):
         import modal
         with patch("modal.Secret.from_name") as lookup:

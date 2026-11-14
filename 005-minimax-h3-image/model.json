@@ -4,6 +4,7 @@
   "cpu": 12,
   "memory": 262144,
   "port": 30000,
+  "proxy_port": 30020,
   "timeout": 14400,
   "startup_timeout": 3600,
   "scaledown_window": 30,
