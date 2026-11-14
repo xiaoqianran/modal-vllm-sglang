@@ -177,7 +177,7 @@ def create_app(config_path):
              volumes={"/mnt/modal": volume}, min_containers=0, max_containers=1,
              scaledown_window=spec.get("scaledown_window", 30),
              startup_timeout=startup, timeout=spec.get("timeout", 14400))
-    @modal.concurrent(max_inputs=8)
+    @modal.concurrent(max_inputs=1 if spec["service"] == "moss" else 8)
     @class_name(spec.get("modal_class", "Model"))
     class Model:
         @modal.enter()
@@ -200,11 +200,30 @@ def create_app(config_path):
 
             self.monitor = monitor_processes((self.process, self.gateway), volume, label=spec["service"],
                               stopping=self.stopping, on_failure=lambda: os._exit(1))
+            print(json.dumps({"event": "model_ready", "service": spec["service"],
+                              "container": os.environ.get("MODAL_TASK_ID"),
+                              "cache_fingerprint": self.cache_fingerprint}), flush=True)
 
         @modal.web_server(port=spec.get("proxy_port", spec.get("port", 8000) + 1),
                           label=spec.get("endpoint_label", spec["service"] + "-serve"), startup_timeout=startup, requires_proxy_auth=True)
         def serve(self):
             pass
+
+        @modal.method()
+        def generate_one(self, item, prefix, expected_cache_fingerprint, expected_spec_hash):
+            if expected_spec_hash != intent_digest(spec):
+                raise RuntimeError("Local configuration differs from deployed model.json; deploy it first")
+            if expected_cache_fingerprint != self.cache_fingerprint:
+                raise RuntimeError("Prepared model changed; restart with the current cache")
+            with self.batch_lock:
+                print(json.dumps({"event": "generate_one", "id": item["id"], "prefix": prefix,
+                                  "container": os.environ.get("MODAL_TASK_ID"),
+                                  "input": modal.current_input_id()}), flush=True)
+                record = next(execute(spec, [item], prefix, volume, self.cache_fingerprint))
+                print(json.dumps({"event": "generate_one_completed", "id": item["id"], "prefix": prefix,
+                                  "container": os.environ.get("MODAL_TASK_ID"),
+                                  "input": modal.current_input_id()}), flush=True)
+                return record
 
         @modal.method()
         def generate_batch_stream(self, items, prefix, expected_cache_fingerprint, expected_spec_hash):
@@ -380,7 +399,11 @@ def run_task(spec, path, *, root=ROOT, output=None, dry_run=False, limit=0):
 
 def run_cli(config_path):
     parser = argparse.ArgumentParser()
-    parser.add_argument("--task", required=True, action="append", type=Path)
+    parser.add_argument("--task", action="append", type=Path)
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--enqueue", action="store_true")
+    mode.add_argument("--status", action="store_true")
+    mode.add_argument("--collect", action="store_true")
     parser.add_argument("--output", type=Path)
     parser.add_argument("--limit", type=int, default=0)
     parser.add_argument("--dry-run", action="store_true")
@@ -388,6 +411,17 @@ def run_cli(config_path):
     if args.limit < 0:
         parser.error("limit must be nonnegative")
     spec = validate(read_json(config_path))
+    if args.enqueue or args.status or args.collect:
+        from shared.job_client import run_jobs
+        if spec["service"] != "moss":
+            parser.error("Async job mode is currently enabled only for MOSS")
+        if args.enqueue and not args.task:
+            parser.error("--enqueue requires --task")
+        return run_jobs(spec, args.task or [], output=args.output, limit=args.limit,
+                        dry_run=args.dry_run,
+                        mode="enqueue" if args.enqueue else "collect" if args.collect else "status")
+    if not args.task:
+        parser.error("--task is required")
     destinations = set()
     for path in args.task:
         project, scene, _, _ = load_task(spec, path, limit=args.limit)
