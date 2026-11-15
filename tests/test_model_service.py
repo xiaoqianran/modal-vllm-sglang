@@ -6,7 +6,10 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 from shared.utils.files import atomic_json, download_volume_file, read_json
-from shared.serving.model_service import create_app, create_download_app, execute, prepare, optional_hf_download_secrets
+from shared.serving.model_runtime import create_app
+from shared.serving.model_service import create_download_app, optional_hf_download_secrets
+from shared.serving.inference_execution import execute
+from shared.tasks.task_spec import prepare
 from shared.config.model_spec import discover, parameters, validate
 from shared.tasks.task_lifecycle import SubmissionRejected
 
@@ -86,9 +89,13 @@ class ModelServiceTests(unittest.TestCase):
             self.assertIn("download", runpy.run_path(str(target / "download_model.py")))
             self.assertFalse((target / "run.py").exists())
             self.assertTrue((Path(directory) / "workflows/example-t2i.json").is_file())
-            from shared.tasks.task_spec import load_task
-            spec = validate(read_json(target / "model.json"))
-            self.assertEqual(load_task(spec, target / "006-example.json", root=Path(directory))[0], "006-example")
+            from orchestration import runner, adapters
+            specs = discover(directory)
+            capabilities = {key: {"service": spec["service"], "required": spec["inputs"], "output": spec["kind"]}
+                            for key, spec in specs.items()}
+            with patch.object(runner, "ROOT", Path(directory)), patch.dict(adapters.MODEL_SPECS, specs, clear=True), patch.dict(adapters.CAPABILITIES, capabilities, clear=True):
+                plan = runner.build_plan(target / "006-example.json", root=Path(directory))
+            self.assertEqual(plan["jobs"][0]["uses"], "example.t2i")
             with self.assertRaises(FileExistsError):
                 new_model.scaffold("006-example", "example", "sglang", "image",
                                    "org/model", "a" * 40, "example/image:tag")

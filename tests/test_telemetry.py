@@ -1,4 +1,5 @@
 """Immutable evidence, failure isolation and a complete simulated model handoff."""
+from tests.scheduler_helpers import drain
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
@@ -17,7 +18,7 @@ from shared.telemetry.collector import collect, collect_cloud, collect_local, in
 from shared.telemetry.recorder import Recorder, close_local, flush_local
 from shared.telemetry.report import task_report
 from shared.telemetry.storage import Writer
-from shared.serving.model_service import execute
+from shared.serving.inference_execution import execute
 from shared.utils.files import atomic_json, read_json
 from tests.test_sdk_orchestration import PNG, MP4
 
@@ -279,7 +280,7 @@ class TelemetryTests(unittest.TestCase):
                 return self.results[call]
         backend = Backend()
         with patch("shared.telemetry.collector.enqueue"):
-            result = sdk.execute(directory, backend=backend, timeout=3, poll=0.001)
+            result = drain(directory, backend=backend, timeout=3, poll=0.001)
         self.assertEqual(result["counts"], {"completed": 3})
         flush_local(self.output)
         summary = collect(self.output, volumes)

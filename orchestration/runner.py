@@ -3,17 +3,12 @@ import argparse
 import copy
 import hashlib
 import json
-import math
-import os
 import re
-import time
-from collections import Counter
 from pathlib import Path
-from urllib.parse import urlsplit
 
 from shared.tasks.batch import intent_digest
 from shared.utils.files import read_json, sha256_file
-from shared.tasks.task_lifecycle import recovery_action, SubmissionRejected
+from shared.utils.media import image_format
 from shared.telemetry.schema import utc_now
 from orchestration import adapters, state
 
@@ -76,7 +71,7 @@ def reference(binding):
     return parts
 
 
-def build_plan(task_path, *, root=ROOT, endpoints_path="endpoints.example.json", transport="sdk"):
+def build_plan(task_path, *, root=ROOT):
     """No network, environment lookups, output writes, or GPU startup."""
     root = Path(root).resolve()
     task_path = state.local_path(root, task_path)
@@ -215,7 +210,7 @@ def build_plan(task_path, *, root=ROOT, endpoints_path="endpoints.example.json",
                     path = state.local_path(root, value["file"])
                     if not path.is_file() or not 0 < path.stat().st_size <= 20 * 1024 * 1024:
                         raise ValueError(f"Invalid input image: {path}")
-                    _, mime = state.image_format(path.read_bytes())
+                    _, mime = image_format(path.read_bytes())
                     digest = sha256_file(path)
                     value = {"type": "image", "path": f".runner/inputs/{digest}", "sha256": digest,
                              "size": path.stat().st_size, "mime": mime}
@@ -235,43 +230,14 @@ def build_plan(task_path, *, root=ROOT, endpoints_path="endpoints.example.json",
             jobs.append({"key": f"{step_id}/{item['id']}", "step": step_id, "item": item["id"],
                          "uses": step["uses"], "params": params, "inputs": inputs,
                          "reuse_existing": item.get("reuse_existing", False)})
-    if transport == "sdk":
-        from shared.config.model_spec import validate
-        from shared.config.storage import VOLUME_NAME
-        specs = {spec["service"]: spec for path in ROOT.glob("*/model.json")
-                 for spec in [validate(read_json(path))]}
-        services = {name: {"spec": specs[name]} for name in
-                    sorted({adapters.CAPABILITIES[j["uses"]]["service"] for j in jobs})}
-        plan = {"version": 1, "layout_version": 3, "adapter_version": adapters.VERSION,
-                "transport": "sdk", "volume": VOLUME_NAME,
-                "name": task["name"], "project": project, "scene": scene,
-                "workflow": workflow_id, "jobs": jobs, "services": services,
-                "outputs": workflow["outputs"], "imports": imports}
-        if render:
-            plan["render"] = render
-        plan["hash"] = intent_digest(plan)
-        return plan
-    if transport != "http":
-        raise ValueError("Unknown workflow transport")
-    config = read_json(state.local_path(root, endpoints_path))
-    fields(config, {"version", "services"})
-    if type(config["version"]) is not int or config["version"] != 1 or not isinstance(config["services"], dict):
-        raise ValueError("Invalid endpoints configuration")
-    services = {}
-    for name in sorted({adapters.CAPABILITIES[j["uses"]]["service"] for j in jobs}):
-        service = config["services"].get(name)
-        fields(service, {"endpoint_env", "revision"}, {"headers_env"})
-        identifier(service["endpoint_env"])
-        if not isinstance(service["revision"], str) or not service["revision"].strip():
-            raise ValueError("Service revision must be nonempty")
-        if not isinstance(service.get("headers_env", {}), dict):
-            raise ValueError("headers_env must be an object")
-        for header, env in service.get("headers_env", {}).items():
-            if not re.fullmatch(r"[A-Za-z0-9-]+", header):
-                raise ValueError("Invalid header name")
-            identifier(env)
-        services[name] = copy.deepcopy(service)
+    from shared.config.model_spec import validate
+    from shared.config.storage import VOLUME_NAME
+    specs = {spec["service"]: spec for path in ROOT.glob("*/model.json")
+             for spec in [validate(read_json(path))]}
+    services = {name: {"spec": specs[name]} for name in
+                sorted({adapters.CAPABILITIES[j["uses"]]["service"] for j in jobs})}
     plan = {"version": 1, "layout_version": 3, "adapter_version": adapters.VERSION,
+            "transport": "sdk", "volume": VOLUME_NAME,
             "name": task["name"], "project": project, "scene": scene,
             "workflow": workflow_id, "jobs": jobs, "services": services,
             "outputs": workflow["outputs"], "imports": imports}
@@ -315,8 +281,6 @@ def _extend_scene(directory, old, plan, saved):
 
 
 def new_run(plan, *, root=ROOT, output="outputs"):
-    if plan.get("transport") != "sdk":
-        return _new_run(plan, root=root, output=output)
     from shared.telemetry.recorder import local_recorder, flush_local
     output_path = state.local_path(Path(root).resolve(), output)
     runtime_root = state.runtime_root(output_path)
@@ -409,179 +373,6 @@ def _new_run(plan, *, root=ROOT, output="outputs"):
 
 
 from orchestration.protocol import report
-
-
-def execute(directory, *, adapter_factory=adapters.Adapter, timeout=3600, poll=2):
-    """Resume frozen plan. Never resubmit a record that left pending/blocked."""
-    if not math.isfinite(timeout) or not math.isfinite(poll) or timeout <= 0 or poll <= 0:
-        raise ValueError("timeout and poll must be positive")
-    directory = Path(directory).resolve()
-    if read_json(directory / "plan.json").get("transport") == "sdk":
-        from orchestration.sdk import execute as execute_sdk
-        return execute_sdk(directory, timeout=timeout, poll=poll)
-    # Scene directory is outputs/project/scene. No run-id directory.
-    with state.lock(directory.parent.parent), state.lock(directory):
-        plan = read_json(directory / "plan.json")
-        frozen = {k: v for k, v in plan.items() if k != "hash"}
-        if intent_digest(frozen) != plan["hash"] or plan["adapter_version"] != adapters.VERSION:
-            raise ValueError("Plan modified or adapter version changed; cannot resume")
-        current = read_json(directory / "state.json")
-        if current["plan_hash"] != plan["hash"]:
-            raise ValueError("State does not match plan")
-        runtime = bindings(plan)
-        if current["endpoints"] != {k: v["endpoint"] for k, v in runtime.items()}:
-            raise ValueError("Endpoint changed; refusing to query/resubmit on another service")
-        records = current["jobs"]
-
-        def persist():
-            state.save(directory / "state.json", current)
-
-        for job in plan["jobs"]:
-            record = records[job["key"]]
-            inputs = copy.deepcopy(job["inputs"])
-            blocked = False
-            for field, value in inputs.items():
-                if isinstance(value, dict) and "job" in value:
-                    upstream = records[value["job"]]
-                    artifact = upstream.get("artifacts", {}).get(value["output"])
-                    if upstream["status"] != "completed" or not state.valid(directory, artifact):
-                        blocked = True
-                        break
-                    inputs[field] = artifact
-            if blocked:
-                # Preserve a previously submitted job so it can be recovered later.
-                if record["status"] in {"pending", "blocked", "completed"}:
-                    record["status"] = "blocked"
-                    persist()
-                continue
-            service_name = adapters.CAPABILITIES[job["uses"]]["service"]
-            signature = intent_digest({"adapter": plan["adapter_version"], "uses": job["uses"],
-                                       "service": plan["services"][service_name],
-                                       "params": job["params"], "inputs": inputs})
-            if record.get("signature", signature) != signature:
-                raise ValueError("Resolved input signature changed; refusing to reuse or resubmit")
-            modern_layout = plan.get("layout_version", 1) >= 2
-            folder = (f".runner/{job['item']}/{job['step']}" if modern_layout
-                      else f"items/{job['item']}/{job['step']}")
-            manifest_path = directory / folder / "artifacts.json"
-            # Recover publication interrupted between manifest and state commit.
-            if manifest_path.is_file():
-                try:
-                    manifest = read_json(manifest_path)
-                except (OSError, ValueError):
-                    manifest = {}
-                if not isinstance(manifest, dict):
-                    manifest = {}
-                if (manifest.get("signature") == signature and manifest.get("artifacts")
-                        and all(state.valid(directory, a) for a in manifest["artifacts"].values())):
-                    record.update(status="completed", signature=signature, artifacts=manifest["artifacts"])
-                    record.pop("error", None)
-                    persist()
-                    continue
-            action = recovery_action(record)
-            if action == "uncertain":
-                record.update(status="uncertain", error="Submission/result cannot be recovered automatically")
-                persist()
-            if action in {"uncertain", "stop"}:
-                continue
-            if plan.get("layout_version") == 3 and not record.get("job_id"):
-                siblings = [j for j in plan["jobs"] if j["item"] == job["item"]
-                            and adapters.CAPABILITIES[j["uses"]]["output"] == adapters.CAPABILITIES[job["uses"]]["output"]]
-                stem = job["item"] if len(siblings) == 1 else f"{job['item']}-{job['step']}"
-                existing = [directory / (stem + suffix) for suffix in (".png", ".jpg", ".jpeg", ".webp", ".mp4")
-                            if (directory / (stem + suffix)).is_file()]
-                if existing and job.get("reuse_existing") and len(existing) == 1 and record["status"] in {"pending", "blocked"}:
-                    path = existing[0]
-                    data = path.read_bytes()
-                    if adapter_type := adapters.CAPABILITIES[job["uses"]]["output"]:
-                        if adapter_type == "image":
-                            suffix, mime = state.image_format(data)
-                            if path.suffix.lower() != suffix:
-                                raise ValueError("Existing image filename/content mismatch")
-                        elif len(data) >= 32 and data[4:8] == b"ftyp" and path.suffix.lower() == ".mp4":
-                            mime = "video/mp4"
-                        else:
-                            raise ValueError("Invalid existing video")
-                        artifact = {"type": adapter_type, "path": path.relative_to(directory).as_posix(),
-                                    "size": len(data), "sha256": sha256_file(path), "mime": mime}
-                        state.save(manifest_path, {"signature": signature,
-                                                  "origin": "explicit-existing-file",
-                                                  "artifacts": {adapter_type: artifact}})
-                        record.update(status="completed", origin="explicit-existing-file",
-                                      signature=signature, artifacts={adapter_type: artifact})
-                        persist()
-                        continue
-                if existing:
-                    record.update(status="failed", error="Output filename is already occupied; refusing GPU submission")
-                    persist()
-                    continue
-            bound = runtime[service_name]
-            adapter = adapter_factory(job["uses"], bound["endpoint"], bound["headers"])
-            try:
-                if not record.get("job_id"):
-                    payload = adapter.prepare(job["params"], inputs, directory)
-                    state.save(directory / folder / "request.json", {
-                        "uses": job["uses"], "params": job["params"], "inputs": inputs, "signature": signature})
-                    record.update(status="submitting", signature=signature)
-                    persist()  # Must happen before the only generation POST.
-                    response = adapter.submit(payload, timeout)
-                    if "job_id" in response:
-                        record.update(status="running", job_id=response["job_id"])
-                        persist()  # Must happen before polling.
-                    else:
-                        record["status"] = "collecting"
-                        persist()
-                        data = response["data"]
-                if record.get("job_id"):
-                    deadline = time.monotonic() + timeout
-                    while True:
-                        remaining = deadline - time.monotonic()
-                        if remaining <= 0:
-                            raise TimeoutError("Polling deadline exceeded")
-                        remote = adapter.poll(record["job_id"], min(180, remaining))
-                        if remote in {"failed", "cancelled"}:
-                            record.update(status="failed", error=f"Remote task {remote}")
-                            persist()
-                            break
-                        if remote == "completed":
-                            record["status"] = "collecting"
-                            persist()
-                            data = adapter.collect(record["job_id"], min(600, max(0.01, deadline - time.monotonic())))
-                            break
-                        if remote not in {"pending", "queued", "running", "processing", "in_progress"}:
-                            raise ValueError("Unrecognized remote task status")
-                        time.sleep(min(poll, max(0, deadline - time.monotonic())))
-                    if record["status"] == "failed":
-                        continue
-                if modern_layout:
-                    same_type = sum(
-                        other["item"] == job["item"]
-                        and adapters.CAPABILITIES[other["uses"]]["output"] == adapter.output
-                        for other in plan["jobs"]
-                    )
-                    stem = job["item"] if same_type == 1 else f"{job['item']}-{job['step']}"
-                    artifact = state.publish(directory, "", adapter.output, data, filename=stem,
-                                             refuse_existing=plan.get("layout_version", 1) >= 3)
-                else:
-                    artifact = state.publish(directory, folder, adapter.output, data)
-                manifest = {"signature": signature, "artifacts": {adapter.output: artifact}}
-                state.save(manifest_path, manifest)
-                record.update(status="completed", artifacts=manifest["artifacts"])
-                record.pop("error", None)
-                persist()
-            except SubmissionRejected:
-                record.update(status="pending", error="Gateway did not forward submission; resume later")
-                persist()
-            except Exception as exc:
-                # Conservative for POST: transport and response errors may follow acceptance.
-                # Do not persist exception text: upstream responses can contain credentials.
-                record["status"] = "uncertain" if record.get("job_id") or record["status"] in {"submitting", "collecting"} else "failed"
-                record["error"] = type(exc).__name__ + ": operation did not complete; resume queries known job IDs only"
-                persist()
-            print(f"{job['key']}: {record['status']}", flush=True)
-        result = report(plan, records)
-        state.save(directory / "report.json", result)
-        return result
 
 
 def main():

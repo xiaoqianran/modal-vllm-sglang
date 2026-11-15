@@ -13,7 +13,11 @@ from unittest.mock import Mock, patch
 from shared.tasks.batch import intent_digest
 from shared.utils.files import atomic_json, read_json
 from shared.config.model_cache import component_specs, verify_cache, checked_inventory, command_argv, prepare_cache
-from shared.serving.model_service import load_task, prepare, run_task, execute, build_image
+from shared.serving.inference_execution import execute
+from shared.serving.model_runtime import build_image
+from shared.tasks.task_spec import prepare
+from orchestration.runner import build_plan
+import shutil
 from shared.config.model_spec import discover, parameters
 from shared.serving.inference_gateway import prepare_request
 
@@ -24,22 +28,16 @@ MP4 = b"\0\0\0\x20ftyp" + b"video-content" * 12
 
 
 class UnifiedModelsTests(unittest.TestCase):
-    def test_sdk_and_http_use_same_single_model_task_params_and_seed(self):
-        import shutil
-        from orchestration.runner import build_plan
-        spec = SPECS["moss.t2i"]
+    def test_plan_item_overrides_reach_model_payload(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            (root / "workflows").mkdir()
-            shutil.copy(ROOT / "workflows/moss-t2i.json", root / "workflows/moss-t2i.json")
-            shutil.copy(ROOT / "endpoints.example.json", root / "endpoints.example.json")
             path = self.task(root, params={"guidance_scale": 4}, items=[
-                {"id": "001", "prompt": "boat", "params": {"guidance_scale": 5}}])
-            normalized = load_task(spec, path, root=root)[3][0]
-            payload, _ = prepare(spec, normalized)
+                {"id": "001", "prompt": "boat", "seed": 42, "params": {"guidance_scale": 5}}])
             job = build_plan(path, root=root)["jobs"][0]
-            self.assertEqual(payload["seed"], job["inputs"]["seed"])
-            self.assertEqual(payload["guidance_scale"], job["params"]["guidance_scale"])
+            from orchestration.sdk import item_for
+            item = item_for(root, job, {}, SPECS["moss.t2i"], None)
+            payload, _ = prepare(SPECS["moss.t2i"], item)
+            self.assertEqual(payload["seed"], 42)
             self.assertEqual(payload["guidance_scale"], 5)
 
     def test_container_cache_environment_uses_linux_paths_on_windows_hosts(self):
@@ -138,6 +136,7 @@ class UnifiedModelsTests(unittest.TestCase):
                 "items": [{"id": "001", "prompt": "boat", "seed": 42}], **updates}
         path = root / "tasks" / "006-demo.json"
         atomic_json(path, task)
+        shutil.copytree(ROOT / "workflows", root / "workflows", dirs_exist_ok=True)
         return path
 
     def test_all_capabilities_are_discovered_from_model_json(self):
@@ -163,17 +162,17 @@ class UnifiedModelsTests(unittest.TestCase):
                 {"id": "001", "prompt": "boat"},
                 {"id": "002", "prompt": "lake", "params": {"guidance_scale": 5}}]}
             path = self.task(root, **task)
-            before = load_task(SPECS["moss.t2i"], path, root=root)[3]
+            before = build_plan(path, root=root)["jobs"]
             self.task(root, **{**task, "items": list(reversed(task["items"]))})
-            after = load_task(SPECS["moss.t2i"], path, root=root)[3]
-            self.assertEqual({i["id"]: i["seed"] for i in before}, {i["id"]: i["seed"] for i in after})
+            after = build_plan(path, root=root)["jobs"]
+            self.assertEqual({i["item"]: i["inputs"]["seed"] for i in before}, {i["item"]: i["inputs"]["seed"] for i in after})
             self.assertEqual(before[1]["params"]["guidance_scale"], 5)
             invalid = {"items": [task["items"][0], {"id": "002", "prompt": "bad", "seed": True}]}
             self.task(root, **invalid)
             with self.assertRaises(ValueError):
-                load_task(SPECS["moss.t2i"], path, root=root, limit=1)
+                build_plan(path, root=root)
 
-    def test_sdk_and_http_keyframes_have_same_payload_and_content_identity(self):
+    def test_keyframe_content_changes_plan_and_payload_identity(self):
         spec = SPECS["pika.fl2va"]
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -181,15 +180,19 @@ class UnifiedModelsTests(unittest.TestCase):
             (root / "last.png").write_bytes(PNG + b"last")
             path = self.task(root, "pika", "fl2va", items=[{"id": "001", "prompt": "boat", "seed": 42,
                              "first_frame": {"file": "first.png"}, "last_frame": {"file": "last.png"}}])
-            items = load_task(spec, path, root=root)[3]
-            payload, signature = prepare(spec, items[0])
+            plan = build_plan(path, root=root)
+            item = {"id": "001", "operation": "fl2va", "prompt": "boat", "seed": 42,
+                    "first_frame_base64": base64.b64encode(PNG).decode(),
+                    "last_frame_base64": base64.b64encode(PNG + b"last").decode()}
+            payload, signature = prepare(spec, item)
             with patch("shared.serving.inference_gateway.FRAME_DIR", root / "staged"):
                 staged = prepare_request(payload, spec)
             self.assertEqual([c["frame_index"] for c in staged["conditions"]], [0, -1])
             self.assertEqual(staged["conditions"][0]["role"], "keyframe")
             (root / "last.png").write_bytes(PNG + b"changed")
-            changed = load_task(spec, path, root=root)[3]
-            self.assertNotEqual(signature, prepare(spec, changed[0])[1])
+            self.assertNotEqual(plan["hash"], build_plan(path, root=root)["hash"])
+            item["last_frame_base64"] = base64.b64encode(PNG + b"changed").decode()
+            self.assertNotEqual(signature, prepare(spec, item)[1])
             with self.assertRaises(ValueError):
                 prepare_request({**payload, "flow_shift": 5}, spec)
             with self.assertRaises(ValueError):
@@ -222,52 +225,6 @@ class UnifiedModelsTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "Invalid"):
                 verify_cache(spec, root)
 
-    def test_sdk_download_local_resume_and_metadata_recovery_without_gpu(self):
-        spec = SPECS["moss.t2i"]
-        cache = {"version": 1, "cache_spec": intent_digest(component_specs(spec)), "components": {}}
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            path = self.task(root)
-            _, _, _, items = load_task(spec, path, root=root)
-            signature = prepare(spec, items[0])[1]
-            record = {"id": "001", "status": "completed", "file": "001.png", "intent_hash": signature,
-                      "execution_hash": intent_digest({"intent": signature, "cache": intent_digest(cache)}),
-                      "sha256": hashlib.sha256(PNG).hexdigest()}
-            available = {}
-            volume = Mock()
-            def read_file(remote):
-                if remote.endswith("model-ready.json"):
-                    return iter([json.dumps(cache).encode()])
-                if remote not in available:
-                    raise FileNotFoundError(remote)
-                return iter([available[remote]])
-            volume.read_file.side_effect = read_file
-            def remote_gen(raw, prefix, expected, spec_hash):
-                self.assertEqual(expected, intent_digest(cache))
-                self.assertEqual(spec_hash, intent_digest(spec))
-                available[f"/{prefix}/001.png"] = PNG
-                available[f"/{prefix}/001.json"] = json.dumps(record).encode()
-                yield record
-            with patch("shared.serving.modal_setup.model_volume", return_value=volume), patch("modal.Cls.from_name") as lookup:
-                lookup.return_value.return_value.generate_batch_stream.remote_gen.side_effect = remote_gen
-                run_task(spec, path, root=root)
-                target = root / "outputs/006-demo/001-main/001.png"
-                self.assertEqual(target.read_bytes(), PNG)
-                run_task(spec, path, root=root)
-                lookup.assert_called_once()
-                metadata = target.parent / ".runner/items/001/image/metadata.json"
-                metadata.unlink()
-                run_task(spec, path, root=root)
-                self.assertTrue(metadata.is_file())
-                lookup.assert_called_once()
-                target.unlink()
-                run_task(spec, path, root=root)
-                self.assertEqual(target.read_bytes(), PNG)
-                lookup.assert_called_once()
-                target.write_bytes(b"damaged")
-                with self.assertRaises(FileExistsError):
-                    run_task(spec, path, root=root)
-                lookup.assert_called_once()
 
     def test_remote_image_publish_crash_can_finish_without_regeneration(self):
         spec = SPECS["moss.t2i"]

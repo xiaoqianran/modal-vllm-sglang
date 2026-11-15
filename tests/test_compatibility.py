@@ -10,7 +10,8 @@ from unittest.mock import Mock, patch
 from shared.tasks.batch import intent_digest
 from shared.utils.files import atomic_json, read_json
 from shared.config.model_cache import DOWNLOAD_MAX_WORKERS, component_specs, prepare_cache, verify_cache, checked_inventory
-from shared.serving.model_service import execute, create_app
+from shared.serving.inference_execution import execute
+from shared.serving.model_runtime import create_app
 from shared.config.model_spec import discover, parameters
 
 SPECS = discover()

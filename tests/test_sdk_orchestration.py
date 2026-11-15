@@ -1,4 +1,5 @@
 """Cloud handoff, concurrent registration and recovery without Modal/GPU access."""
+from tests.scheduler_helpers import drain
 from concurrent.futures import ThreadPoolExecutor
 import base64
 import hashlib
@@ -235,12 +236,12 @@ class SDKWorkflowTests(unittest.TestCase):
         directory = self.create()
         self.backend.fail_download = True
         self.backend.videos_complete = True
-        result = sdk.execute(directory, backend=self.backend, timeout=3, poll=0.001)
+        result = drain(directory, backend=self.backend, timeout=3, poll=0.001)
         self.assertEqual(result["counts"], {"completed": 3})
         self.assertEqual(result["download_errors"], 3)
         self.assertEqual(len(self.backend.submissions), 3)
         self.backend.fail_download = False
-        result = sdk.execute(directory, backend=self.backend, timeout=3, poll=0.001)
+        result = drain(directory, backend=self.backend, timeout=3, poll=0.001)
         self.assertEqual(result["download_errors"], 0)
         self.assertEqual(result["local_downloaded"], 3)
         self.assertEqual(len(self.backend.submissions), 3)
@@ -261,21 +262,24 @@ class SDKWorkflowTests(unittest.TestCase):
     def test_resume_restores_deleted_local_file_and_refuses_corruption(self):
         directory = self.create()
         self.backend.videos_complete = True
-        sdk.execute(directory, backend=self.backend, timeout=3, poll=0.001)
+        drain(directory, backend=self.backend, timeout=3, poll=0.001)
         target = state.media_directory(directory) / "001_first.png"
         target.unlink()
-        result = sdk.execute(directory, backend=self.backend, timeout=3, poll=0.001)
+        result = drain(directory, backend=self.backend, timeout=3, poll=0.001)
         self.assertEqual(target.read_bytes(), PNG)
         self.assertEqual(result["download_errors"], 0)
         target.write_bytes(b"unrelated content")
-        result = sdk.execute(directory, backend=self.backend, timeout=3, poll=0.001)
+        result = drain(directory, backend=self.backend, timeout=3, poll=0.001)
         self.assertEqual(result["download_errors"], 1)
         self.assertEqual(target.read_bytes(), b"unrelated content")
         self.assertEqual(len(self.backend.submissions), 3)
 
     def test_batch_advances_other_scene_while_first_video_is_pending(self):
         directories = [self.create(), self.create("006-batch-demo")]
-        result = sdk.execute_many(directories, backend=self.backend, timeout=0.15, poll=0.001)
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            downloads = {}
+            for _ in range(4):
+                result = [sdk.tick(directory, self.backend, downloads, pool) for directory in directories]
         self.assertEqual(len(self.backend.submissions), 6)
         self.assertTrue(all(r["counts"] == {"completed": 2, "queued": 1} for r in result))
 
@@ -318,7 +322,7 @@ class CloudImageTests(unittest.TestCase):
         factory.assert_called_once_with(VOLUME_NAME, create_if_missing=True)
 
     def test_cloud_worker_resolves_frames_and_commits_result_before_return(self):
-        from shared.serving.model_service import execute
+        from shared.serving.inference_execution import execute
         spec = read_json(runner.ROOT / "002-pika-h3-flex/model.json")
         item = {"id": "001", "operation": "fl2va", "prompt": "boat", "seed": 1,
                 "first_frame_artifact": self.ref(), "last_frame_artifact": self.ref()}

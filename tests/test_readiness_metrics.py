@@ -6,7 +6,8 @@ from unittest.mock import Mock, patch
 from shared.tasks.batch import intent_digest
 from shared.utils.files import read_json
 from shared.telemetry.sampler import ResourceMonitor, resource_sample
-from shared.serving.model_service import ROOT, run_download_cli
+from shared.serving.model_service import run_download_cli
+from shared.tasks.task_spec import ROOT
 from orchestration.sdk import check_deployment
 from shared.config.storage import VOLUME_NAME
 from shared.config.model_spec import validate

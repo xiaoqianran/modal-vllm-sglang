@@ -79,7 +79,7 @@ Task 级 `render` 覆盖 workflow 的默认尺寸，与 Task/item 的 `params.si
 新任务保存登记、步骤完成与本地收集边界；历史记录显示“从首次已知提交计算”，不会把迁移或缓存复核当作新完成。
 页面支持手机布局、关闭自动更新及检查worker数据是否过期；详细阶段默认折叠，成品按镜头集中展示。
 恢复和状态命令可以直接指定 `outputs/<任务名>`；同名任务有多个场景时需指定 `.runtime/tasks/<project>/<scene>`。
-重启继续使用原调用 ID，迁移不会提交新的生成。历史调试目录保存在 `.runtime/legacy/`。
+重启继续使用原调用 ID。当前只维护 `.runtime/tasks/` 状态与 `outputs/` 成品布局，旧目录迁移工具已移除；已有历史调试目录保存在 `.runtime/legacy/`。
 
 自动准备入口：登记 Task 后运行 worker，即可按需下载权重、构建镜像、部署模型及云端编排服务。
 
@@ -106,8 +106,9 @@ CPU 下载器检查完整文件清单、复用有效缓存，自动路径会修�
 
 004 分镜的 `tasks/004-pika-frames-demo.json` 是独立维护的多模型工作流任务；`scripts/generate_storyboard.py` 只维护 `docs/004-before-rain/` 下的四份提示词文档与图片清单，不会覆盖任务 JSON。后续编辑镜头须分别检查任务与文档的一致性。
 
-`shared/tasks/task_spec.py` 统一任务加载、参数准备、签名、远端结果前缀及本地任务身份。
+`orchestration/runner.py` 统一加载任务并构建执行计划；`shared/tasks/task_spec.py` 负责推理条目校验、签名与远端结果前缀。
 部署服务和异步编排器共同依赖它。所有业务任务统一交给 orchestration，模型目录不再提供 run.py。
+旧单模型客户端 `run_jobs`、同步批处理 `run_task` / `generate_batch_stream` 和 HTTP 工作流执行器已移除；统一使用 `run` 登记任务，再由 `worker` 执行。私有 HTTP 推理服务保留。
 
 通用 GPU 快照：MOSS、Pika、MiniMax 共用拍摄与恢复生命周期，保留 30 秒缩容。
 配置、计时边界及逐引擎远程验收要求见 [快照说明](docs/memory-snapshots.md)。
@@ -151,7 +152,7 @@ tests/                  全部离线测试
 
 ```text
 model.json              模型、镜像、启动命令、资源、缓存组件、能力与参数
-app.py                  调用 shared.serving.model_service.create_app
+app.py                  调用 shared.serving.model_runtime.create_app
 download_model.py       调用公共 CPU 下载及缓存检查
 pyproject.toml          本地依赖
 README.md               模型使用说明
@@ -177,7 +178,7 @@ uv run python -m modal deploy 001-moss-image/app.py
 Pika、MiniMax 替换目录名执行同样命令。普通任务无需重复 Deploy。
 修改 model.json 或 shared 中的云端代码后，需要重新 Deploy。
 三个模型保留部署 Class 名称 Moss、Pika、H3，使用同一套公共实现；新模型默认 Model。
-单容器内 SDK 批次串行；私有 HTTP 与 SDK 共用生成网关，但网关不额外限制生成并发。
+单容器内 SDK 单任务调用串行；私有 HTTP 与 SDK 共用生成网关，但网关不额外限制生成并发。
 查询与下载可以独立转发。POST 不自动重试；提交结果不明时，由各任务日志阻止该任务重复提交。
 没有任务时允许缩容至零，下次调用仍可能需要加载模型。
 

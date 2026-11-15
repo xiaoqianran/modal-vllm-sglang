@@ -1,7 +1,7 @@
 # 统一模型服务升级
 
 此升级保留三个 App 名称、原 HTTP endpoint 标签与 Moss / Pika / H3 部署类名。
-SDK 方法采用新契约：`generate_batch_stream(items, prefix, expected_cache_fingerprint, expected_spec_hash)`。
+当前 SDK 使用单任务方法 `generate_one(item, prefix, expected_cache_fingerprint, expected_spec_hash)`；旧 `generate_batch_stream` 批处理入口已移除。
 旧 Pika / H3 的 `generate_batch` 及旧 Moss 的两参数调用不能直接继续使用；请统一使用 `python -m orchestration run tasks/<任务>.json`，由 worker 调度。
 Python 薄入口导出 `Model`，Modal 注册名由 `model.json` 的 `modal_class` 决定。
 旧输出日志不迁移；新任务写入独立的 `model-results/`，不要用旧任务名重新生成未知状态的旧任务。

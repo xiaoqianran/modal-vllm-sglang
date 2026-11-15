@@ -1,6 +1,4 @@
 """Shared plan bindings and derived progress; no scheduler dependency."""
-import os
-from urllib.parse import urlsplit
 from collections import Counter
 
 from shared.tasks.batch import intent_digest
@@ -25,23 +23,10 @@ def reference(binding):
     return binding["ref"].split(".", 1)
 
 def bindings(plan):
-    if plan.get("transport") == "sdk":
-        return {name: {"endpoint": "sdk://" + service["spec"].get("app_name", "modal-model-" + name), "headers": {}}
-                for name, service in plan["services"].items()}
-    result = {}
-    for name, service in plan["services"].items():
-        endpoint = os.environ.get(service["endpoint_env"], "").rstrip("/")
-        url = urlsplit(endpoint)
-        if url.scheme not in {"http", "https"} or not url.netloc or url.username or url.password or url.query or url.fragment:
-            raise ValueError(f"Set {service['endpoint_env']} to a service URL without credentials/query/fragment")
-        headers = {}
-        for header, env in service.get("headers_env", {}).items():
-            value = os.environ.get(env)
-            if not value or "\r" in value or "\n" in value:
-                raise ValueError(f"Missing or invalid environment variable: {env}")
-            headers[header] = value
-        result[name] = {"endpoint": endpoint, "headers": headers}
-    return result
+    if plan.get("transport") != "sdk":
+        raise ValueError("Only SDK workflow plans are supported")
+    return {name: {"endpoint": "sdk://" + service["spec"].get("app_name", "modal-model-" + name), "headers": {}}
+            for name, service in plan["services"].items()}
 
 
 def report(plan, records):

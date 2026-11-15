@@ -107,8 +107,7 @@ def tick_shot(directory, item, backend, downloads, pool):
                 if current["jobs"][job["key"]]["status"] not in {"pending", "blocked"}:
                     continue
                 kind = sdk.adapters.CAPABILITIES[job["uses"]]["output"]
-                siblings = sum(sdk.adapters.CAPABILITIES[j["uses"]]["output"] == kind for j in jobs)
-                stem = state.output_stem(directory, job, plan)
+                stem = state.output_stem(job)
                 suffixes = (".png", ".jpg", ".jpeg", ".webp") if kind == "image" else (".mp4",)
                 if any((state.media_directory(directory) / (stem + suffix)).exists() for suffix in suffixes):
                     raise FileExistsError("Untracked output; refusing GPU submission")

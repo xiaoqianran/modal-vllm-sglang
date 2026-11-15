@@ -25,8 +25,7 @@ class DeployOnlyTests(unittest.TestCase):
                     self.assertFalse((ROOT / folder / name).exists())
 
     def test_common_service_has_one_gpu_class_and_private_http(self):
-        # model_service is the assembly/API facade; the GPU lifecycle lives
-        # in model_runtime after the responsibility split.
+        # GPU lifecycle and CPU preparation have separate entry modules.
         tree = ast.parse((ROOT / "shared/serving/model_runtime.py").read_text(encoding="utf-8"))
         classes = [n for n in ast.walk(tree) if isinstance(n, ast.ClassDef)]
         self.assertEqual(len(classes), 1)
@@ -35,7 +34,7 @@ class DeployOnlyTests(unittest.TestCase):
         cls = classes[0]
         self.assertEqual(cls.name, "Model")
         methods = {n.name for n in cls.body if isinstance(n, ast.FunctionDef)}
-        self.assertTrue({"start", "stop", "serve", "generate_batch_stream"} <= methods)
+        self.assertTrue({"start", "stop", "serve", "generate_one"} <= methods)
         decorator = next(d for d in cls.decorator_list if isinstance(d, ast.Call)
                          and isinstance(d.func, ast.Attribute) and d.func.attr == "cls")
         self.assertTrue(any(k.arg == "max_containers" and isinstance(k.value, ast.Constant)

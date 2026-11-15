@@ -5,7 +5,7 @@ from pathlib import Path
 
 from shared.config.model_spec import discover
 from shared.serving import modal_setup
-from shared.serving.model_service import create_app
+from shared.serving.model_runtime import create_app
 from shared.tasks import task_spec
 
 

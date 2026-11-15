@@ -24,25 +24,22 @@ import tempfile
 from pathlib import Path
 from shared.tasks import job_client
 from shared.utils.files import read_json, atomic_json, download_volume_file
-from shared.tasks.task_spec import ROOT, load_task, prepare, task_key
+from shared.tasks.task_spec import ROOT, prepare
 for folder in ("001-moss-image", "002-pika-h3-flex", "005-minimax-h3-image"):
     spec = read_json(ROOT / folder / "model.json")
     payload, signature = prepare(spec, {"id": "001", "prompt": "boat", "seed": 42})
     expected = hashlib.sha256(json.dumps({"spec": spec, "operation": spec["operation"],
         "payload": payload}, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
     assert signature == expected
-    assert task_key("Demo", "001-main", "001", spec["kind"]) == "demo/001-main/001/" + spec["kind"]
 with tempfile.TemporaryDirectory() as directory:
     root = Path(directory)
     spec = read_json(ROOT / "002-pika-h3-flex/model.json")
     image = bytes.fromhex("89504e470d0a1a0a") + b"x" * 64
     (root / "frame.png").write_bytes(image)
-    atomic_json(root / "task.json", {"version": 1, "name": "demo", "workflow": "pika-fl2va",
-        "items": [{"id": "001", "prompt": "boat", "first_frame": {"file": "frame.png"},
-                   "last_frame": {"file": "frame.png"}}]})
-    project, scene, operation, items = load_task(spec, "task.json", root=root)
-    assert (project, scene, operation) == ("demo", "001-main", "fl2va")
-    assert prepare(spec, items[0])[0]["first_frame_base64"] == base64.b64encode(image).decode()
+    payload, _ = prepare(spec, {"id": "001", "operation": "fl2va", "prompt": "boat", "seed": 42,
+        "first_frame_base64": base64.b64encode(image).decode(),
+        "last_frame_base64": base64.b64encode(image).decode()})
+    assert payload["first_frame_base64"] == base64.b64encode(image).decode()
     class Volume:
         def read_file(self, path):
             yield image
@@ -53,10 +50,3 @@ with tempfile.TemporaryDirectory() as directory:
                                 cwd=Path(__file__).resolve().parents[1],
                                 capture_output=True, text=True, timeout=30)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-
-    def test_existing_task_imports_remain_compatible(self):
-        from shared.serving import model_service
-        from shared.tasks import task_spec
-        self.assertIs(model_service.prepare, task_spec.prepare)
-        self.assertIs(model_service.load_task, task_spec.load_task)
-        self.assertEqual(model_service.ROOT, task_spec.ROOT)

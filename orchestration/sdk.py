@@ -3,8 +3,6 @@
 Scene locks protect only JSON transactions. Per-job locks protect a single spawn;
 downloads run separately and never determine whether a dependency is ready.
 """
-from concurrent.futures import ThreadPoolExecutor
-import math
 from pathlib import Path
 import time
 
@@ -126,10 +124,7 @@ class Backend:
 
     def _download(self, directory, job, record, plan, fields):
         kind = adapters.CAPABILITIES[job["uses"]]["output"]
-        siblings = sum(other["item"] == job["item"]
-                       and adapters.CAPABILITIES[other["uses"]]["output"] == kind
-                       for other in plan["jobs"])
-        stem = state.output_stem(directory, job, plan)
+        stem = state.output_stem(job)
         suffix = Path(record["result"]["file"]).suffix
         target = state.media_directory(directory) / (stem + suffix)
         artifact = record["artifacts"][kind]
@@ -283,7 +278,7 @@ def tick(directory, backend, downloads, pool):
                 siblings = sum(other["item"] == job["item"]
                                and adapters.CAPABILITIES[other["uses"]]["output"] == kind
                                for other in plan["jobs"])
-                stem = state.output_stem(directory, job, plan)
+                stem = state.output_stem(job)
                 suffixes = (".png", ".jpg", ".jpeg", ".webp") if kind == "image" else (".mp4",)
                 if any((state.media_directory(directory) / (stem + suffix)).exists() for suffix in suffixes):
                     advance(key, status="failed", error="Untracked local output; refusing GPU submission. Import frames explicitly instead.")
@@ -361,26 +356,3 @@ def collect_outputs(directory, backend, downloads, pool, *, item=None):
                 state.save(directory / "state.json", saved)
             state.save(directory / "report.json", result)
     return result
-
-
-def execute(directory, *, backend=None, timeout=3600, poll=2):
-    return execute_many([directory], backend=backend, timeout=timeout, poll=poll)[0]
-
-
-def execute_many(directories, *, backend=None, timeout=3600, poll=2):
-    if not all(math.isfinite(v) and v > 0 for v in (timeout, poll)):
-        raise ValueError("timeout and poll must be positive")
-    backend = backend or Backend()
-    downloads = {}
-    deadline = time.monotonic() + timeout
-    with ThreadPoolExecutor(max_workers=8) as pool:
-        while True:
-            results = [tick(directory, backend, downloads, pool) for directory in directories]
-            active = any(r["status"] in {"pending", "queued", "submitting"}
-                         or (r["status"] == "uncertain" and r.get("call_id"))
-                         for directory in directories for r in snapshot(directory)[1]["jobs"].values())
-            collecting = any(not download["future"].done() for download in downloads.values())
-            if (not active and not collecting) or time.monotonic() >= deadline:
-                # One final tick commits any just-finished download results.
-                return [tick(directory, backend, downloads, pool) for directory in directories]
-            time.sleep(min(poll, max(0, deadline - time.monotonic())))

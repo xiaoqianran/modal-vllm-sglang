@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 from shared.utils.files import atomic_json
-from shared.serving.model_service import create_app
+from shared.serving.model_runtime import create_app
 from shared.config.model_spec import validate
 from tests.test_model_service import SPEC
 
@@ -21,7 +21,7 @@ class MemorySnapshotTests(unittest.TestCase):
         cache = stack.enter_context(patch('shared.serving.model_runtime.verify_cache',
                                          side_effect=[({}, 'original'), ({}, 'changed' if changed else 'original')]))
         stack.enter_context(patch('shared.serving.model_runtime.command_argv', return_value=['engine']))
-        popen = stack.enter_context(patch('shared.serving.model_service.subprocess.Popen'))
+        popen = stack.enter_context(patch('shared.serving.model_runtime.subprocess.Popen'))
         health = stack.enter_context(patch('shared.serving.runtime.wait_for_health'))
         stop = stack.enter_context(patch('shared.serving.runtime.stop_process'))
         monitor = stack.enter_context(patch('shared.serving.runtime.monitor_processes'))

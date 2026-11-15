@@ -81,7 +81,7 @@ try/finally；在最外层 finally 清除回调并关闭 writer。
 ## 后续：编排依赖方向重构
 
 删除 sdk.worker 的云端客户端转发，由 runner 的 worker 命令直接调用
-cloud_client.worker。本地 SDK 执行仍通过 sdk.execute / execute_many。
+cloud_client.worker。当时的本地 SDK 执行通过 sdk.execute / execute_many；这两个入口已在后续精简中删除，当前任务统一由云端 worker 链路执行。
 APP_NAME、VERSION、run_id、state_path 原样移到 protocol，cloud_client
 不再导入 cloud；cloud_app 分别从 cloud 导入执行入口、从 protocol 导入协议定义。
 任务身份算法、协议版本、状态路径及模型部署配置未改变。

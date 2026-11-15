@@ -24,14 +24,8 @@ def telemetry_directory(directory):
     return Path(layout(directory).get("logs", Path(directory).parent.parent))
 
 
-def output_stem(directory, job, plan):
-    if layout(directory):
-        return f"{job['item']}_{job['step']}"
-    kind = plan["services"][job["uses"].split(".")[0]]["spec"]["kind"]
-    siblings = sum(other["item"] == job["item"] and
-                   plan["services"][other["uses"].split(".")[0]]["spec"]["kind"] == kind
-                   for other in plan["jobs"])
-    return job["item"] if siblings == 1 else f"{job['item']}-{job['step']}"
+def output_stem(job):
+    return f"{job['item']}_{job['step']}"
 
 
 def runtime_root(output):
@@ -67,29 +61,6 @@ def record_event(directory, job, changes):
                                          "changes": changes}, ensure_ascii=False) + "\n")
     except (OSError, RuntimeError, ValueError):
         pass
-
-from shared.utils.media import image_format
-
-
-def publish(root, folder, name, data, *, filename=None, refuse_existing=False):
-    if name == "image":
-        suffix, mime = image_format(data)
-    elif name == "video" and len(data) >= 32 and data[4:8] == b"ftyp":
-        suffix, mime = ".mp4", "video/mp4"
-    else:
-        raise ValueError("Invalid output format")
-    if filename is not None:
-        # Public outputs are flat; per-step manifests live in a separate folder.
-        if (not isinstance(filename, str) or not filename.isascii()
-                or not filename.replace("-", "").replace("_", "").isalnum()):
-            raise ValueError("Invalid output filename")
-    relative = f"{folder}/{filename or name}{suffix}" if folder else f"{filename or name}{suffix}"
-    path = local_path(root, relative)
-    if refuse_existing and path.exists():
-        raise FileExistsError(f"Output already exists, refusing overwrite: {path}")
-    write(path, data)
-    return {"type": name, "path": path.relative_to(Path(root).resolve()).as_posix(),
-            "size": len(data), "sha256": sha256_file(path), "mime": mime}
 
 
 def valid(root, artifact):

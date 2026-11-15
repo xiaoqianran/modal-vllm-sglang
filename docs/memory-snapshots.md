@@ -1,6 +1,6 @@
 # 通用 GPU 内存快照
 
-公共 `shared/serving/model_service.py` 为所有引擎提供相同生命周期，无模型名称分支。
+公共 `shared/serving/model_runtime.py` 为所有引擎提供相同生命周期，无模型名称分支。
 MOSS、Pika、MiniMax 及新模型模板使用 `"memory_snapshot": "gpu"`；
 设为 `"off"` 可回退到普通初始化。旧配置省略此项时仍为 off。
 三个模型的 `scaledown_window` 保留 30 秒，`min_containers` 保留 0。

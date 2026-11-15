@@ -1,27 +1,16 @@
-"""Standard deployed image/video service, CPU cache preparation and SDK CLI.
-
-Engine-specific behavior belongs in model.json's argv and image. This module
-targets /v1/images/generations and /v1/videos, including inline keyframes.
-"""
+"""Modal GPU lifecycle and image construction shared by all model configurations."""
 import json
-import hashlib
 import subprocess
 import threading
 import os
 import time
 from pathlib import Path
 
-from shared.tasks.batch import completed_output, intent_digest
-from shared.utils.files import atomic_json, read_json, sha256_file
-from shared.utils.media import media_suffix
+from shared.tasks.batch import intent_digest
+from shared.utils.files import read_json
 from shared.config.model_spec import validate
-from shared.config.model_cache import cache_directory, verify_cache, prepare_cache, command_argv
-from shared.utils.outputs import component
-from shared.tasks.task_lifecycle import recovery_action, TERMINAL, SubmissionRejected
+from shared.config.model_cache import cache_directory, verify_cache, command_argv
 from shared.telemetry.recorder import Recorder
-
-# Re-export task helpers for existing callers. New code imports task_spec directly.
-from shared.tasks.task_spec import ROOT, load_task, prepare, result_prefix, execution_signature
 
 
 from shared.serving.inference_execution import execute, publish_telemetry
@@ -34,7 +23,6 @@ def class_name(name):
 
 
 def build_image(spec, *, offline):
-    import os
     from shared.serving.modal_setup import runtime_image
     root = cache_directory(spec)
     env = {**spec.get("env", {}), "HF_HOME": root,
@@ -59,7 +47,6 @@ def create_app(config_path):
     spec = validate(read_json(config_path))
     volume = model_volume()
     app = modal.App(spec.get("app_name", "modal-model-" + spec["service"]))
-    import os
     deployment_version = os.environ.get("MODEL_DEPLOY_VERSION", "manual")
 
     @app.function(name="provision_info", image=modal.Image.debian_slim().env({"MODEL_DEPLOY_VERSION": deployment_version}), serialized=True)
@@ -176,7 +163,7 @@ def create_app(config_path):
             from shared.config.storage import VOLUME_NAME
             return {"service": spec["service"], "spec_hash": intent_digest(spec), "volume": VOLUME_NAME,
                     "cache_fingerprint": self.cache_fingerprint,
-                    "methods": ["generate_one", "generate_batch_stream", "deployment_info"],
+                    "methods": ["generate_one", "deployment_info"],
                     "image": spec["image"], "max_inputs": spec.get("max_inputs", 1),
                     "sdk_inference_concurrency": 1,
                     "cloud_artifacts": 1,
@@ -230,19 +217,6 @@ def create_app(config_path):
             finally:
                 self.batch_lock.release()
 
-        @modal.method()
-        def generate_batch_stream(self, items, prefix, expected_cache_fingerprint, expected_spec_hash):
-            if expected_spec_hash != intent_digest(spec):
-                raise RuntimeError("Local configuration differs from deployed model.json; deploy it first")
-            if expected_cache_fingerprint != self.cache_fingerprint:
-                raise RuntimeError("Prepared model changed; restart with the current cache")
-            with self.batch_lock:
-                for record in execute(spec, items, prefix, volume, self.cache_fingerprint):
-                    print(json.dumps({"event": "batch_item_completed", "service": spec["service"],
-                                      "id": record["id"], "prefix": prefix,
-                                      "execution_seconds": record.get("execution_seconds"),
-                                      "resources": self.resources.snapshot()}), flush=True)
-                    yield record
 
         @modal.exit()
         def stop(self):

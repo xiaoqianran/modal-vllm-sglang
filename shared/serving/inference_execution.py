@@ -1,27 +1,16 @@
-"""Standard deployed image/video service, CPU cache preparation and SDK CLI.
-
-Engine-specific behavior belongs in model.json's argv and image. This module
-targets /v1/images/generations and /v1/videos, including inline keyframes.
-"""
-import json
+"""Inference execution, durable result publication and recovery."""
 import hashlib
-import subprocess
-import threading
-import os
 import time
 from pathlib import Path
 
-from shared.tasks.batch import completed_output, intent_digest
+from shared.tasks.batch import completed_output
 from shared.utils.files import atomic_json, read_json, sha256_file
 from shared.utils.media import media_suffix
-from shared.config.model_spec import validate
-from shared.config.model_cache import cache_directory, verify_cache, prepare_cache, command_argv
 from shared.utils.outputs import component
 from shared.tasks.task_lifecycle import recovery_action, TERMINAL, SubmissionRejected
 from shared.telemetry.recorder import Recorder
 
-# Re-export task helpers for existing callers. New code imports task_spec directly.
-from shared.tasks.task_spec import ROOT, load_task, prepare, result_prefix, execution_signature
+from shared.tasks.task_spec import prepare, execution_signature
 
 
 def execute(spec, items, prefix, volume, cache_fingerprint="unverified", recorder=None, background_telemetry=False):

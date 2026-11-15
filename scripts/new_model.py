@@ -38,7 +38,7 @@ def scaffold(directory, service, engine, kind, model, revision, image):
     (target / "model.json").write_text(json.dumps(spec, indent=2) + "\n", encoding="utf-8")
     bootstrap = 'from pathlib import Path\nimport sys\nsys.path.insert(0, str(Path(__file__).resolve().parent.parent))\n'
     for filename, code in {
-        "app.py": 'from shared.serving.model_service import create_app\napp, Model = create_app(Path(__file__).with_name("model.json"))\n',
+        "app.py": 'from shared.serving.model_runtime import create_app\napp, Model = create_app(Path(__file__).with_name("model.json"))\n',
         "download_model.py": 'from shared.serving.model_service import create_download_app, run_download_cli\napp, download, check_cache = create_download_app(Path(__file__).with_name("model.json"))\n@app.local_entrypoint()\ndef main(check_only: bool = False, refresh: bool = False, migrate_only: bool = False):\n    run_download_cli(download, check_cache, check_only=check_only, refresh=refresh, migrate_only=migrate_only)\n',
     }.items():
         (target / filename).write_text(bootstrap + code, encoding="utf-8")
