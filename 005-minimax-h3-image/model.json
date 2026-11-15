@@ -8,6 +8,7 @@
   "timeout": 14400,
   "startup_timeout": 3600,
   "scaledown_window": 30,
+  "memory_snapshot": "gpu",
   "service": "minimax",
   "app_name": "modal-forge-005-minimax-h3-image",
   "operation": "t2i",

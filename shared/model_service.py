@@ -5,7 +5,6 @@ targets /v1/images/generations and /v1/videos, including inline keyframes.
 """
 import argparse
 import json
-import base64
 import hashlib
 import subprocess
 import threading
@@ -15,13 +14,14 @@ from pathlib import Path
 
 from shared.batch import completed_output, intent_digest
 from shared.files import atomic_json, read_json, sha256_file
-from shared.media import image_format
-from shared.model_spec import parameters, validate, operation_spec, operations
+from shared.media import media_suffix
+from shared.model_spec import validate
 from shared.model_cache import cache_directory, verify_cache, prepare_cache, command_argv
 from shared.outputs import component
 from shared.task_lifecycle import recovery_action, TERMINAL, SubmissionRejected
 
-ROOT = Path(__file__).resolve().parent.parent
+# Re-export task helpers for existing callers. New code imports task_spec directly.
+from shared.task_spec import ROOT, load_task, prepare, result_prefix, execution_signature
 
 
 def class_name(name):
@@ -29,36 +29,6 @@ def class_name(name):
         cls.__name__ = name
         return cls
     return decorate
-
-
-def media_suffix(data, kind):
-    if kind == "image":
-        return image_format(data)[0]
-    if len(data) >= 32 and data[4:8] == b"ftyp":
-        return ".mp4"
-    raise ValueError("Expected MP4 content")
-
-
-def prepare(spec, item):
-    component(item["id"])
-    if not isinstance(item.get("prompt"), str) or not item["prompt"].strip():
-        raise ValueError("Nonempty prompt required")
-    if type(item.get("seed")) is not int or not 0 <= item["seed"] < 2**32:
-        raise ValueError("uint32 seed required")
-    operation = item.get("operation", spec["operation"])
-    selected = operation_spec(spec, operation)
-    payload = parameters(spec, item.get("params", {}), operation)
-    payload.update(prompt=item["prompt"], seed=item["seed"])
-    for field in ("first_frame", "last_frame"):
-        value = item.get(field + "_base64")
-        required = field in selected["inputs"]
-        if required != (value is not None):
-            raise ValueError(f"{field} does not match operation {operation}")
-        if required:
-            from shared.inference_gateway import _decode_frame
-            _decode_frame(value)
-            payload[field + "_base64"] = value
-    return payload, intent_digest({"spec": spec, "operation": operation, "payload": payload})
 
 
 def execute(spec, items, prefix, volume, cache_fingerprint="unverified"):
@@ -78,7 +48,7 @@ def execute(spec, items, prefix, volume, cache_fingerprint="unverified"):
         old = read_json(metadata) if metadata.exists() else {}
         if old.get("intent_hash") not in (None, signature):
             raise ValueError("Remote task signature changed")
-        execution_hash = intent_digest({"intent": signature, "cache": cache_fingerprint})
+        execution_hash = execution_signature(signature, cache_fingerprint)
         if old and old.get("execution_hash") != execution_hash:
             raise ValueError("Remote model cache changed")
         if old.get("status") == "completed":
@@ -156,6 +126,8 @@ def build_image(spec, *, offline):
     root = cache_directory(spec)
     env = {**spec.get("env", {}), "HF_HOME": root,
            "SGLANG_DIFFUSION_CACHE_ROOT": root + "/sglang"}
+    if spec.get("memory_snapshot", "off") == "gpu":
+        env.setdefault("TORCHINDUCTOR_COMPILE_THREADS", "1")
     if offline:
         env.update(HF_HUB_OFFLINE="1", TRANSFORMERS_OFFLINE="1")
     else:
@@ -174,40 +146,71 @@ def create_app(config_path):
     app = modal.App(spec.get("app_name", "modal-model-" + spec["service"]))
     image = build_image(spec, offline=True).add_local_file(str(config_path), "/opt/model.json", copy=False)
     startup = spec.get("startup_timeout", 3600)
+    gpu_snapshot = spec.get("memory_snapshot", "off") == "gpu"
 
     @app.cls(image=image, serialized=True, gpu=spec.get("gpu", "RTX-PRO-6000"),
              cpu=spec.get("cpu", 4), memory=spec.get("memory", 32768),
              volumes={"/mnt/modal": volume}, min_containers=0, max_containers=1,
              scaledown_window=spec.get("scaledown_window", 30),
+             enable_memory_snapshot=gpu_snapshot,
+             experimental_options={"enable_gpu_snapshot": True} if gpu_snapshot else {},
              startup_timeout=startup, timeout=spec.get("timeout", 14400))
     @modal.concurrent(max_inputs=spec.get("max_inputs", 1))
     @class_name(spec.get("modal_class", "Model"))
     class Model:
-        @modal.enter()
+        def _prepare_engine(self):
+            started = time.perf_counter()
+            self.process = None
+            self.gateway = None
+            try:
+                paths, self.cache_fingerprint = verify_cache(spec, phase="engine_start")
+                self.process = subprocess.Popen(command_argv(spec, paths))
+                wait_for_health(self.process, f"http://127.0.0.1:{spec.get('port', 8000)}/health", timeout=startup - 60)
+            except BaseException:
+                if self.process is not None:
+                    stop_process(self.process)
+                raise
+            self.engine_initialization_seconds = time.perf_counter() - started
+            print(json.dumps({"event": "engine_initialized", "service": spec["service"],
+                              "engine_initialization_seconds": self.engine_initialization_seconds,
+                              "memory_snapshot": spec.get("memory_snapshot", "off")}), flush=True)
+
+        @modal.enter(snap=gpu_snapshot)
+        def capture_engine(self):
+            # Only engine state is captured. Runtime threads, identity and gateway
+            # are created after restore; disabled snapshots use start() instead.
+            if gpu_snapshot:
+                self._prepare_engine()
+
+        @modal.enter(snap=False)
         def start(self):
             from shared.metrics import ResourceMonitor
             started = time.perf_counter()
             self.batch_lock = threading.Lock()
             self.stopping = threading.Event()
             self.resources = ResourceMonitor(interval=spec.get("metrics_interval", 5))
-            self.resources.start()
-            self.process = None
             self.gateway = None
+            if not gpu_snapshot:
+                self._prepare_engine()
             try:
-                paths, self.cache_fingerprint = verify_cache(spec)
-                self.process = subprocess.Popen(command_argv(spec, paths))
+                # Volume mutations do not invalidate Modal snapshots. Reject stale
+                # captured weights rather than serving them under a new manifest.
+                if gpu_snapshot:
+                    _, fingerprint = verify_cache(spec, phase="post_snapshot")
+                    if fingerprint != self.cache_fingerprint:
+                        raise RuntimeError("Model cache changed since engine initialization; redeploy to rebuild snapshot")
                 wait_for_health(self.process, f"http://127.0.0.1:{spec.get('port', 8000)}/health", timeout=startup - 60)
                 self.gateway = subprocess.Popen(["python", "-m", "shared.inference_gateway", "--config", "/opt/model.json"])
                 port = spec.get("proxy_port", spec.get("port", 8000) + 1)
                 wait_for_health(self.gateway, f"http://127.0.0.1:{port}/health", timeout=120)
             except BaseException:
-                self.resources.stop()
                 if self.gateway is not None:
                     stop_process(self.gateway)
                 if self.process is not None:
                     stop_process(self.process)
                 raise
 
+            self.resources.start()
             self.monitor = monitor_processes((self.process, self.gateway), volume, label=spec["service"],
                               stopping=self.stopping, on_failure=lambda: os._exit(1))
             self.startup_seconds = time.perf_counter() - started
@@ -215,6 +218,9 @@ def create_app(config_path):
                               "container": os.environ.get("MODAL_TASK_ID"),
                               "cache_fingerprint": self.cache_fingerprint,
                               "startup_seconds": self.startup_seconds,
+                              "startup_measurement": "post_snapshot_hook" if gpu_snapshot else "full_initialization",
+                              "engine_initialization_seconds": self.engine_initialization_seconds,
+                              "memory_snapshot": spec.get("memory_snapshot", "off"),
                               "resources": self.resources.snapshot()}), flush=True)
 
         @modal.method()
@@ -227,6 +233,9 @@ def create_app(config_path):
                     "sdk_inference_concurrency": 1,
                     "cpu": spec.get("cpu", 4), "memory": spec.get("memory", 32768),
                     "startup_seconds": self.startup_seconds,
+                    "startup_measurement": "post_snapshot_hook" if gpu_snapshot else "full_initialization",
+                    "engine_initialization_seconds": self.engine_initialization_seconds,
+                    "memory_snapshot": spec.get("memory_snapshot", "off"),
                     "resources": self.resources.snapshot()}
 
         @modal.web_server(port=spec.get("proxy_port", spec.get("port", 8000) + 1),
@@ -272,9 +281,17 @@ def create_app(config_path):
 
         @modal.exit()
         def stop(self):
-            self.resources.stop()
-            self.stopping.set()
-            self.monitor.join(timeout=60)
+            # Initialization/capture can fail before runtime objects exist.
+            if hasattr(self, "resources") and self.resources.thread.is_alive():
+                self.resources.stop()
+            if hasattr(self, "stopping"):
+                self.stopping.set()
+            if hasattr(self, "monitor"):
+                self.monitor.join(timeout=60)
+            else:
+                for process in (getattr(self, "gateway", None), getattr(self, "process", None)):
+                    if process is not None:
+                        stop_process(process)
 
     return app, Model
 
@@ -325,61 +342,10 @@ def run_download_cli(download, check_cache, *, check_only=False, refresh=False, 
     print(check_cache.remote() if check_only else download.remote(refresh=refresh, migrate_only=migrate_only))
 
 
-def load_task(spec, path, *, root=ROOT, limit=0):
-    path = Path(path)
-    task = read_json(path if path.is_absolute() else Path(root) / path)
-    allowed = {"version", "name", "project", "scene", "workflow", "params", "items"}
-    if not isinstance(task, dict) or task.keys() - allowed or type(task.get("version")) is not int or task["version"] != 1:
-        raise ValueError("Expected version-1 task JSON")
-    component(task["name"])
-    project, scene = component(task.get("project", task["name"])), component(task.get("scene", "001-main"))
-    candidates = [op for op in operations(spec) if task.get("workflow") == spec["service"] + "-" + op]
-    if len(candidates) != 1:
-        raise ValueError("Task workflow does not belong to this model")
-    operation = candidates[0]
-    selected = operation_spec(spec, operation)
-    if not isinstance(task.get("params", {}), dict) or not isinstance(task.get("items"), list) or not task["items"]:
-        raise ValueError("Task requires params object and nonempty items")
-    items, seen = [], set()
-    for raw in task["items"]:
-        if not isinstance(raw, dict) or raw.keys() - {"id", "prompt", "seed", "params", "first_frame", "last_frame"}:
-            raise ValueError("Unsupported item fields")
-        shot = component(raw["id"])
-        if shot.lower() in seen:
-            raise ValueError("Duplicate shot ID")
-        seen.add(shot.lower())
-        if not isinstance(raw.get("params", {}), dict):
-            raise ValueError("Item params must be an object")
-        seed = int.from_bytes(hashlib.sha256(f"{task['name']}/{operation}/{shot}".encode()).digest()[:4], "big") & 0x7fffffff
-        item = {"id": shot, "operation": operation, "prompt": raw["prompt"], "seed": raw.get("seed", seed),
-                "params": {**task.get("params", {}), **raw.get("params", {})}}
-        for field in ("first_frame", "last_frame"):
-            required = field in selected["inputs"]
-            if required != (field in raw):
-                raise ValueError(f"{field} does not match operation")
-            if required:
-                binding = raw[field]
-                if not isinstance(binding, dict) or set(binding) != {"file"}:
-                    raise ValueError("Frame input must be {file: repo-relative-path}")
-                if not isinstance(binding["file"], str) or Path(binding["file"]).is_absolute():
-                    raise ValueError("Frame path must be repository relative")
-                from shared.files import local_path
-                # Input identity is its content, never its local path.
-                frame = local_path(root, binding["file"])
-                if not frame.is_file() or not 0 < frame.stat().st_size <= 20 * 1024 * 1024:
-                    raise ValueError("Frame must be 1 byte to 20 MiB")
-                data = frame.read_bytes()
-                image_format(data)
-                item[field + "_base64"] = base64.b64encode(data).decode("ascii")
-        prepare(spec, item)  # Validate the full task, even when --limit selects fewer items.
-        items.append(item)
-    return project, scene, operation, items[:limit] if limit else items
-
-
 def run_task(spec, path, *, root=ROOT, output=None, dry_run=False, limit=0):
     name, scene, operation, items = load_task(spec, path, root=root, limit=limit)
     plans = {i["id"]: prepare(spec, i)[1] for i in items}
-    prefix = f"model-results/{spec['service']}/{name}/{scene}/{operation}-{intent_digest(spec)[:20]}"
+    prefix = result_prefix(spec, name, scene, operation)
     print(json.dumps({"project": name, "scene": scene, "total": len(items), "prefix": prefix, "kind": spec["kind"]}))
     if dry_run:
         return
@@ -393,7 +359,7 @@ def run_task(spec, path, *, root=ROOT, output=None, dry_run=False, limit=0):
     volume = model_volume()
     from shared.job_client import remote_cache_fingerprint
     cache_fingerprint = remote_cache_fingerprint(spec, volume)
-    execution_hashes = {shot: intent_digest({"intent": signature, "cache": cache_fingerprint}) for shot, signature in plans.items()}
+    execution_hashes = {shot: execution_signature(signature, cache_fingerprint) for shot, signature in plans.items()}
 
     from shared.job_client import check_record, parallel_collect
 

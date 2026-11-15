@@ -64,6 +64,91 @@ class JobClientTests(unittest.TestCase):
         self.assertEqual(self.model.generate_one.spawn.call_count, 20)
         self.call.get.assert_called_with(timeout=0)
 
+    def test_slow_spawn_does_not_lock_unrelated_job_registration(self):
+        entered, release = threading.Event(), threading.Event()
+        errors = []
+        second = self.root / 'second.json'
+        atomic_json(second, {'version': 1, 'name': 'independent', 'workflow': 'moss-t2i',
+                             'items': [{'id': '000', 'prompt': 'boat'}]})
+
+        def spawn(item, prefix, *args):
+            if '/demo/' in prefix:
+                entered.set()
+                if not release.wait(5):
+                    raise TimeoutError('test did not release spawn')
+            return Mock(object_id='fc-' + prefix.split('/')[2])
+
+        def first_runner():
+            try:
+                self.run_jobs()
+            except BaseException as exc:
+                errors.append(exc)
+
+        self.model.generate_one.spawn.side_effect = spawn
+        thread = threading.Thread(target=first_runner)
+        thread.start()
+        try:
+            self.assertTrue(entered.wait(5))
+            manifest = self.root / 'outputs/.runner/jobs/moss.json'
+            self.assertEqual(read_json(manifest)['demo/001-main/000/image']['status'], 'submitting')
+            # The same identity must remain exclusive during an ambiguous spawn.
+            with self.assertRaisesRegex(RuntimeError, 'Another runner'):
+                self.run_jobs()
+            self.run_jobs(paths=[second])
+            receipt = read_json(manifest)
+            self.assertEqual(receipt['independent/001-main/000/image']['status'], 'queued')
+            self.assertEqual(receipt['demo/001-main/000/image']['status'], 'submitting')
+        finally:
+            release.set()
+            thread.join(6)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(errors, [])
+        self.assertEqual(self.model.generate_one.spawn.call_count, 2)
+        receipt = read_json(manifest)
+        self.assertEqual(len(receipt), 2)
+        self.assertTrue(all(job['status'] == 'queued' for job in receipt.values()))
+
+    def test_slow_collection_allows_submission_and_preserves_both_receipts(self):
+        self.run_jobs()
+        self.remote_result()
+        entered, release = threading.Event(), threading.Event()
+        errors = []
+        previous = self.volume.read_file.side_effect
+
+        def read(path):
+            if path.endswith('.png'):
+                entered.set()
+                if not release.wait(5):
+                    raise TimeoutError('test did not release download')
+            return previous(path)
+
+        def collector():
+            try:
+                self.run_jobs('collect', paths=[])
+            except BaseException as exc:
+                errors.append(exc)
+
+        self.volume.read_file.side_effect = read
+        thread = threading.Thread(target=collector)
+        thread.start()
+        try:
+            self.assertTrue(entered.wait(5))
+            second = self.root / 'second.json'
+            atomic_json(second, {'version': 1, 'name': 'independent', 'workflow': 'moss-t2i',
+                                 'items': [{'id': '000', 'prompt': 'boat'}]})
+            self.run_jobs(paths=[second])
+            # Refreshing a receipt during its download must also remain possible.
+            self.run_jobs('status')
+        finally:
+            release.set()
+            thread.join(6)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(errors, [])
+        receipt = read_json(self.root / 'outputs/.runner/jobs/moss.json')
+        self.assertTrue(receipt['demo/001-main/000/image']['collected'])
+        self.assertEqual(receipt['independent/001-main/000/image']['status'], 'queued')
+        self.assertEqual(self.model.generate_one.spawn.call_count, 2)
+
     def test_lost_spawn_response_remains_uncertain(self):
         self.model.generate_one.spawn.side_effect = ConnectionError("lost response")
         with self.assertRaises(ConnectionError):

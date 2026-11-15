@@ -1,4 +1,5 @@
 {
+  "memory_snapshot": "gpu",
   "service": "REPLACE_SERVICE",
   "operation": "t2i",
   "kind": "image",

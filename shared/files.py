@@ -56,7 +56,7 @@ def download_volume_file(volume, remote_path, destination, *, expected_sha256=No
         if expected_sha256 is not None and sha256_file(temp) != expected_sha256:
             raise ValueError("Downloaded content checksum mismatch")
         if kind is not None:
-            from shared.model_service import media_suffix
+            from shared.media import media_suffix
             with temp.open("rb") as stream:
                 media_suffix(stream.read(32), kind)
         if refuse_existing and destination.exists():
@@ -72,7 +72,7 @@ def download_volume_file(volume, remote_path, destination, *, expected_sha256=No
 
 
 @contextmanager
-def file_lock(directory, *, filename=".runner.lock"):
+def file_lock(directory, *, filename=".runner.lock", timeout=0):
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
     with (directory / filename).open("a+b") as stream:
@@ -80,15 +80,21 @@ def file_lock(directory, *, filename=".runner.lock"):
             stream.write(b"0")
             stream.flush()
         stream.seek(0)
-        try:
-            if os.name == "nt":
-                import msvcrt
-                msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
-            else:
-                import fcntl
-                fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except OSError as exc:
-            raise RuntimeError(f"Another runner holds {directory}") from exc
+        deadline = time.monotonic() + timeout
+        while True:
+            try:
+                if os.name == "nt":
+                    import msvcrt
+                    msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
+                else:
+                    import fcntl
+                    fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except OSError as exc:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise RuntimeError(f"Another runner holds {directory}") from exc
+                time.sleep(min(0.01, remaining))
         try:
             yield
         finally:

@@ -8,8 +8,27 @@ from shared.batch import intent_digest
 from shared.files import atomic_json, download_volume_file, file_lock, read_json, sha256_file
 from shared.model_cache import cache_directory, component_specs
 from shared.outputs import record_artifact
+from shared.task_spec import ROOT, load_task, prepare, task_key, result_prefix, execution_signature
 
 DOWNLOAD_WORKERS = 8
+
+
+def read_jobs(manifest):
+    # Writers use atomic replacement; readers see a complete old or new version.
+    return read_json(manifest) if manifest.exists() else {}
+
+
+def save_job(manifest, key, job):
+    """Merge one task under a short local lock; never overwrite other runners."""
+    with file_lock(manifest.parent, timeout=10):
+        jobs = read_jobs(manifest)
+        jobs[key] = job
+        atomic_json(manifest, jobs)
+
+
+def job_lock(manifest, key):
+    # Same identity stays exclusive across refresh/spawn; unrelated tasks proceed.
+    return file_lock(manifest.parent, filename=f".job-{intent_digest([manifest.name, key])}.lock")
 
 
 def remote_cache_fingerprint(spec, volume):
@@ -128,10 +147,10 @@ def collect_remote(spec, selected, volume, output):
     started = time.perf_counter()
     def fetch(entry):
         project, scene, prefix, item, signature = entry
-        key = f"{project}/{scene}/{item['id']}/{spec['kind']}".lower()
+        key = task_key(project, scene, item["id"], spec["kind"])
         job = {"id": item["id"], "project": project, "scene": scene, "prefix": prefix,
                "kind": spec["kind"], "intent_hash": signature,
-               "execution_hash": intent_digest({"intent": signature, "cache": fingerprint})}
+               "execution_hash": execution_signature(signature, fingerprint)}
         record = remote_record(volume, prefix, item["id"])
         if record is None:
             job["status"] = "not_found"
@@ -145,7 +164,7 @@ def collect_remote(spec, selected, volume, output):
 
     unique = {}
     for project, scene, prefix, item, signature in selected:
-        key = f"{project}/{scene}/{item['id']}/{spec['kind']}".lower()
+        key = task_key(project, scene, item["id"], spec["kind"])
         unique.setdefault(key, (project, scene, prefix, item, signature))
     with ThreadPoolExecutor(max_workers=DOWNLOAD_WORKERS) as executor:
         futures = {executor.submit(fetch, entry): key for key, entry in unique.items()}
@@ -168,7 +187,6 @@ def collect_remote(spec, selected, volume, output):
 def run_jobs(spec, paths, *, root=None, output=None, limit=0, dry_run=False, mode="enqueue"):
     import modal
     from shared.modal_setup import model_volume
-    from shared.model_service import ROOT, load_task, prepare
     root = Path(root) if root is not None else ROOT
     output = Path(output) if output is not None else Path("outputs")
     if not output.is_absolute():
@@ -178,10 +196,10 @@ def run_jobs(spec, paths, *, root=None, output=None, limit=0, dry_run=False, mod
     identities = {}
     for path in paths:
         project, scene, operation, items = load_task(spec, path, root=root, limit=limit)
-        prefix = f"model-results/{spec['service']}/{project}/{scene}/{operation}-{intent_digest(spec)[:20]}"
+        prefix = result_prefix(spec, project, scene, operation)
         for item in items:
             signature = prepare(spec, item)[1]
-            key = f"{project}/{scene}/{item['id']}/{spec['kind']}".lower()
+            key = task_key(project, scene, item["id"], spec["kind"])
             if key in identities and identities[key] != signature:
                 raise ValueError(f"Conflicting task files: {key}")
             identities[key] = signature
@@ -199,23 +217,28 @@ def run_jobs(spec, paths, *, root=None, output=None, limit=0, dry_run=False, mod
         fingerprint = remote_cache_fingerprint(spec, volume)
     directory = output / ".runner" / "jobs"
     manifest = directory / (spec["service"] + ".json")
-    with file_lock(directory):
-        jobs = read_json(manifest) if manifest.exists() else {}
-        keys = []
-        for project, scene, prefix, item, signature in selected:
-            key = f"{project}/{scene}/{item['id']}/{spec['kind']}".lower()
-            keys.append(key)
-            old = jobs.get(key)
-            if old and (old["intent_hash"] != signature or (fingerprint and old["cache_fingerprint"] != fingerprint)):
-                raise ValueError(f"Task/configuration/cache conflict: {key}")
-        model = None
-        for project, scene, prefix, item, signature in selected if mode == "enqueue" else []:
-            key = f"{project}/{scene}/{item['id']}/{spec['kind']}".lower()
+    def check_existing(key, old, signature):
+        if old and (old["intent_hash"] != signature or (fingerprint and old["cache_fingerprint"] != fingerprint)):
+            raise ValueError(f"Task/configuration/cache conflict: {key}")
+
+    jobs = read_jobs(manifest)
+    keys = []
+    for project, scene, prefix, item, signature in selected:
+        key = task_key(project, scene, item["id"], spec["kind"])
+        keys.append(key)
+        check_existing(key, jobs.get(key), signature)
+    model = None
+    to_collect = []
+    for project, scene, prefix, item, signature in selected if mode == "enqueue" else []:
+        key = task_key(project, scene, item["id"], spec["kind"])
+        with job_lock(manifest, key):
+            jobs = read_jobs(manifest)
+            check_existing(key, jobs.get(key), signature)
             if key not in jobs:
                 job = {"id": item["id"], "project": project, "scene": scene, "prefix": prefix,
                        "kind": spec["kind"], "status": "pending", "intent_hash": signature,
                        "cache_fingerprint": fingerprint,
-                       "execution_hash": intent_digest({"intent": signature, "cache": fingerprint})}
+                       "execution_hash": execution_signature(signature, fingerprint)}
                 folder = output / project / scene
                 # Existing output must be reconciled through committed Volume metadata.
                 remote = remote_record(volume, prefix, item["id"])
@@ -231,32 +254,47 @@ def run_jobs(spec, paths, *, root=None, output=None, limit=0, dry_run=False, mod
                 if model is None:
                     model = modal.Cls.from_name(spec.get("app_name", "modal-model-" + spec["service"]), spec.get("modal_class", "Model"))()
                 job["status"] = "submitting"
-                atomic_json(manifest, jobs)  # Must reach disk BEFORE the network request.
+                save_job(manifest, key, job)  # Must reach disk BEFORE the network request.
                 try:
                     call = model.generate_one.spawn(item, prefix, fingerprint, intent_digest(spec))
                     job.update(call_id=call.object_id, status="queued")
                 except BaseException:
                     job["status"] = "uncertain"
-                    atomic_json(manifest, jobs)
+                    save_job(manifest, key, job)
                     raise
-            atomic_json(manifest, jobs)
+            save_job(manifest, key, job)
             print(json.dumps({"job": key, **job}, ensure_ascii=False))
-        if mode != "enqueue":
-            keys = keys if paths else list(jobs)
-            to_collect = []
-            for key in dict.fromkeys(keys):
+    if mode != "enqueue":
+        keys = keys if paths else list(read_jobs(manifest))
+        signatures = {task_key(p, s, item["id"], spec["kind"]): signature
+                      for p, s, _, item, signature in selected}
+        for key in dict.fromkeys(keys):
+            with job_lock(manifest, key):
+                jobs = read_jobs(manifest)
                 if key not in jobs:
                     print(json.dumps({"job": key, "status": "not_submitted"}))
                     continue
                 job = jobs[key]
+                if key in signatures:
+                    check_existing(key, job, signatures[key])
                 refresh(job, volume, modal.FunctionCall.from_id)
-                atomic_json(manifest, jobs)
+                save_job(manifest, key, job)
                 if mode == "collect" and job["status"] == "completed":
                     to_collect.append(job)
                 print(json.dumps({"job": key, **job}, ensure_ascii=False))
-            if to_collect:
-                errors = parallel_collect(to_collect, volume, output)
-                atomic_json(manifest, jobs)
-                if errors:
-                    raise errors[0]
-        return jobs
+        if to_collect:
+            errors = parallel_collect(to_collect, volume, output)
+            # Downloads keep their artifact locks. Merge only collection fields
+            # into fresh receipts, preserving concurrent status/call-id updates.
+            for collected in to_collect:
+                if not collected.get("collected"):
+                    continue
+                key = task_key(collected["project"], collected["scene"], collected["id"], collected["kind"])
+                with job_lock(manifest, key):
+                    current = read_jobs(manifest)[key]
+                    check_record(current, collected["result"])
+                    current.update(collected=True, download_metrics=collected["download_metrics"])
+                    save_job(manifest, key, current)
+            if errors:
+                raise errors[0]
+    return read_jobs(manifest)

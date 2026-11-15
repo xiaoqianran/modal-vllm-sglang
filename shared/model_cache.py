@@ -1,5 +1,7 @@
 """CPU preparation and offline verification for HF snapshots and SGLang overlays."""
 from pathlib import Path, PurePosixPath
+import json
+import time
 
 from shared.batch import intent_digest
 from shared.cache import file_inventory
@@ -56,7 +58,7 @@ def migrate_legacy_cache(spec, volume, root):
     # Preserve the old manifest for rollback. Publish only after every component passed.
     atomic_json(root / "model-ready.legacy.json", old)
     atomic_json(marker, record)
-    verify_cache(spec, root)
+    verify_cache(spec, root, phase="cpu_prepare")
     volume.commit()
     return {"ready": True, "migrated": True, "fingerprint": intent_digest(record)}
 
@@ -76,7 +78,23 @@ def checked_inventory(path, config):
     return inventory
 
 
-def verify_cache(spec, root=None):
+def verify_cache(spec, root=None, *, phase=None):
+    """Full file-name/size validation; optional timing never changes checks."""
+    started = time.perf_counter()
+    success = False
+    try:
+        result = _verify_cache_full(spec, root)
+        success = True
+        return result
+    finally:
+        if phase is not None:
+            print(json.dumps({"event": "cache_verified", "service": spec["service"],
+                              "phase": phase, "validation": "full_inventory",
+                              "success": success,
+                              "seconds": time.perf_counter() - started}), flush=True)
+
+
+def _verify_cache_full(spec, root=None):
     root = Path(root) if root is not None else cache_root(spec)
     marker = root / "model-ready.json"
     if not marker.is_file():
@@ -108,7 +126,7 @@ def prepare_cache(spec, volume, root=None, *, refresh=False, migrate_only=False)
     if (root / "model-ready.json").exists() and not refresh:
         if "manifest_version" in read_json(root / "model-ready.json"):
             return migrate_legacy_cache(spec, volume, root)
-        paths, fingerprint = verify_cache(spec, root)
+        paths, fingerprint = verify_cache(spec, root, phase="cpu_prepare")
         return {"ready": True, "fingerprint": fingerprint}
     from huggingface_hub import snapshot_download
     record = {"version": 1, "cache_spec": intent_digest(component_specs(spec)), "components": {}}
@@ -136,7 +154,7 @@ def prepare_cache(spec, volume, root=None, *, refresh=False, migrate_only=False)
                                       "resolved_revision": resolved,
                                       "inventory": checked_inventory(path, config)}
     atomic_json(root / "model-ready.json", record)
-    verify_cache(spec, root)
+    verify_cache(spec, root, phase="cpu_prepare")
     volume.commit()
     return {"ready": True, "fingerprint": intent_digest(record)}
 

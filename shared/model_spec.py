@@ -44,6 +44,8 @@ def validate(spec):
     spec = copy.deepcopy(spec)
     spec.setdefault("defaults", {})
     spec.setdefault("options", {})
+    if spec.get("memory_snapshot", "off") not in ("off", "gpu"):
+        raise ValueError("memory_snapshot must be off or gpu")
     for key in ("service", "operation"):
         if not isinstance(spec[key], str) or not IDENTIFIER.fullmatch(spec[key]):
             raise ValueError(f"Invalid model {key}")

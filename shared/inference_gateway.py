@@ -1,6 +1,4 @@
 """Shared image/video admission gateway, with optional keyframe staging."""
-import base64
-import binascii
 import json
 import shutil
 import threading
@@ -12,7 +10,7 @@ from http.client import HTTPException
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import quote, urlparse
-from shared.media import image_format
+from shared.media import MAX_FRAME, decode_frame as _decode_frame
 from shared.model_spec import operations, operation_spec, parameters
 from shared.files import read_json
 
@@ -22,7 +20,6 @@ SG_PORT, PROXY_PORT = 30010, 30020
 UPSTREAM = f"http://127.0.0.1:{SG_PORT}"
 FRAME_DIR = Path("/tmp/pika-frames")
 MAX_REQUEST = 64 * 1024 * 1024
-MAX_FRAME = 20 * 1024 * 1024
 FRAME_JOBS = {}
 FRAME_LOCK = threading.Lock()
 
@@ -43,19 +40,6 @@ def clean_finished_frames():
         except (OSError, ValueError, HTTPException):
             # Unknown jobs/submissions retain their inputs until the container exits.
             continue
-
-
-def _decode_frame(value):
-    if not isinstance(value, str):
-        raise ValueError("Frame must be a base64 string")
-    data = value.split(",", 1)[-1] if value.startswith("data:image/") else value
-    try:
-        blob = base64.b64decode(data, validate=True)
-    except (binascii.Error, ValueError) as exc:
-        raise ValueError("Invalid frame base64") from exc
-    if not blob or len(blob) > MAX_FRAME:
-        raise ValueError("Frame is empty or larger than 20 MiB")
-    return blob, image_format(blob)[0]
 
 
 def stage_frames(payload):

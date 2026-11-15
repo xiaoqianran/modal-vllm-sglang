@@ -7,6 +7,7 @@
   "timeout": 14400,
   "startup_timeout": 3600,
   "scaledown_window": 30,
+  "memory_snapshot": "gpu",
   "service": "moss",
   "app_name": "modal-forge-008-moss-image",
   "operation": "t2i",

@@ -7,6 +7,7 @@
   "timeout": 14400,
   "startup_timeout": 3600,
   "scaledown_window": 30,
+  "memory_snapshot": "gpu",
   "service": "pika",
   "app_name": "modal-forge-009-pika-h3-flex-fl2va",
   "operation": "t2va",
