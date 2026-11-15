@@ -19,9 +19,15 @@ app = modal.App(APP_NAME)
 deployment_version = os.environ.get("MODEL_DEPLOY_VERSION", "manual")
 
 
-@app.function(serialized=True)
-def provision_info():
-    return deployment_version
+def make_provision_info(version):
+    @app.function(name="provision_info", serialized=True,
+                  image=modal.Image.debian_slim().env({"MODEL_DEPLOY_VERSION": version}))
+    def provision_info():
+        return version
+    return provision_info
+
+
+provision_info = make_provision_info(deployment_version)
 
 
 volume = model_volume()

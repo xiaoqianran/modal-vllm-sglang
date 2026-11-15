@@ -106,7 +106,7 @@ class Collector:
                 # Recover both successful and failed jobs after a worker restart.
                 # Discovery is independent of generation polling and queue delivery.
                 if time.monotonic() - self.last_scan >= 10:
-                    for path in self.output.glob("*/*/state.json"):
+                    for path in state_paths(self.output):
                         stamp = (path.stat().st_mtime_ns, path.stat().st_size)
                         if self.state_stamps.get(str(path)) == stamp:
                             continue
@@ -187,12 +187,20 @@ def start(output, volume):
     return _collectors[key]
 
 
+def state_paths(output):
+    output = Path(output)
+    roots = {output, output.parent / ".runtime/tasks"}
+    if output.name == "logs" and output.parent.name == ".runtime":
+        roots.add(output.parent / "tasks")
+    return sorted({p for root in roots for p in root.glob("*/*/state.json")})
+
+
 def collect(output, volume=None):
     """Explicit recovery collection; cloud access is optional, never starts a GPU."""
     summary = collect_local(output)
     summary["pending"] = 0
     if volume is not None:
-        for path in Path(output).glob("*/*/state.json"):
+        for path in state_paths(output):
             current = read_json(path)
             for record in current.get("jobs", {}).values():
                 manifest = record.get("result", {}).get("telemetry", {})

@@ -2,6 +2,7 @@
   "version": 1,
   "name": "005-minimax-image-demo",
   "workflow": "minimax-t2i",
+  "render": {"aspect_ratio": "1:1", "resolution": "2k"},
   "items": [
     {
       "id": "001",

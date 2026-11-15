@@ -12,6 +12,8 @@
 
 # Workflow run records and local service configuration
 /outputs/
+/.runtime/
+/outputs-debug-*/
 /benchmarks/
 /endpoints.local.json
 /.env

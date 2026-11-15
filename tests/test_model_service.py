@@ -119,7 +119,7 @@ class ModelServiceTests(unittest.TestCase):
     def test_lost_image_response_is_not_resubmitted(self):
         volume = Mock()
         item = {"id": "001", "prompt": "boat", "seed": 42}
-        with tempfile.TemporaryDirectory() as directory, patch("shared.serving.model_service.Path", wraps=Path) as paths:
+        with tempfile.TemporaryDirectory() as directory, patch("shared.serving.inference_execution.Path", wraps=Path) as paths:
             # Redirect only the remote mount, leaving all other Path behavior intact.
             paths.side_effect = lambda value: Path(directory) if value == "/mnt/modal" else Path(value)
             with patch("shared.serving.inference_api.VLLMImageClient") as factory:
@@ -133,7 +133,7 @@ class ModelServiceTests(unittest.TestCase):
     def test_video_resumes_same_job_after_download_failure(self):
         spec = {**SPEC, "kind": "video", "operation": "t2v"}
         item = {"id": "001", "prompt": "boat", "seed": 42}
-        with tempfile.TemporaryDirectory() as directory, patch("shared.serving.model_service.Path", wraps=Path) as paths:
+        with tempfile.TemporaryDirectory() as directory, patch("shared.serving.inference_execution.Path", wraps=Path) as paths:
             paths.side_effect = lambda value: Path(directory) if value == "/mnt/modal" else Path(value)
             with patch("shared.serving.inference_api.SGLangVideoClient") as factory:
                 client = factory.return_value
@@ -158,7 +158,7 @@ class ModelServiceTests(unittest.TestCase):
 
     def test_busy_sdk_task_can_retry_without_changing_identity(self):
         item = {"id": "001", "prompt": "boat", "seed": 42}
-        with tempfile.TemporaryDirectory() as directory, patch("shared.serving.model_service.Path", wraps=Path) as paths:
+        with tempfile.TemporaryDirectory() as directory, patch("shared.serving.inference_execution.Path", wraps=Path) as paths:
             paths.side_effect = lambda value: Path(directory) if value == "/mnt/modal" else Path(value)
             with patch("shared.serving.inference_api.VLLMImageClient") as factory:
                 factory.return_value.generate.side_effect = [SubmissionRejected(), (b"\x89PNG\r\n\x1a\n" + b"x" * 32, ".png")]
@@ -171,7 +171,7 @@ class ModelServiceTests(unittest.TestCase):
     def test_sdk_records_terminal_failure_and_does_not_resume_it(self):
         spec = {**SPEC, "kind": "video", "operation": "t2v"}
         item = {"id": "001", "prompt": "boat", "seed": 42}
-        with tempfile.TemporaryDirectory() as directory, patch("shared.serving.model_service.Path", wraps=Path) as paths:
+        with tempfile.TemporaryDirectory() as directory, patch("shared.serving.inference_execution.Path", wraps=Path) as paths:
             paths.side_effect = lambda value: Path(directory) if value == "/mnt/modal" else Path(value)
             with patch("shared.serving.inference_api.SGLangVideoClient") as factory:
                 client = factory.return_value

@@ -15,10 +15,10 @@ class DependencyTests(unittest.TestCase):
     def test_lower_layers_do_not_import_upper_layers(self):
         allowed = {
             "protocol": set(),
-            "sdk": {"adapters", "state", "protocol"},
+            "sdk": {"adapters", "state", "protocol", "submissions"},
             "cloud": {"sdk", "state", "protocol"},
-            "cloud_client": {"sdk", "state", "protocol", "provisioning"},
-            "provisioning": {"protocol"},
+            "cloud_client": {"sdk", "state", "protocol", "provisioning", "monitor"},
+            "provisioning": {"protocol", "state", "deployment_state", "leases"},
         }
         for module, dependencies in allowed.items():
             tree = ast.parse((ROOT / "orchestration" / (module + ".py")).read_text())
@@ -53,11 +53,24 @@ class DependencyTests(unittest.TestCase):
 
     def test_backend_reuses_model_handle_for_same_spec(self):
         from unittest.mock import Mock
+
+        class Registry(dict):
+            """Fake Modal Dict with atomic claim and normal key assignment."""
+            def put(self, key, value, skip_if_exists=False):
+                if skip_if_exists and key in self:
+                    return False
+                self[key] = value
+                return True
+
         backend = sdk.Backend.__new__(sdk.Backend)
         backend.modal = Mock()
+        backend.modal.Dict.from_name.return_value = Registry()
         backend.models = {}
-        spec = {"service": "example", "app_name": "example-app", "modal_class": "Model"}
-        backend.submit(spec, {"id": "one"}, "prefix", "cache")
-        backend.submit(spec, {"id": "two"}, "prefix", "cache")
+        from tests.test_model_service import SPEC
+        spec = {**SPEC, "app_name": "example-app", "modal_class": "Model"}
+        first = {"id": "one", "prompt": "lake", "seed": 1}
+        first_call = backend.submit(spec, first, "prefix", "cache")
+        self.assertEqual(backend.submit(spec, first, "prefix", "cache"), first_call)
+        backend.submit(spec, {"id": "two", "prompt": "shore", "seed": 2}, "prefix", "cache")
         backend.modal.Cls.from_name.assert_called_once_with("example-app", "Model")
         self.assertEqual(backend.modal.Cls.from_name.return_value.return_value.generate_one.spawn.call_count, 2)

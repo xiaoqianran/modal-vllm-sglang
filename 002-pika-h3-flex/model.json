@@ -90,5 +90,29 @@
   },
   "cache_directory": "/mnt/modal/009-pika-h3-flex",
   "endpoint_label": "modal-forge-009-pika-h3-flex-fl2va-serve",
-  "modal_class": "Pika"
+  "modal_class": "Pika",
+  "resolution_profiles": {
+    "480p": {
+      "16:9": [
+        864,
+        480
+      ],
+      "9:16": [
+        480,
+        864
+      ],
+      "4:3": [
+        640,
+        480
+      ],
+      "3:4": [
+        480,
+        640
+      ],
+      "1:1": [
+        480,
+        480
+      ]
+    }
+  }
 }

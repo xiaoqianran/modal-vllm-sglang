@@ -53,7 +53,7 @@ def migrate_legacy_cache(spec, volume, root):
         inventory = checked_inventory(path, config)
         if inventory != entry.get("inventory"):
             raise RuntimeError("Legacy cache changed or incomplete")
-        record["components"][name] = {"path": path.relative_to(root).as_posix(),
+        record["components"][name] = {"path": path.resolve().relative_to(root.resolve()).as_posix(),
                                       "resolved_revision": path.name, "inventory": inventory}
     # Preserve the old manifest for rollback. Publish only after every component passed.
     atomic_json(root / "model-ready.legacy.json", old)
@@ -150,7 +150,7 @@ def prepare_cache(spec, volume, root=None, *, refresh=False, migrate_only=False)
                                          allow_patterns=config.get("allow_patterns"), cache_dir=str(root / "hub"),
                                          force_download=refresh, max_workers=DOWNLOAD_MAX_WORKERS))
             resolved = path.name
-        record["components"][name] = {"path": path.relative_to(root).as_posix(),
+        record["components"][name] = {"path": path.resolve().relative_to(root.resolve()).as_posix(),
                                       "resolved_revision": resolved,
                                       "inventory": checked_inventory(path, config)}
     atomic_json(root / "model-ready.json", record)

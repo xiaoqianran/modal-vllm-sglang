@@ -4,22 +4,27 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scripts.generate_storyboard import DEFAULT_SOURCE, generate, render, validate_storyboard
+from scripts.generate_storyboard import DEFAULT_SOURCE, generate, render, validate_storyboard, video_prompt
 
 
 class StoryboardGeneratorTests(unittest.TestCase):
     def setUp(self):
         self.story = json.loads(DEFAULT_SOURCE.read_text(encoding="utf-8"))
 
-    def test_existing_004_matches_generated_task_and_images(self):
+    def test_generated_documents_and_independent_004_task(self):
         base = DEFAULT_SOURCE.parent.relative_to(DEFAULT_SOURCE.parents[2]).as_posix()
-        outputs = render(self.story, story_dir=base, task_dir="tasks", input_dir="inputs/pika")
-        for name in ("tasks/004-pika-frames-demo.json",
-                     "docs/004-before-rain/image-prompts.json"):
+        outputs = render(self.story, story_dir=base, input_dir="inputs/pika")
+        for name in ("docs/004-before-rain/image-prompts.json",):
             self.assertEqual(
                 json.loads((DEFAULT_SOURCE.parents[2] / name).read_text(encoding="utf-8")),
                 json.loads(outputs[name]),
             )
+        task = json.loads((DEFAULT_SOURCE.parents[2] / "tasks/004-pika-frames-demo.json").read_text(encoding="utf-8"))
+        self.assertEqual(task["workflow"], "storyboard-to-video-frames")
+        self.assertEqual([item["id"] for item in task["items"]], [shot["id"] for shot in self.story["shots"]])
+        for item, shot in zip(task["items"], self.story["shots"]):
+            self.assertEqual(item["motion_prompt"], video_prompt(self.story, shot))
+            self.assertTrue(item["first_prompt"] and item["last_prompt"])
         self.assertEqual(len(self.story["shots"]), 6)
 
     def test_new_directory_generate_then_check_is_idempotent(self):
@@ -29,7 +34,7 @@ class StoryboardGeneratorTests(unittest.TestCase):
             source.parent.mkdir(parents=True)
             source.write_text(json.dumps(self.story), encoding="utf-8")
             paths = generate(source, root=root)
-            self.assertEqual(len(paths), 5)
+            self.assertEqual(len(paths), 4)
             self.assertTrue(all(path.exists() for path in paths))
             self.assertEqual(generate(source, root=root, check=True), paths)
             self.assertEqual(generate(source, root=root), paths)

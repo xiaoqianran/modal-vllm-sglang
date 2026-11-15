@@ -1,6 +1,7 @@
-"""从结构化分镜生成图片提示词、视频提示词与 Pika FL2VA Task JSON。
+"""从结构化分镜生成图片、视频提示词文档。
 
-不调用图片/视频 API，不读取秘钥，不提交 GPU 任务。
+当前 tasks/004-pika-frames-demo.json 是独立维护的多模型任务，不由本脚本覆盖。
+不调用图片/视频 API，不读取密钥，不提交 GPU 任务。
 """
 from __future__ import annotations
 
@@ -118,11 +119,10 @@ def video_prompt(source: dict, shot: dict) -> str:
     )
 
 
-def render(source: dict, *, story_dir: str, task_dir: str, input_dir: str) -> dict[str, str]:
+def render(source: dict, *, story_dir: str, input_dir: str) -> dict[str, str]:
     """纯渲染函数；不做任何文件系统写操作。"""
     validate_storyboard(source)
     story_dir = story_dir.rstrip("/")
-    task_dir = task_dir.rstrip("/")
     input_dir = input_dir.rstrip("/")
     story = [
         f"# {source['title']}｜最终分镜", "",
@@ -145,10 +145,6 @@ def render(source: dict, *, story_dir: str, task_dir: str, input_dir: str) -> di
         "不把该提示词格式视为 Pika 官方 API 保证。", "",
     ]
     manifest = []
-    task = {
-        "version": 1, "name": source["name"], "workflow": source["workflow"],
-        "params": source["params"], "items": []
-    }
     for shot in source["shots"]:
         sid = shot["id"]
         story.extend([
@@ -169,17 +165,11 @@ def render(source: dict, *, story_dir: str, task_dir: str, input_dir: str) -> di
             f"INPUTS: {input_dir}/{sid}_first.png → {input_dir}/{sid}_last.png",
             "", prompt, "",
         ])
-        task["items"].append({
-            "id": sid, "seed": shot.get("seed", 2100 + int(sid)), "prompt": prompt,
-            "first_frame": {"file": f"{input_dir}/{sid}_first.png"},
-            "last_frame": {"file": f"{input_dir}/{sid}_last.png"},
-        })
     return {
         f"{story_dir}/分镜.md": "\n".join(story).rstrip("\n") + "\n",
         f"{story_dir}/图片提示词.md": "\n".join(images).rstrip("\n") + "\n",
         f"{story_dir}/视频提示词.md": "\n".join(videos).rstrip("\n") + "\n",
         f"{story_dir}/image-prompts.json": json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
-        f"{task_dir}/{source['name']}.json": json.dumps(task, ensure_ascii=False, indent=2) + "\n",
     }
 
 
@@ -200,7 +190,6 @@ def generate(source_path: Path, *, root: Path = ROOT, check: bool = False,
     folder = output_dir or source_path.parent
     output = render(
         source, story_dir=_relative_dir(folder, root),
-        task_dir="tasks",
         input_dir=source.get("input_dir", "inputs/pika"),
     )
     paths = []

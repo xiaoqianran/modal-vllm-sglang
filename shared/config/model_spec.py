@@ -103,6 +103,17 @@ def validate(spec):
         raise ValueError("Unsupported cache preparation mode")
     if spec.get("cache", {}).keys() - {"mode", "allow_patterns", "required_files"}:
         raise ValueError("Unknown cache options")
+    profiles = spec.get("resolution_profiles", {})
+    if not isinstance(profiles, dict):
+        raise ValueError("resolution_profiles must map preset names to aspect-ratio canvases")
+    for preset, canvases in profiles.items():
+        if not isinstance(preset, str) or not isinstance(canvases, dict):
+            raise ValueError("Invalid resolution profile")
+        for ratio, dims in canvases.items():
+            if (not isinstance(ratio, str) or not re.fullmatch(r"[1-9][0-9]*:[1-9][0-9]*", ratio)
+                    or not isinstance(dims, list) or len(dims) != 2
+                    or any(type(value) is not int or value <= 0 for value in dims)):
+                raise ValueError("Resolution canvas must contain a ratio and positive [width, height]")
     components = spec.get("components", {})
     if not isinstance(components, dict):
         raise ValueError("components must be an object")

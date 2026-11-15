@@ -25,7 +25,7 @@ class CloudTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         self.output = self.root / "outputs"
         self.remote = self.root / "remote"
-        self.addCleanup(close_local, self.output)
+        self.addCleanup(close_local, self.root / ".runtime/logs")
         shutil.copytree(runner.ROOT / "workflows", self.root / "workflows")
         self.task = self.root / "tasks/006-cloud.json"
         self.create()

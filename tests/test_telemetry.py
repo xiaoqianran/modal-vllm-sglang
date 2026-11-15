@@ -11,7 +11,7 @@ import time
 import unittest
 from unittest.mock import Mock, patch
 
-from orchestration import runner, sdk
+from orchestration import runner, sdk, state
 from shared.telemetry import schema
 from shared.telemetry.collector import collect, collect_cloud, collect_local, ingest
 from shared.telemetry.recorder import Recorder, close_local, flush_local
@@ -238,6 +238,8 @@ class TelemetryTests(unittest.TestCase):
                           "items": [{"id": "001", "first_prompt": "boat", "last_prompt": "lake",
                                      "motion_prompt": "drift"}]})
         directory = runner.new_run(runner.build_plan(task, root=self.root), root=self.root)
+        self.output = state.telemetry_directory(directory)
+        self.addCleanup(close_local, self.output)
         cloud_root = self.root / "cloud"
         volumes = Mock()
         volumes.read_file.side_effect = lambda path: [(cloud_root / path.lstrip("/")).read_bytes()]
@@ -265,7 +267,7 @@ class TelemetryTests(unittest.TestCase):
                 call = record["call_id"]
                 if call not in self.results:
                     spec, item, prefix = self.calls[call]
-                    with patch("shared.serving.model_service.Path", wraps=Path) as paths, \
+                    with patch("shared.serving.inference_execution.Path", wraps=Path) as paths, \
                             patch("shared.serving.inference_api.VLLMImageClient") as images, \
                             patch("shared.serving.inference_api.SGLangVideoClient") as videos:
                         paths.side_effect = lambda value: cloud_root if value == "/mnt/modal" else Path(value)
@@ -302,7 +304,7 @@ class TelemetryTests(unittest.TestCase):
         recorder = Recorder(self.writer(cloud=True), task_id="006-demo/001-main")
         volume = Mock()
         volume.commit.side_effect = [None, None, None, OSError("telemetry commit failed")]
-        with patch("shared.serving.model_service.Path", wraps=Path) as paths, \
+        with patch("shared.serving.inference_execution.Path", wraps=Path) as paths, \
                 patch("shared.serving.inference_api.VLLMImageClient") as images:
             paths.side_effect = lambda value: self.root / "cloud" if value == "/mnt/modal" else Path(value)
             images.return_value.generate.return_value = (PNG, ".png")

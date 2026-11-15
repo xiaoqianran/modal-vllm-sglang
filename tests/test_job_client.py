@@ -396,10 +396,11 @@ class JobClientTests(unittest.TestCase):
                         files[f'/{prefix}/{record["file"]}'] = data
                         if cached:
                             files[f'/{prefix}/{item["id"]}.json'] = json.dumps(record).encode()
-                    active, maximum = 0, 0
+                    active, maximum, started = 0, 0, 0
                     guard = threading.Lock()
+                    first_wave = threading.Barrier(8)
                     def read(remote):
-                        nonlocal active, maximum
+                        nonlocal active, maximum, started
                         if remote.endswith('model-ready.json'):
                             return [json.dumps(self.cache).encode()]
                         if remote not in files:
@@ -408,8 +409,13 @@ class JobClientTests(unittest.TestCase):
                             with guard:
                                 active += 1
                                 maximum = max(maximum, active)
+                                started += 1
+                                first_batch = started <= 8
                             try:
-                                time.sleep(0.06)
+                                # Check the configured pool can run eight downloads
+                                # without relying on an accidental scheduler overlap.
+                                if first_batch:
+                                    first_wave.wait(timeout=10)
                             finally:
                                 with guard:
                                     active -= 1

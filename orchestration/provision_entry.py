@@ -2,7 +2,8 @@
 import os
 from pathlib import Path
 
-from shared.serving.model_service import create_app, create_download_app
+from shared.serving.model_service import create_download_app
+from shared.serving.model_runtime import create_app
 
 config = Path(os.environ["MODEL_CONFIG"])
 if os.environ.get("MODEL_PREPARE") == "1":

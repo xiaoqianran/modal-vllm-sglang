@@ -5,7 +5,7 @@ import math
 VERSION = 1
 STAGES = frozenset({"register", "submit", "wait", "startup", "generate", "save", "transfer", "download"})
 STATUSES = frozenset({"running", "completed", "failed"})
-REASONS = frozenset({"dependency", "lock", "platform"})
+REASONS = frozenset({"dependency", "model", "lock", "platform"})
 CONTEXT_FIELDS = ("task_id", "job_key", "call_id", "container_id", "engine_job_id")
 
 

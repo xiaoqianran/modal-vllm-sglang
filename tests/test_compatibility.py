@@ -179,7 +179,7 @@ class PikaRecoveryTests(unittest.TestCase):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
         self.root = Path(temp.name)
-        redirect = patch('shared.serving.model_service.Path', wraps=Path)
+        redirect = patch('shared.serving.inference_execution.Path', wraps=Path)
         paths = redirect.start()
         paths.side_effect = lambda value: self.root if value == '/mnt/modal' else Path(value)
         self.addCleanup(redirect.stop)

@@ -55,7 +55,7 @@ def payload_for(directory, plan, item, backend):
             else:
                 digest = binding["sha256"]
                 if digest not in uploaded:
-                    recorder = local_recorder(directory.parent.parent,
+                    recorder = local_recorder(state.telemetry_directory(directory),
                         task_id=f"{plan['project']}/{plan['scene']}", job_key=job["key"])
                     with recorder.span("transfer", operation="upload_frames"):
                         uploaded[digest] = backend.upload(directory, binding)
@@ -64,7 +64,7 @@ def payload_for(directory, plan, item, backend):
     plan["hash"] = intent_digest({key: value for key, value in plan.items() if key != "hash"})
     current = sdk.snapshot(directory)[1]
     initial = {key: {k: v for k, v in current["jobs"][key].items()
-                     if k not in {"local_artifact", "download_error"}} for key in keys}
+                     if k not in {"local_artifact", "download_error", "local_collected_at"}} for key in keys}
     payload = {"version": VERSION, "plan": plan, "initial_jobs": initial}
     provisioner = getattr(backend, "provisioner", None)
     if provisioner is not None:
@@ -108,15 +108,15 @@ def tick_shot(directory, item, backend, downloads, pool):
                     continue
                 kind = sdk.adapters.CAPABILITIES[job["uses"]]["output"]
                 siblings = sum(sdk.adapters.CAPABILITIES[j["uses"]]["output"] == kind for j in jobs)
-                stem = item if siblings == 1 else f"{item}-{job['step']}"
+                stem = state.output_stem(directory, job, plan)
                 suffixes = (".png", ".jpg", ".jpeg", ".webp") if kind == "image" else (".mp4",)
-                if any((directory / (stem + suffix)).exists() for suffix in suffixes):
+                if any((state.media_directory(directory) / (stem + suffix)).exists() for suffix in suffixes):
                     raise FileExistsError("Untracked output; refusing GPU submission")
             payload = payload_for(directory, plan, item, backend)
             receipt = {"id": run_id(plan, item), "payload_hash": intent_digest(payload), "status": "submitting"}
             save_receipt(directory, item, **receipt)
             try:
-                recorder = local_recorder(directory.parent.parent, task_id=f"{plan['project']}/{plan['scene']}")
+                recorder = local_recorder(state.telemetry_directory(directory), task_id=f"{plan['project']}/{plan['scene']}")
                 with recorder.span("submit", operation="workflow", item=item) as fields:
                     call_id = backend.submit_workflow(payload, receipt["id"])
                     fields["call_id"] = call_id
@@ -137,8 +137,11 @@ def tick_shot(directory, item, backend, downloads, pool):
                         for key, record in remote["jobs"].items():
                             # Local downloads are a separate lifecycle.
                             local = {k: v for k, v in current["jobs"][key].items()
-                                     if k in {"local_artifact", "download_error"}}
-                            current["jobs"][key] = {**record, **local}
+                                     if k in {"local_artifact", "download_error", "local_collected_at"}}
+                            merged = {**record, **local}
+                            if current["jobs"][key] != merged:
+                                state.record_event(directory, key, merged)
+                            current["jobs"][key] = merged
                         current["cloud_runs"][item].update(status=remote["status"], telemetry=remote.get("telemetry"))
                         state.save(directory / "state.json", current)
         # Re-discover manifests from durable state, including terminal jobs after restart.
@@ -148,7 +151,7 @@ def tick_shot(directory, item, backend, downloads, pool):
         manifests.extend(current["jobs"][job["key"]].get("result", {}).get("telemetry") for job in jobs)
         for manifest in manifests:
             if manifest:
-                enqueue(directory.parent.parent, backend.volume, {**manifest, "task_id": task_id})
+                enqueue(state.telemetry_directory(directory), backend.volume, {**manifest, "task_id": task_id})
         return sdk.collect_outputs(directory, backend, downloads, pool, item=item)
 
 
@@ -161,12 +164,21 @@ def worker(output, *, poll=2, backend=None, stop=None):
         backend.provisioner = Provisioner(backend)
     active, downloads, scheduled = {}, {}, {}
     from shared.telemetry.collector import start
-    start(output, backend.volume)
+    runtime = state.runtime_root(output)
+    start(runtime / "logs", backend.volume)
+    from orchestration.monitor import render
+    last_render = 0
     # A slow network call occupies one delivery slot, never the scan loop or downloads.
     with ExitStack() as lifecycle, ThreadPoolExecutor(max_workers=8) as network, ThreadPoolExecutor(max_workers=8) as pool:
         if getattr(backend, "provisioner", None) is not None:
             lifecycle.callback(backend.provisioner.close)
         while stop is None or not stop.is_set():
+            if time.monotonic() - last_render >= 5:
+                try:
+                    render(output)
+                except (OSError, ValueError, KeyError) as exc:
+                    print(f"Monitor: {exc}", flush=True)
+                last_render = time.monotonic()
             for key, future in list(active.items()):
                 if future.done():
                     try:
@@ -175,7 +187,7 @@ def worker(output, *, poll=2, backend=None, stop=None):
                         print(f"{key}: {type(exc).__name__}: {exc}", flush=True)
                     del active[key]
             candidates = []
-            for path in sorted(Path(output).glob("*/*/plan.json")):
+            for path in sorted((runtime / "tasks").glob("*/*/plan.json")):
                 try:
                     plan = read_json(path)
                     if plan.get("transport") != "sdk":

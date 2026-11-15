@@ -20,6 +20,8 @@ def manifest_for(output, job):
 
 def task_report(output, task_id, *, refresh=True):
     directory = local_path(output, task_id)
+    if Path(output).name == "logs" and Path(output).parent.name == ".runtime":
+        directory = local_path(Path(output).parent / "tasks", task_id)
     current = read_json(directory / "state.json") if (directory / "state.json").exists() else {"jobs": {}}
     if refresh:
         collect_local(output)

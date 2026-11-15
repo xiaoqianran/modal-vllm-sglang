@@ -89,6 +89,21 @@ class UnifiedModelsTests(unittest.TestCase):
             self.assertEqual(read_json(root / "model-ready.json")["components"]["model"]["resolved_revision"], "resolved-commit")
             volume.commit.assert_called_once()
 
+    def test_preparation_accepts_download_path_resolved_against_mount_alias(self):
+        spec = SPECS["moss.t2i"]
+        with tempfile.TemporaryDirectory() as directory:
+            real_root = Path(directory).resolve()
+            (real_root / "mount-alias").mkdir()
+            root = real_root / "mount-alias" / ".."
+            snapshot = real_root / "hub/snapshots/commit"
+            snapshot.mkdir(parents=True)
+            (snapshot / "weights.safetensors").write_bytes(b"weights")
+            (snapshot / "model_index.json").write_text("{}")
+            with patch.dict(sys.modules, {"huggingface_hub": SimpleNamespace(snapshot_download=Mock(return_value=str(snapshot)))}):
+                result = prepare_cache(spec, Mock(), root)
+            self.assertTrue(result["ready"])
+            self.assertEqual(read_json(root / "model-ready.json")["components"]["model"]["path"], "hub/snapshots/commit")
+
     def test_cpu_overlay_materialization_and_required_marker(self):
         spec = SPECS["pika.t2va"]
         with tempfile.TemporaryDirectory() as directory:
@@ -257,7 +272,7 @@ class UnifiedModelsTests(unittest.TestCase):
     def test_remote_image_publish_crash_can_finish_without_regeneration(self):
         spec = SPECS["moss.t2i"]
         item = {"id": "001", "prompt": "boat", "seed": 42}
-        with tempfile.TemporaryDirectory() as directory, patch("shared.serving.model_service.Path", wraps=Path) as paths:
+        with tempfile.TemporaryDirectory() as directory, patch("shared.serving.inference_execution.Path", wraps=Path) as paths:
             paths.side_effect = lambda value: Path(directory) if value == "/mnt/modal" else Path(value)
             with patch("shared.serving.inference_api.VLLMImageClient") as factory:
                 factory.return_value.generate.return_value = (PNG, ".png")
@@ -266,7 +281,7 @@ class UnifiedModelsTests(unittest.TestCase):
                     if record.get("status") == "completed":
                         raise OSError("client died after file publish")
                     original(path, record)
-                with patch("shared.serving.model_service.atomic_json", side_effect=crash), self.assertRaises(OSError):
+                with patch("shared.serving.inference_execution.atomic_json", side_effect=crash), self.assertRaises(OSError):
                     list(execute(spec, [item], "batch", Mock()))
                 result = list(execute(spec, [item], "batch", Mock()))
                 self.assertEqual(result[0]["status"], "completed")

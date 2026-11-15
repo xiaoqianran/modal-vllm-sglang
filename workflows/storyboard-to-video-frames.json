@@ -1,0 +1,68 @@
+{
+  "version": 1,
+  "id": "storyboard-to-video-frames",
+  "steps": [
+    {
+      "id": "first",
+      "uses": "moss.t2i",
+      "inputs": {
+        "prompt": {
+          "ref": "input.first_prompt"
+        }
+      },
+      "params": {
+        "size": "864x480"
+      }
+    },
+    {
+      "id": "last",
+      "uses": "moss.t2i",
+      "inputs": {
+        "prompt": {
+          "ref": "input.last_prompt"
+        }
+      },
+      "params": {
+        "size": "864x480"
+      }
+    },
+    {
+      "id": "video",
+      "uses": "pika.fl2va",
+      "inputs": {
+        "prompt": {
+          "ref": "input.motion_prompt"
+        },
+        "first_frame": {
+          "ref": "first.image"
+        },
+        "last_frame": {
+          "ref": "last.image"
+        },
+        "seed": {
+          "ref": "input.seed"
+        }
+      },
+      "params": {
+        "seconds": 5,
+        "num_inference_steps": 6,
+        "target": {
+          "short_edge": 480,
+          "aspect_ratio": "16:9",
+          "duration_seconds": 5.0
+        }
+      }
+    }
+  ],
+  "outputs": {
+    "first_frame": {
+      "ref": "first.image"
+    },
+    "last_frame": {
+      "ref": "last.image"
+    },
+    "video": {
+      "ref": "video.video"
+    }
+  }
+}

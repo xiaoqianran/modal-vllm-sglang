@@ -383,7 +383,7 @@ class WorkflowTests(unittest.TestCase):
         directory = self.create()
         workflow_path = self.root / "workflows/storyboard-to-video.json"
         workflow = read_json(workflow_path)
-        workflow["steps"][0]["params"] = {"guidance_scale": 7.0}
+        workflow["steps"][0].setdefault("params", {})["guidance_scale"] = 7.0
         state.save(workflow_path, workflow)
         self.execute(directory)
         self.assertEqual(self.services.submissions[0][1]["guidance_scale"], 3.0)

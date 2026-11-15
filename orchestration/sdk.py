@@ -83,7 +83,16 @@ class Backend:
         key = intent_digest(spec)
         if key not in self.models:
             self.models[key] = self.modal.Cls.from_name(spec.get("app_name", "modal-model-" + spec["service"]), spec.get("modal_class", "Model"))()
-        return self.models[key].generate_one.spawn(item, prefix, fingerprint, key).object_id
+        execution_hash = execution_signature(prepare(spec, item)[1], fingerprint)
+        return self.submission_ledger().submit(prefix, item["id"], execution_hash,
+            lambda: self.models[key].generate_one.spawn(item, prefix, fingerprint, key).object_id)
+
+    def submission_ledger(self):
+        from orchestration.protocol import SUBMISSION_REGISTRY
+        from orchestration.submissions import SubmissionLedger
+        if not hasattr(self, "_submission_ledger"):
+            self._submission_ledger = SubmissionLedger(self.modal.Dict.from_name(SUBMISSION_REGISTRY, create_if_missing=True))
+        return self._submission_ledger
 
     def poll(self, record):
         # Committed metadata outlives Modal call result retention.
@@ -94,6 +103,10 @@ class Backend:
                 self.telemetry_manifests[record.get("call_id")] = result["telemetry"]
             if result.get("status") in {"completed", "failed", "cancelled"}:
                 return result
+        if not record.get("call_id") and record.get("prefix") and record.get("id"):
+            entry = self.submission_ledger().lookup(record["prefix"], record["id"], record["execution_hash"])
+            if entry and entry.get("call_id"):
+                record = {**record, "call_id": entry["call_id"]}
         if not record.get("call_id"):
             return None
         try:
@@ -106,7 +119,7 @@ class Backend:
         return result
 
     def download(self, directory, job, record, plan):
-        recorder = local_recorder(directory.parent.parent, task_id=f"{plan['project']}/{plan['scene']}",
+        recorder = local_recorder(state.telemetry_directory(directory), task_id=f"{plan['project']}/{plan['scene']}",
                                   job_key=job["key"], call_id=record.get("call_id"))
         with recorder.span("download") as fields:
             return self._download(directory, job, record, plan, fields)
@@ -116,9 +129,9 @@ class Backend:
         siblings = sum(other["item"] == job["item"]
                        and adapters.CAPABILITIES[other["uses"]]["output"] == kind
                        for other in plan["jobs"])
-        stem = job["item"] if siblings == 1 else f"{job['item']}-{job['step']}"
+        stem = state.output_stem(directory, job, plan)
         suffix = Path(record["result"]["file"]).suffix
-        target = directory / (stem + suffix)
+        target = state.media_directory(directory) / (stem + suffix)
         artifact = record["artifacts"][kind]
         with state.lock(directory, filename=".download-" + intent_digest(job["key"]) + ".lock"):
             if target.exists():
@@ -128,7 +141,7 @@ class Backend:
             else:
                 fields.update(download_volume_file(self.volume, "/" + artifact["path"], target,
                               expected_sha256=artifact["sha256"], kind=kind, refuse_existing=True))
-        return {**artifact, "storage": "local", "path": target.relative_to(directory).as_posix()}
+        return {**artifact, "storage": "local", "path": target.relative_to(state.media_directory(directory)).as_posix()}
 
 
 def snapshot(directory):
@@ -151,7 +164,10 @@ def update(directory, key, *, checkpoint=None, **changes):
     with state.lock(directory, timeout=10):
         current = read_json(directory / "state.json")
         current["jobs"][key].update(changes)
+        if changes.get("status") in {"completed", "failed"}:
+            current["jobs"][key].setdefault("finished_at", utc_now())
         state.save(directory / "state.json", current)
+    state.record_event(directory, key, changes)
     if checkpoint is not None:
         checkpoint(directory)
 
@@ -182,7 +198,7 @@ def item_for(directory, job, records, spec, backend):
         elif binding.get("storage") == "volume":
             ref = image_reference({key: binding[key] for key in ("path", "sha256", "size")})
         else:
-            recorder = local_recorder(directory.parent.parent, **item["_telemetry"])
+            recorder = local_recorder(state.telemetry_directory(directory), **item["_telemetry"])
             with recorder.span("transfer", operation="upload_frames"):
                 ref = backend.upload(directory, binding)
         item[field + "_artifact"] = ref
@@ -208,7 +224,7 @@ def tick(directory, backend, downloads, pool):
                 record = records[key]
                 recorder = (backend.recorder.bind(task_id=f"{plan['project']}/{plan['scene']}", job_key=key, call_id=record.get("call_id"))
                             if getattr(backend, "recorder", None) is not None else
-                            local_recorder(directory.parent.parent, task_id=f"{plan['project']}/{plan['scene']}", job_key=key, call_id=record.get("call_id")))
+                            local_recorder(state.telemetry_directory(directory), task_id=f"{plan['project']}/{plan['scene']}", job_key=key, call_id=record.get("call_id")))
                 kind = adapters.CAPABILITIES[job["uses"]]["output"]
                 if record["status"] == "submitting":
                     advance(key, status="uncertain", error="Submission interrupted; never automatically resubmit")
@@ -232,7 +248,7 @@ def tick(directory, backend, downloads, pool):
                         if not manifest and isinstance(result, dict):
                             manifest = result.get("telemetry", {})
                         if getattr(backend, "collect_outputs", True):
-                            enqueue(directory.parent.parent, backend.volume,
+                            enqueue(state.telemetry_directory(directory), backend.volume,
                                 {**manifest, "task_id": f"{plan['project']}/{plan['scene']}"})
                     continue
                 if record["status"] not in {"pending", "blocked"}:
@@ -253,20 +269,23 @@ def tick(directory, backend, downloads, pool):
                         continue
                     if preparation.get("status") != "ready":
                         if record.get("wait_reason") != "model":
-                            advance(key, status="blocked", wait_reason="model")
+                            advance(key, status="blocked", wait_reason="model", model_wait_started_at=utc_now())
                         continue
+                if record.get("model_wait_started_at"):
+                    recorder.interval("wait", record["model_wait_started_at"], reason="model")
+                    advance(key, model_wait_started_at=None, wait_reason=None)
                 if any(records[dep]["status"] != "completed" for dep in dependencies):
-                    if record["status"] != "blocked":
-                        advance(key, status="blocked", dependency_wait_started_at=utc_now())
+                    if not record.get("dependency_wait_started_at"):
+                        advance(key, status="blocked", wait_reason="dependency", dependency_wait_started_at=utc_now())
                     continue
                 if record.get("dependency_wait_started_at"):
                     recorder.interval("wait", record["dependency_wait_started_at"], reason="dependency")
                 siblings = sum(other["item"] == job["item"]
                                and adapters.CAPABILITIES[other["uses"]]["output"] == kind
                                for other in plan["jobs"])
-                stem = job["item"] if siblings == 1 else f"{job['item']}-{job['step']}"
+                stem = state.output_stem(directory, job, plan)
                 suffixes = (".png", ".jpg", ".jpeg", ".webp") if kind == "image" else (".mp4",)
-                if any((directory / (stem + suffix)).exists() for suffix in suffixes):
+                if any((state.media_directory(directory) / (stem + suffix)).exists() for suffix in suffixes):
                     advance(key, status="failed", error="Untracked local output; refusing GPU submission. Import frames explicitly instead.")
                     continue
                 item = item_for(directory, job, records, spec, backend)
@@ -320,7 +339,10 @@ def collect_outputs(directory, backend, downloads, pool, *, item=None):
             continue
         # Keep finished futures to avoid retry loops after a disk/download failure.
         try:
-            update(directory, key, local_artifact=future.result(), download_error=None)
+            artifact = future.result()
+            _, saved = snapshot(directory)
+            timestamps = {} if saved["jobs"][key].get("local_artifact") else {"local_collected_at": utc_now()}
+            update(directory, key, local_artifact=artifact, download_error=None, **timestamps)
         except Exception as exc:
             update(directory, key, local_artifact=None,
                    download_error=type(exc).__name__ + ": local collection failed; cloud output remains ready")
@@ -330,7 +352,13 @@ def collect_outputs(directory, backend, downloads, pool, *, item=None):
     result = report(plan, current["jobs"])
     with state.lock(directory, timeout=10):
         # Reports are derived snapshots. Do not overwrite a newer appended scene's report.
-        if read_json(directory / "state.json")["plan_hash"] == plan["hash"]:
+        saved = read_json(directory / "state.json")
+        if saved["plan_hash"] == plan["hash"]:
+            if saved.get("registered_at") and not saved.get("finished_at") and all(
+                r["status"] == "failed" or r["status"] == "completed" and r.get("local_artifact")
+                for r in saved["jobs"].values()):
+                saved["finished_at"] = utc_now()
+                state.save(directory / "state.json", saved)
             state.save(directory / "report.json", result)
     return result
 

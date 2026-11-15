@@ -65,7 +65,7 @@ class SDKWorkflowTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         from shared.telemetry.recorder import close_local
-        self.addCleanup(close_local, self.root / "outputs")
+        self.addCleanup(close_local, self.root / ".runtime/logs")
         shutil.copytree(runner.ROOT / "workflows", self.root / "workflows")
         (self.root / "tasks").mkdir()
         self.backend = FakeBackend()
@@ -117,7 +117,7 @@ class SDKWorkflowTests(unittest.TestCase):
         backend.assert_not_called()
         self.assertIn("Registration complete", output.getvalue())
         for name, count in (("006-cloud-demo", 3), ("006-single-demo", 1)):
-            current = read_json(self.root / "outputs" / name / "001-main/state.json")
+            current = read_json(self.root / ".runtime/tasks" / name / "001-main/state.json")
             self.assertEqual(len(current["jobs"]), count)
             self.assertTrue(all(record["status"] == "pending" for record in current["jobs"].values()))
             self.assertEqual(current["collection_epoch"], 1)
@@ -262,7 +262,7 @@ class SDKWorkflowTests(unittest.TestCase):
         directory = self.create()
         self.backend.videos_complete = True
         sdk.execute(directory, backend=self.backend, timeout=3, poll=0.001)
-        target = directory / "001-first.png"
+        target = state.media_directory(directory) / "001_first.png"
         target.unlink()
         result = sdk.execute(directory, backend=self.backend, timeout=3, poll=0.001)
         self.assertEqual(target.read_bytes(), PNG)
@@ -326,7 +326,7 @@ class CloudImageTests(unittest.TestCase):
         volume = Mock()
         volume.read_file.return_value = [PNG]
         with tempfile.TemporaryDirectory() as temporary, \
-                patch("shared.serving.model_service.Path", wraps=Path) as paths, \
+                patch("shared.serving.inference_execution.Path", wraps=Path) as paths, \
                 patch("shared.serving.inference_api.SGLangVideoClient") as factory:
             paths.side_effect = lambda value: Path(temporary) if value == "/mnt/modal" else Path(value)
             client = factory.return_value
