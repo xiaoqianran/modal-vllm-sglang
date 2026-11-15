@@ -2,16 +2,80 @@
   "version": 1,
   "name": "004-pika-frames-demo",
   "workflow": "pika-fl2va",
+  "params": {
+    "seconds": 5,
+    "num_inference_steps": 6,
+    "target": {
+      "short_edge": 480,
+      "aspect_ratio": "16:9",
+      "duration_seconds": 5.0
+    }
+  },
   "items": [
     {
       "id": "001",
       "seed": 2101,
-      "prompt": "Smooth cinematic motion between these two frames. Natural atmosphere, ambient audio, no cuts.",
+      "prompt": "How the reference pictures align with the target video — Picture 1 (from Shot 1) aligns with the 0.00-second mark of the target video; Picture 2 (from Shot 1) aligns with the 5.00-second mark of the target video.\n\nintegrated_multimodal_description: [Shot 1] Photorealistic live-action 16:9 romantic drama, one uninterrupted five-second take. Begin with the exact face identities, costumes, staging, lighting, camera and props in Picture 1. Chen steps nearer, bends and retrieves the notebook; Lin lifts her gaze. Tiny slow camera push-in. All intervening gestures unfold gradually and physically plausibly, landing precisely on the pose, positions, gaze, prop states and composition of Picture 2 at 5.00 seconds. Lin retains the straight black bob, LEFT silver crescent clip, pale-blue cardigan and navy notebook; Chen retains his green varsity jacket and the SAME SINGLE transparent umbrella. No hard cuts, morphs, abrupt camera changes, wardrobe changes or extra characters.\n\noverall_soundscape: Heavy rain on stones, one shoe splash and shifting fabric.\n\nnon_diegetic_music: Three sparse felt-piano notes over low sustained cello.",
       "first_frame": {
         "file": "inputs/pika/001_first.png"
       },
       "last_frame": {
         "file": "inputs/pika/001_last.png"
+      }
+    },
+    {
+      "id": "002",
+      "seed": 2102,
+      "prompt": "How the reference pictures align with the target video — Picture 1 (from Shot 1) aligns with the 0.00-second mark of the target video; Picture 2 (from Shot 1) aligns with the 5.00-second mark of the target video.\n\nintegrated_multimodal_description: [Shot 1] Photorealistic live-action 16:9 romantic drama, one uninterrupted five-second take. Begin with the exact face identities, costumes, staging, lighting, camera and props in Picture 1. Lin receives the notebook while Chen slowly tips the canopy to shelter them both, followed by restrained eye contact. All intervening gestures unfold gradually and physically plausibly, landing precisely on the pose, positions, gaze, prop states and composition of Picture 2 at 5.00 seconds. Lin retains the straight black bob, LEFT silver crescent clip, pale-blue cardigan and navy notebook; Chen retains his green varsity jacket and the SAME SINGLE transparent umbrella. No hard cuts, morphs, abrupt camera changes, wardrobe changes or extra characters.\n\noverall_soundscape: Rain pattering on the clear umbrella, book cover brushing her cardigan.\n\nnon_diegetic_music: Soft piano chords with a thin sustained viola.",
+      "first_frame": {
+        "file": "inputs/pika/002_first.png"
+      },
+      "last_frame": {
+        "file": "inputs/pika/002_last.png"
+      }
+    },
+    {
+      "id": "003",
+      "seed": 2103,
+      "prompt": "How the reference pictures align with the target video — Picture 1 (from Shot 1) aligns with the 0.00-second mark of the target video; Picture 2 (from Shot 1) aligns with the 5.00-second mark of the target video.\n\nintegrated_multimodal_description: [Shot 1] Photorealistic live-action 16:9 romantic drama, one uninterrupted five-second take. Begin with the exact face identities, costumes, staging, lighting, camera and props in Picture 1. They take two slow steps. Lin notices his damp shoulder and gently centers the umbrella by touching the shaft; subtle side tracking. All intervening gestures unfold gradually and physically plausibly, landing precisely on the pose, positions, gaze, prop states and composition of Picture 2 at 5.00 seconds. Lin retains the straight black bob, LEFT silver crescent clip, pale-blue cardigan and navy notebook; Chen retains his green varsity jacket and the SAME SINGLE transparent umbrella. No hard cuts, morphs, abrupt camera changes, wardrobe changes or extra characters.\n\noverall_soundscape: Wet footsteps, light rain on canopy, a distant bicycle bell.\n\nnon_diegetic_music: A gentle four-note piano arpeggio with quiet viola.",
+      "first_frame": {
+        "file": "inputs/pika/003_first.png"
+      },
+      "last_frame": {
+        "file": "inputs/pika/003_last.png"
+      }
+    },
+    {
+      "id": "004",
+      "seed": 2104,
+      "prompt": "How the reference pictures align with the target video — Picture 1 (from Shot 1) aligns with the 0.00-second mark of the target video; Picture 2 (from Shot 1) aligns with the 5.00-second mark of the target video.\n\nintegrated_multimodal_description: [Shot 1] Photorealistic live-action 16:9 romantic drama, one uninterrupted five-second take. Begin with the exact face identities, costumes, staging, lighting, camera and props in Picture 1. Chen slides out chair and sits; Lin offers a small inviting gesture; camera holds still. All intervening gestures unfold gradually and physically plausibly, landing precisely on the pose, positions, gaze, prop states and composition of Picture 2 at 5.00 seconds. Lin retains the straight black bob, LEFT silver crescent clip, pale-blue cardigan and navy notebook; Chen retains his green varsity jacket and the SAME SINGLE transparent umbrella. No hard cuts, morphs, abrupt camera changes, wardrobe changes or extra characters.\n\noverall_soundscape: Soft chair scrape, distant turning pages and rain on windows.\n\nnon_diegetic_music: Warm quiet piano chords and soft cello.",
+      "first_frame": {
+        "file": "inputs/pika/004_first.png"
+      },
+      "last_frame": {
+        "file": "inputs/pika/004_last.png"
+      }
+    },
+    {
+      "id": "005",
+      "seed": 2105,
+      "prompt": "How the reference pictures align with the target video — Picture 1 (from Shot 1) aligns with the 0.00-second mark of the target video; Picture 2 (from Shot 1) aligns with the 5.00-second mark of the target video.\n\nintegrated_multimodal_description: [Shot 1] Photorealistic live-action 16:9 romantic drama, one uninterrupted five-second take. Begin with the exact face identities, costumes, staging, lighting, camera and props in Picture 1. Chen completes pencil line, sets pencil down, slides note; Lin lifts it and smiles naturally. All intervening gestures unfold gradually and physically plausibly, landing precisely on the pose, positions, gaze, prop states and composition of Picture 2 at 5.00 seconds. Lin retains the straight black bob, LEFT silver crescent clip, pale-blue cardigan and navy notebook; Chen retains his green varsity jacket and the SAME SINGLE transparent umbrella. No hard cuts, morphs, abrupt camera changes, wardrobe changes or extra characters.\n\noverall_soundscape: Pencil on paper, note sliding on oak, soft little laugh.\n\nnon_diegetic_music: Light piano upper notes answered by short strings.",
+      "first_frame": {
+        "file": "inputs/pika/005_first.png"
+      },
+      "last_frame": {
+        "file": "inputs/pika/005_last.png"
+      }
+    },
+    {
+      "id": "006",
+      "seed": 2106,
+      "prompt": "How the reference pictures align with the target video — Picture 1 (from Shot 1) aligns with the 0.00-second mark of the target video; Picture 2 (from Shot 1) aligns with the 5.00-second mark of the target video.\n\nintegrated_multimodal_description: [Shot 1] Photorealistic live-action 16:9 romantic drama, one uninterrupted five-second take. Begin with the exact face identities, costumes, staging, lighting, camera and props in Picture 1. They walk two slow steps; Lin reaches across with right hand, Chen joins with left, slight camera pull-back, no cut. All intervening gestures unfold gradually and physically plausibly, landing precisely on the pose, positions, gaze, prop states and composition of Picture 2 at 5.00 seconds. Lin retains the straight black bob, LEFT silver crescent clip, pale-blue cardigan and navy notebook; Chen retains his green varsity jacket and the SAME SINGLE transparent umbrella. No hard cuts, morphs, abrupt camera changes, wardrobe changes or extra characters.\n\noverall_soundscape: Paired footsteps on damp stone, occasional drops from leaves.\n\nnon_diegetic_music: Short resolving piano phrase over sustained warm strings.",
+      "first_frame": {
+        "file": "inputs/pika/006_first.png"
+      },
+      "last_frame": {
+        "file": "inputs/pika/006_last.png"
       }
     }
   ]

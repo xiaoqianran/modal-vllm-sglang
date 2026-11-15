@@ -1,0 +1,88 @@
+{
+  "version": 1,
+  "name": "004-pika-frames-demo",
+  "title": "《雨停之前》",
+  "workflow": "pika-fl2va",
+  "input_dir": "inputs/pika",
+  "style": "Photorealistic live-action romantic film still, 16:9 widescreen, realistic human anatomy and skin texture, soft natural depth of field, 35mm or 50mm cinema lens, cool blue-gray rainy exteriors, subtle amber window lights, realistic grain, restrained mood",
+  "female": "Lin Xia, 21-year-old East Asian university student, neat jaw-length straight black bob, SILVER CRESCENT hairclip on the LEFT, pale-blue knit cardigan over ivory blouse, charcoal pleated skirt, slim dark shoulder bag, and a DARK NAVY hardcover notebook",
+  "male": "Chen Yu, 22-year-old East Asian university student, short softly wavy black hair, FOREST-GREEN varsity jacket over white crew-neck T-shirt, dark trousers, ONE transparent umbrella with a curved white handle",
+  "avoid": "No captions, writing, subtitles, watermarks, logos, collage, extra umbrella, scarf, hoodie, backpack, phone, duplicate limbs, hairstyle drift or outfit changes",
+  "params": {
+    "seconds": 5,
+    "num_inference_steps": 6,
+    "target": {
+      "short_edge": 480,
+      "aspect_ratio": "16:9",
+      "duration_seconds": 5.0
+    }
+  },
+  "shots": [
+    {
+      "id": "001",
+      "title": "笔记本落地",
+      "location": "Rainy university stone arcade; fixed medium-wide, ivy-covered pillar left, wet courtyard right",
+      "first": "Lin waits at LEFT pillar looking down at her closed navy notebook on the wet ground. Chen enters far RIGHT under his ONE OPEN clear umbrella",
+      "last": "Same frame: Chen has walked closer and bends to pick up the same navy notebook with his free hand. Lin stays at the pillar, watching. Umbrella remains OPEN",
+      "motion": "Chen steps nearer, bends and retrieves the notebook; Lin lifts her gaze. Tiny slow camera push-in",
+      "soundscape": "Heavy rain on stones, one shoe splash and shifting fabric",
+      "music": "Three sparse felt-piano notes over low sustained cello",
+      "seed": 2101
+    },
+    {
+      "id": "002",
+      "title": "同一把伞",
+      "location": "Same stone arcade and window as 001, fixed 50mm medium two-shot, Lin LEFT and Chen RIGHT",
+      "first": "Chen extends the navy notebook toward Lin; Lin extends her hand. Chen's OPEN transparent umbrella covers only Chen",
+      "last": "Same frame: Lin hugs the notebook to her chest, steps half a pace closer, and the same OPEN clear umbrella is now centered above BOTH; two small smiles",
+      "motion": "Lin receives the notebook while Chen slowly tips the canopy to shelter them both, followed by restrained eye contact",
+      "soundscape": "Rain pattering on the clear umbrella, book cover brushing her cardigan",
+      "music": "Soft piano chords with a thin sustained viola",
+      "seed": 2102
+    },
+    {
+      "id": "003",
+      "title": "伞偏向她",
+      "location": "Same rainy tree-lined campus path with wet stones and lampposts; slow 50mm side tracking, Lin LEFT Chen RIGHT",
+      "first": "Both walk under one OPEN clear umbrella angled toward Lin; Chen's outer right shoulder is wet. He holds handle in RIGHT hand; Lin holds navy notebook in LEFT arm",
+      "last": "Same tracking perspective: Lin's RIGHT hand touches Chen's on umbrella shaft, nudging canopy toward the middle. Their shoulders are sheltered evenly; notebook still in LEFT arm",
+      "motion": "They take two slow steps. Lin notices his damp shoulder and gently centers the umbrella by touching the shaft; subtle side tracking",
+      "soundscape": "Wet footsteps, light rain on canopy, a distant bicycle bell",
+      "music": "A gentle four-note piano arpeggio with quiet viola",
+      "seed": 2103
+    },
+    {
+      "id": "004",
+      "title": "图书馆空位",
+      "location": "Warm university library, SAME pale-oak table, rainy window, amber reading lamp; static 35mm medium-wide shot",
+      "first": "Lin sits LEFT at table, navy notebook in front of her; Chen stands RIGHT behind an EMPTY oak chair. The SINGLE clear umbrella is CLOSED and leans on RIGHT table leg",
+      "last": "Same camera and room: Chen now sits in the RIGHT chair facing Lin, both smiling faintly; notebook and CLOSED umbrella remain in EXACTLY same positions",
+      "motion": "Chen slides out chair and sits; Lin offers a small inviting gesture; camera holds still",
+      "soundscape": "Soft chair scrape, distant turning pages and rain on windows",
+      "music": "Warm quiet piano chords and soft cello",
+      "seed": 2104
+    },
+    {
+      "id": "005",
+      "title": "纸上小伞",
+      "location": "EXACT SAME library oak table and rainy window as 004; 50mm seated two-shot including hands and faces",
+      "first": "Chen on RIGHT draws a simple umbrella pictogram on an off-white note with black pencil; Lin watches from LEFT. Navy notebook stays closed by her left hand. No words",
+      "last": "Same camera: Lin's RIGHT hand holds note with the SAME single umbrella pictogram above the notebook, she smiles; Chen sets pencil down. No added objects or text",
+      "motion": "Chen completes pencil line, sets pencil down, slides note; Lin lifts it and smiles naturally",
+      "soundscape": "Pencil on paper, note sliding on oak, soft little laugh",
+      "music": "Light piano upper notes answered by short strings",
+      "seed": 2105
+    },
+    {
+      "id": "006",
+      "title": "雨停以后",
+      "location": "Blue-hour path outside university library, rain STOPPED, wet reflective stones, amber lamps; static rear three-quarter 35mm medium-wide shot",
+      "first": "Lin walks LEFT, navy notebook in LEFT arm. Chen walks RIGHT, CLOSED clear umbrella in RIGHT hand. Their adjacent hands—her RIGHT and his LEFT—are separated",
+      "last": "Same perspective and path: Lin's RIGHT hand and Chen's LEFT hand have interlaced, both walking slightly farther from camera. Notebook and CLOSED umbrella unchanged",
+      "motion": "They walk two slow steps; Lin reaches across with right hand, Chen joins with left, slight camera pull-back, no cut",
+      "soundscape": "Paired footsteps on damp stone, occasional drops from leaves",
+      "music": "Short resolving piano phrase over sustained warm strings",
+      "seed": 2106
+    }
+  ]
+}
