@@ -14,6 +14,8 @@ from shared.tasks.task_spec import prepare, result_prefix, execution_signature
 from shared.tasks.job_client import remote_cache_fingerprint, remote_record, check_record
 from shared.tasks.artifacts import image_reference
 from shared.utils.files import download_volume_file, read_json, sha256_file
+from shared.telemetry.recorder import local_recorder
+from shared.telemetry.schema import utc_now
 
 
 def model_specs():
@@ -35,6 +37,7 @@ def check_deployment(spec, *, dry_run=False):
     info = model.deployment_info.remote()
     if (info.get("spec_hash") != intent_digest(spec) or info.get("cache_fingerprint") != fingerprint
             or "generate_one" not in info.get("methods", []) or info.get("cloud_artifacts") != 1
+            or info.get("telemetry_schema_version") != 1
             or info.get("volume") != VOLUME_NAME):
         raise RuntimeError("Deployment contract mismatch; prepare cache and redeploy current code")
     return {**info, "request_seconds": time.perf_counter() - started}
@@ -58,6 +61,7 @@ class Backend:
         self.volume = model_volume()
         self.models = {}
         self.fingerprints = {}
+        self.telemetry_manifests = {}
 
     def fingerprint(self, spec):
         key = intent_digest(spec)
@@ -86,6 +90,8 @@ class Backend:
         result = remote_record(self.volume, record["prefix"], record["id"])
         if result:
             check_record(record, result)
+            if result.get("telemetry"):
+                self.telemetry_manifests[record.get("call_id")] = result["telemetry"]
             if result.get("status") in {"completed", "failed", "cancelled"}:
                 return result
         if not record.get("call_id"):
@@ -100,6 +106,12 @@ class Backend:
         return result
 
     def download(self, directory, job, record, plan):
+        recorder = local_recorder(directory.parent.parent, task_id=f"{plan['project']}/{plan['scene']}",
+                                  job_key=job["key"], call_id=record.get("call_id"))
+        with recorder.span("download") as fields:
+            return self._download(directory, job, record, plan, fields)
+
+    def _download(self, directory, job, record, plan, fields):
         kind = adapters.CAPABILITIES[job["uses"]]["output"]
         siblings = sum(other["item"] == job["item"]
                        and adapters.CAPABILITIES[other["uses"]]["output"] == kind
@@ -112,9 +124,10 @@ class Backend:
             if target.exists():
                 if sha256_file(target) != artifact["sha256"]:
                     raise FileExistsError("Local output differs from cloud artifact")
+                fields["reused"] = True
             else:
-                download_volume_file(self.volume, "/" + artifact["path"], target,
-                                     expected_sha256=artifact["sha256"], kind=kind, refuse_existing=True)
+                fields.update(download_volume_file(self.volume, "/" + artifact["path"], target,
+                              expected_sha256=artifact["sha256"], kind=kind, refuse_existing=True))
         return {**artifact, "storage": "local", "path": target.relative_to(directory).as_posix()}
 
 
@@ -128,17 +141,19 @@ def snapshot(directory):
                 or intent_digest({k: v for k, v in plan.items() if k != "hash"}) != plan["hash"]
                 or current["plan_hash"] != plan["hash"]):
             raise ValueError("SDK plan/storage changed; refusing execution")
-        from orchestration.runner import bindings
+        from orchestration.protocol import bindings
         if current["endpoints"] != {k: v["endpoint"] for k, v in bindings(plan).items()}:
             raise ValueError("SDK deployment binding changed")
         return plan, current
 
 
-def update(directory, key, **changes):
+def update(directory, key, *, checkpoint=None, **changes):
     with state.lock(directory, timeout=10):
         current = read_json(directory / "state.json")
         current["jobs"][key].update(changes)
         state.save(directory / "state.json", current)
+    if checkpoint is not None:
+        checkpoint(directory)
 
 
 def cloud_artifact(record, kind):
@@ -153,6 +168,7 @@ def item_for(directory, job, records, spec, backend):
             "operation": job["uses"].split(".")[1],
             "prompt": inputs["prompt"], "seed": inputs["seed"],
             "params": {key: job["params"][key] for key in spec["options"] if key in job["params"]}}
+    item["_telemetry"] = {"task_id": f"{directory.parent.name}/{directory.name}", "job_key": job["key"]}
     for field in ("first_frame", "last_frame"):
         if field not in inputs:
             continue
@@ -163,8 +179,12 @@ def item_for(directory, job, records, spec, backend):
                 return None
             artifact = upstream["artifacts"][binding["output"]]
             ref = image_reference({key: artifact[key] for key in ("path", "sha256", "size")})
+        elif binding.get("storage") == "volume":
+            ref = image_reference({key: binding[key] for key in ("path", "sha256", "size")})
         else:
-            ref = backend.upload(directory, binding)
+            recorder = local_recorder(directory.parent.parent, **item["_telemetry"])
+            with recorder.span("transfer", operation="upload_frames"):
+                ref = backend.upload(directory, binding)
         item[field + "_artifact"] = ref
     return item
 
@@ -173,6 +193,8 @@ def tick(directory, backend, downloads, pool):
     """Advance independent jobs once; never wait for inference or local downloads."""
     directory = Path(directory)
     plan, current = snapshot(directory)
+    def advance(key, **changes):
+        update(directory, key, checkpoint=getattr(backend, "checkpoint", None), **changes)
     # Pair a shot's first/last images in the cloud queue to unlock its video early.
     order = {job["key"]: index for index, job in enumerate(plan["jobs"])}
     jobs = sorted(plan["jobs"], key=lambda job: (job["item"], order[job["key"]]))
@@ -184,22 +206,34 @@ def tick(directory, backend, downloads, pool):
                 _, current = snapshot(directory)
                 records = current["jobs"]
                 record = records[key]
+                recorder = (backend.recorder.bind(task_id=f"{plan['project']}/{plan['scene']}", job_key=key, call_id=record.get("call_id"))
+                            if getattr(backend, "recorder", None) is not None else
+                            local_recorder(directory.parent.parent, task_id=f"{plan['project']}/{plan['scene']}", job_key=key, call_id=record.get("call_id")))
                 kind = adapters.CAPABILITIES[job["uses"]]["output"]
                 if record["status"] == "submitting":
-                    update(directory, key, status="uncertain", error="Submission interrupted; never automatically resubmit")
+                    advance(key, status="uncertain", error="Submission interrupted; never automatically resubmit")
                     continue
                 if (record.get("call_id") or record["status"] == "uncertain" and record.get("prefix")) and record["status"] not in {"completed", "failed"}:
+                    result = None
                     try:
                         result = backend.poll(record)
                         if result is not None:
                             if result["status"] != "completed":
-                                update(directory, key, status="failed", error="Cloud generation failed")
+                                advance(key, status="failed", result=result, error="Cloud generation failed")
                             else:
                                 artifact = cloud_artifact({**record, "result": result}, kind)
-                                update(directory, key, status="completed", result=result,
-                                       artifacts={kind: artifact}, error=None)
+                                advance(key, status="completed", result=result,
+                                       artifacts={kind: artifact}, error=None, cloud_observed_at=utc_now())
                     except Exception as exc:
-                        update(directory, key, status="uncertain", error=type(exc).__name__ + ": query failed; retained call ID")
+                        advance(key, status="uncertain", error=type(exc).__name__ + ": query failed; retained call ID")
+                    finally:
+                        from shared.telemetry.collector import enqueue
+                        manifest = getattr(backend, "telemetry_manifests", {}).pop(record.get("call_id"), {})
+                        if not manifest and isinstance(result, dict):
+                            manifest = result.get("telemetry", {})
+                        if getattr(backend, "collect_outputs", True):
+                            enqueue(directory.parent.parent, backend.volume,
+                                {**manifest, "task_id": f"{plan['project']}/{plan['scene']}"})
                     continue
                 if record["status"] not in {"pending", "blocked"}:
                     continue
@@ -208,17 +242,22 @@ def tick(directory, backend, downloads, pool):
                 # Dependencies, not downloaded local files, determine readiness.
                 dependencies = [value["job"] for value in job["inputs"].values()
                                 if isinstance(value, dict) and "job" in value]
+                if any(records[dep]["status"] == "failed" for dep in dependencies):
+                    advance(key, status="failed", error="Dependency failed")
+                    continue
                 if any(records[dep]["status"] != "completed" for dep in dependencies):
                     if record["status"] != "blocked":
-                        update(directory, key, status="blocked")
+                        advance(key, status="blocked", dependency_wait_started_at=utc_now())
                     continue
+                if record.get("dependency_wait_started_at"):
+                    recorder.interval("wait", record["dependency_wait_started_at"], reason="dependency")
                 siblings = sum(other["item"] == job["item"]
                                and adapters.CAPABILITIES[other["uses"]]["output"] == kind
                                for other in plan["jobs"])
                 stem = job["item"] if siblings == 1 else f"{job['item']}-{job['step']}"
                 suffixes = (".png", ".jpg", ".jpeg", ".webp") if kind == "image" else (".mp4",)
                 if any((directory / (stem + suffix)).exists() for suffix in suffixes):
-                    update(directory, key, status="failed", error="Untracked local output; refusing GPU submission. Import frames explicitly instead.")
+                    advance(key, status="failed", error="Untracked local output; refusing GPU submission. Import frames explicitly instead.")
                     continue
                 item = item_for(directory, job, records, spec, backend)
                 signature = prepare(spec, item)[1]
@@ -228,20 +267,32 @@ def tick(directory, backend, downloads, pool):
                            "cache_fingerprint": fingerprint,
                            "execution_hash": execution_signature(signature, fingerprint)}
                 # Durable intent precedes the one and only spawn attempt.
-                update(directory, key, **receipt, status="submitting")
+                advance(key, **receipt, status="submitting")
                 try:
-                    call_id = backend.submit(spec, item, prefix, fingerprint)
-                    update(directory, key, status="queued", call_id=call_id)
+                    with recorder.span("submit") as fields:
+                        call_id = backend.submit(spec, item, prefix, fingerprint)
+                        fields["call_id"] = call_id
+                    advance(key, status="queued", call_id=call_id, submitted_at=utc_now(),
+                           dependency_wait_started_at=None)
                 except BaseException:
-                    update(directory, key, status="uncertain", error="Spawn acceptance unknown; never automatically resubmit")
+                    advance(key, status="uncertain", error="Spawn acceptance unknown; never automatically resubmit")
                     raise
         except RuntimeError as exc:
             if not str(exc).startswith("Another runner holds "):
                 raise
             # Only this job is occupied. Other jobs/scenes keep progressing.
             continue
+    if not getattr(backend, "collect_outputs", True):
+        from orchestration.protocol import report
+        return report(plan, snapshot(directory)[1]["jobs"])
+    return collect_outputs(directory, backend, downloads, pool)
+
+
+def collect_outputs(directory, backend, downloads, pool, *, item=None):
     plan, current = snapshot(directory)
     for job in plan["jobs"]:
+        if item is not None and job["item"] != item:
+            continue
         key = job["key"]
         record = current["jobs"][key]
         download_key = (str(directory.resolve()), key)
@@ -265,7 +316,7 @@ def tick(directory, backend, downloads, pool):
                    download_error=type(exc).__name__ + ": local collection failed; cloud output remains ready")
         download["reported"] = True
     plan, current = snapshot(directory)
-    from orchestration.runner import report
+    from orchestration.protocol import report
     result = report(plan, current["jobs"])
     with state.lock(directory, timeout=10):
         # Reports are derived snapshots. Do not overwrite a newer appended scene's report.
@@ -295,21 +346,3 @@ def execute_many(directories, *, backend=None, timeout=3600, poll=2):
                 # One final tick commits any just-finished download results.
                 return [tick(directory, backend, downloads, pool) for directory in directories]
             time.sleep(min(poll, max(0, deadline - time.monotonic())))
-
-
-def worker(output, *, poll=2, backend=None):
-    """One local coordinator sees new scenes and appended shots on every pass."""
-    if not math.isfinite(poll) or poll <= 0:
-        raise ValueError("poll must be positive")
-    backend = backend or Backend()
-    downloads = {}
-    with ThreadPoolExecutor(max_workers=8) as pool:
-        while True:
-            for path in sorted(Path(output).glob("*/*/plan.json")):
-                if read_json(path).get("transport") != "sdk":
-                    continue
-                try:
-                    tick(path.parent, backend, downloads, pool)
-                except (ValueError, OSError, RuntimeError, KeyError) as exc:
-                    print(f"{path.parent}: {type(exc).__name__}; scene will be checked again", flush=True)
-            time.sleep(poll)

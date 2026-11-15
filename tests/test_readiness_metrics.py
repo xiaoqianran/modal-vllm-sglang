@@ -5,7 +5,7 @@ from unittest.mock import Mock, patch
 
 from shared.tasks.batch import intent_digest
 from shared.utils.files import read_json
-from shared.serving.metrics import ResourceMonitor, resource_sample
+from shared.telemetry.sampler import ResourceMonitor, resource_sample
 from shared.serving.model_service import ROOT, run_download_cli
 from orchestration.sdk import check_deployment
 from shared.config.storage import VOLUME_NAME
@@ -40,9 +40,9 @@ class ReadinessTests(unittest.TestCase):
             config = ROOT / folder / 'model.json'
             spec = validate(read_json(config))
             valid = {'spec_hash': intent_digest(spec), 'cache_fingerprint': 'prepared',
-                     'methods': ['generate_one'], 'cloud_artifacts': 1, 'volume': VOLUME_NAME}
+                     'methods': ['generate_one'], 'cloud_artifacts': 1, 'volume': VOLUME_NAME, 'telemetry_schema_version': 1}
             for update in ({}, {'spec_hash': 'stale'}, {'cache_fingerprint': 'stale'}, {'methods': []},
-                           {'cloud_artifacts': 0}, {'volume': 'old-storage'}):
+                           {'cloud_artifacts': 0}, {'volume': 'old-storage'}, {'telemetry_schema_version': 0}):
                 with self.subTest(folder=folder, update=update), \
                         patch('orchestration.sdk.remote_cache_fingerprint', return_value='prepared'), \
                         patch('shared.serving.modal_setup.model_volume'), \
@@ -59,7 +59,7 @@ class ReadinessTests(unittest.TestCase):
 
     def test_input_concurrency_and_sampling_interval_validation(self):
         spec = read_json(ROOT / '002-pika-h3-flex/model.json')
-        for key in ('max_inputs', 'metrics_interval'):
+        for key in ('max_inputs', 'telemetry_interval'):
             for value in (0, -1, True, '8', 1.5):
                 with self.subTest(key=key, value=value), self.assertRaises(ValueError):
                     validate({**spec, key: value})
@@ -68,14 +68,14 @@ class ReadinessTests(unittest.TestCase):
 
 class MetricsTests(unittest.TestCase):
     def test_missing_metrics_never_fail_generation(self):
-        with patch('shared.serving.metrics.Path.read_text', side_effect=OSError()), \
-                patch('shared.serving.metrics.subprocess.run', side_effect=FileNotFoundError()):
+        with patch('shared.telemetry.sampler.Path.read_text', side_effect=OSError()), \
+                patch('shared.telemetry.sampler.subprocess.run', side_effect=FileNotFoundError()):
             self.assertEqual(resource_sample(), {})
 
     def test_container_cpu_ram_and_gpu_samples(self):
         values = {'memory.current': '100', 'memory.peak': '200', 'cpu.stat': 'usage_usec 1500000\nnr_periods 10'}
-        with patch('shared.serving.metrics.Path.read_text', autospec=True, side_effect=lambda p: values[p.name]), \
-                patch('shared.serving.metrics.subprocess.run', return_value=Mock(stdout='1024, 80\n2048, 20\n')):
+        with patch('shared.telemetry.sampler.Path.read_text', autospec=True, side_effect=lambda p: values[p.name]), \
+                patch('shared.telemetry.sampler.subprocess.run', return_value=Mock(stdout='1024, 80\n2048, 20\n')):
             sample = resource_sample()
         self.assertEqual(sample['ram_peak_bytes'], 200)
         self.assertEqual(sample['cpu_seconds'], 1.5)
@@ -83,7 +83,7 @@ class MetricsTests(unittest.TestCase):
 
     def test_gpu_peak_is_preserved_when_current_usage_falls(self):
         monitor = ResourceMonitor()
-        with patch('shared.serving.metrics.resource_sample', side_effect=[
+        with patch('shared.telemetry.sampler.resource_sample', side_effect=[
                 {'gpus': [{'used_mib': 200}]}, {'gpus': [{'used_mib': 100}]}]):
             monitor.sample()
             result = monitor.snapshot()

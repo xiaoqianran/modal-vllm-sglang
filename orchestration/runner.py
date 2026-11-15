@@ -220,24 +220,7 @@ def build_plan(task_path, *, root=ROOT, endpoints_path="endpoints.example.json",
     return plan
 
 
-def bindings(plan):
-    if plan.get("transport") == "sdk":
-        return {name: {"endpoint": "sdk://" + service["spec"].get("app_name", "modal-model-" + name), "headers": {}}
-                for name, service in plan["services"].items()}
-    result = {}
-    for name, service in plan["services"].items():
-        endpoint = os.environ.get(service["endpoint_env"], "").rstrip("/")
-        url = urlsplit(endpoint)
-        if url.scheme not in {"http", "https"} or not url.netloc or url.username or url.password or url.query or url.fragment:
-            raise ValueError(f"Set {service['endpoint_env']} to a service URL without credentials/query/fragment")
-        headers = {}
-        for header, env in service.get("headers_env", {}).items():
-            value = os.environ.get(env)
-            if not value or "\r" in value or "\n" in value:
-                raise ValueError(f"Missing or invalid environment variable: {env}")
-            headers[header] = value
-        result[name] = {"endpoint": endpoint, "headers": headers}
-    return result
+from orchestration.protocol import bindings
 
 
 def _extend_scene(directory, old, plan, saved):
@@ -270,6 +253,18 @@ def _extend_scene(directory, old, plan, saved):
 
 
 def new_run(plan, *, root=ROOT, output="outputs"):
+    if plan.get("transport") != "sdk":
+        return _new_run(plan, root=root, output=output)
+    from shared.telemetry.recorder import local_recorder, flush_local
+    output_path = state.local_path(Path(root).resolve(), output)
+    recorder = local_recorder(output_path, task_id=f"{plan['project']}/{plan['scene']}")
+    with recorder.span("register", plan_hash=plan["hash"]):
+        directory = _new_run(plan, root=root, output=output)
+    flush_local(output_path)
+    return directory
+
+
+def _new_run(plan, *, root=ROOT, output="outputs"):
     root = Path(root).resolve()
     output = state.local_path(root, output)
     runtime = bindings(plan)  # Fail before writing any Run if credentials are missing.
@@ -329,20 +324,7 @@ def new_run(plan, *, root=ROOT, output="outputs"):
     return directory
 
 
-def report(plan, records):
-    outputs = {}
-    for job in plan["jobs"]:
-        for name, binding in plan["outputs"].items():
-            step, output = reference(binding)
-            record = records[job["key"]]
-            if step == job["step"] and record["status"] == "completed":
-                outputs.setdefault(job["item"], {})[name] = record["artifacts"][output]
-    result = {"name": plan["name"], "counts": dict(Counter(r["status"] for r in records.values())),
-              "outputs": outputs}
-    if plan.get("transport") == "sdk":
-        result["download_errors"] = sum(bool(r.get("download_error")) for r in records.values())
-        result["local_downloaded"] = sum(bool(r.get("local_artifact")) for r in records.values())
-    return result
+from orchestration.protocol import report
 
 
 def execute(directory, *, adapter_factory=adapters.Adapter, timeout=3600, poll=2):
@@ -538,8 +520,36 @@ def main():
     worker = sub.add_parser("worker", help="Continuously schedule all registered SDK scenes")
     worker.add_argument("--output", default="outputs")
     worker.add_argument("--poll", type=float, default=2)
+    telemetry = sub.add_parser("telemetry", help="Collect telemetry or report a task timeline")
+    telemetry_sub = telemetry.add_subparsers(dest="telemetry_command", required=True)
+    collect = telemetry_sub.add_parser("collect")
+    collect.add_argument("--output", default="outputs")
+    collect.add_argument("--local", action="store_true", help="Index local records without cloud access")
+    telemetry_report = telemetry_sub.add_parser("report")
+    telemetry_report.add_argument("directory")
     args = parser.parse_args()
     try:
+        if args.command == "telemetry":
+            from shared.telemetry.recorder import flush_local
+            if args.telemetry_command == "collect":
+                from shared.telemetry.collector import collect as collect_records
+                output = state.local_path(ROOT, args.output)
+                flush_local(output)
+                volume = None
+                if not args.local:
+                    from shared.serving.modal_setup import model_volume
+                    volume = model_volume()
+                result = collect_records(output, volume)
+            else:
+                from orchestration.sdk import snapshot
+                from shared.telemetry.report import task_report
+                directory = state.local_path(ROOT, args.directory)
+                plan, _ = snapshot(directory)
+                output = directory.parent.parent
+                flush_local(output)
+                result = task_report(output, f"{plan['project']}/{plan['scene']}")
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+            return
         if args.command in {"plan", "run"}:
             plans = [build_plan(path) for path in args.task]
             if args.command == "plan" or args.dry_run:
@@ -563,7 +573,7 @@ def main():
                 print(json.dumps(check_deployment(specs[service], dry_run=args.dry_run), ensure_ascii=False))
             return
         elif args.command == "worker":
-            from orchestration.sdk import worker as run_worker
+            from orchestration.cloud_client import worker as run_worker
             run_worker(state.local_path(ROOT, args.output), poll=args.poll)
             return
         else:

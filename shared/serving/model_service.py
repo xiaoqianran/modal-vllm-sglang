@@ -18,6 +18,7 @@ from shared.config.model_spec import validate
 from shared.config.model_cache import cache_directory, verify_cache, prepare_cache, command_argv
 from shared.utils.outputs import component
 from shared.tasks.task_lifecycle import recovery_action, TERMINAL, SubmissionRejected
+from shared.telemetry.recorder import Recorder
 
 # Re-export task helpers for existing callers. New code imports task_spec directly.
 from shared.tasks.task_spec import ROOT, load_task, prepare, result_prefix, execution_signature
@@ -30,7 +31,7 @@ def class_name(name):
     return decorate
 
 
-def execute(spec, items, prefix, volume, cache_fingerprint="unverified"):
+def execute(spec, items, prefix, volume, cache_fingerprint="unverified", recorder=None, background_telemetry=False):
     from shared.serving.inference_api import VLLMImageClient, SGLangVideoClient
     parts = prefix.split("/")
     for part in parts:
@@ -42,6 +43,8 @@ def execute(spec, items, prefix, volume, cache_fingerprint="unverified"):
     port = spec.get("proxy_port", spec.get("port", 8000) + 1)
     client = (VLLMImageClient if spec["kind"] == "image" else SGLangVideoClient)(f"http://127.0.0.1:{port}")
     for item, payload, signature in prepared:
+        context = item.get("_telemetry", {})
+        telemetry = (recorder or Recorder()).bind(**{key: context[key] for key in ("task_id", "job_key") if key in context})
         started = time.perf_counter()
         metadata = folder / (item["id"] + ".json")
         old = read_json(metadata) if metadata.exists() else {}
@@ -77,15 +80,20 @@ def execute(spec, items, prefix, volume, cache_fingerprint="unverified"):
             job = old["job_id"]
         else:
             from shared.tasks.artifacts import resolve_frames
-            payload = resolve_frames(payload, volume)
+            if any(key.endswith("_artifact") for key in payload):
+                with telemetry.span("transfer", operation="read_frames"):
+                    payload = resolve_frames(payload, volume)
             # Persist before submit: a lost response never causes automatic resubmission.
             atomic_json(metadata, {"status": "submitting", "intent_hash": signature, "execution_hash": execution_hash})
             volume.commit()
             try:
                 if spec["kind"] == "image":
-                    data, _ = client.generate(payload, timeout=spec.get("timeout", 3600))
+                    with telemetry.span("generate", operation="image"):
+                        data, _ = client.generate(payload, timeout=spec.get("timeout", 3600))
                 else:
-                    job = client.submit(payload, timeout=spec.get("timeout", 3600))
+                    with telemetry.span("generate", operation="video_submit") as fields:
+                        job = client.submit(payload, timeout=spec.get("timeout", 3600))
+                        fields["engine_job_id"] = job
                     atomic_json(metadata, {"status": "running", "intent_hash": signature, "execution_hash": execution_hash, "job_id": job})
                     volume.commit()
             except SubmissionRejected:
@@ -93,14 +101,17 @@ def execute(spec, items, prefix, volume, cache_fingerprint="unverified"):
                 volume.commit()
                 raise
         if spec["kind"] == "video":
+            telemetry = telemetry.bind(engine_job_id=str(job))
             def remember_failure(remote):
                 if remote.get("status") in TERMINAL - {"completed"}:
                     record = read_json(metadata)
                     record["status"] = "failed"
                     atomic_json(metadata, record)
                     volume.commit()
-            client.wait(job, timeout=spec.get("timeout", 3600), on_status=remember_failure)
-            data = client.content(job)
+            with telemetry.span("generate", operation="video_wait"):
+                client.wait(job, timeout=spec.get("timeout", 3600), on_status=remember_failure)
+            with telemetry.span("generate", operation="video_fetch"):
+                data = client.content(job)
         suffix = media_suffix(data, spec["kind"])
         target = folder / (item["id"] + suffix)
         digest = hashlib.sha256(data).hexdigest()
@@ -111,15 +122,40 @@ def execute(spec, items, prefix, volume, cache_fingerprint="unverified"):
                   "intent_hash": signature, "execution_hash": execution_hash, "sha256": digest}
         if spec["kind"] == "video":
             record["job_id"] = job
-        atomic_json(metadata, record)
-        volume.commit()
-        from shared.utils.files import atomic_write
-        if not target.exists():
-            atomic_write(target, data)
-        record["status"] = "completed"
-        atomic_json(metadata, record)
-        volume.commit()
+        if telemetry.writer is not None:
+            record["telemetry"] = telemetry.writer.reference()
+        with telemetry.span("save", bytes=len(data)):
+            atomic_json(metadata, record)
+            volume.commit()
+            from shared.utils.files import atomic_write
+            if not target.exists():
+                atomic_write(target, data)
+            record["status"] = "completed"
+            atomic_json(metadata, record)
+            volume.commit()
+        publish_telemetry(telemetry, metadata, record, volume, background=background_telemetry)
         yield record
+
+
+def publish_telemetry(recorder, metadata, record, volume, *, background=False):
+    """Optional metadata publication cannot turn successful generation into failure."""
+    if recorder.writer is None:
+        return
+    try:
+        reference = record.get("telemetry") or recorder.writer.reference()
+        if background:
+            # Only the immutable manifest is written in the background. Never race
+            # another job by rewriting generation metadata after releasing its lock.
+            if not record.get("telemetry"):
+                record["telemetry"] = reference
+                atomic_json(metadata, record)
+            recorder.writer.publish_async(reference, volume.commit)
+            return
+        record["telemetry"] = recorder.writer.publish(reference)
+        atomic_json(metadata, record)
+        volume.commit()
+    except Exception as exc:
+        record["telemetry_error"] = type(exc).__name__
 
 
 def build_image(spec, *, offline):
@@ -185,11 +221,37 @@ def create_app(config_path):
 
         @modal.enter(snap=False)
         def start(self):
-            from shared.serving.metrics import ResourceMonitor
+            from shared.telemetry.recorder import cloud_recorder
+            container_id = os.environ.get("MODAL_TASK_ID")
+            self.telemetry = cloud_recorder(Path("/mnt/modal"), container_id) if container_id else Recorder()
+            try:
+                with self.telemetry.span("startup", mode="post_snapshot_hook" if gpu_snapshot else "full_initialization",
+                                         cpu=spec.get("cpu", 4), memory_mib=spec.get("memory", 32768),
+                                         gpu=spec.get("gpu", "RTX-PRO-6000"), spec_hash=intent_digest(spec),
+                                         model=spec["model"], image=spec["image"]) as fields:
+                    self._start()
+                    fields.update(engine_initialization_seconds=self.engine_initialization_seconds,
+                                  initialization_is_snapshot_history=gpu_snapshot,
+                                  cache_fingerprint=self.cache_fingerprint)
+            except BaseException:
+                if hasattr(self, "resources"):
+                    self.resources.stop()
+                try:
+                    if self.telemetry.writer is not None:
+                        self.telemetry.writer.flush()
+                        volume.commit()
+                except Exception:
+                    pass
+                raise
+
+        def _start(self):
+            from shared.telemetry.sampler import ResourceMonitor
             started = time.perf_counter()
             self.batch_lock = threading.Lock()
             self.stopping = threading.Event()
-            self.resources = ResourceMonitor(interval=spec.get("metrics_interval", 5))
+            self.resources = ResourceMonitor(interval=spec.get("telemetry_interval", 5), recorder=self.telemetry)
+            self.telemetry.sampler = self.resources.request
+            self.resources.start()
             self.gateway = None
             if not gpu_snapshot:
                 self._prepare_engine()
@@ -211,7 +273,6 @@ def create_app(config_path):
                     stop_process(self.process)
                 raise
 
-            self.resources.start()
             self.monitor = monitor_processes((self.process, self.gateway), volume, label=spec["service"],
                               stopping=self.stopping, on_failure=lambda: os._exit(1))
             self.startup_seconds = time.perf_counter() - started
@@ -234,6 +295,7 @@ def create_app(config_path):
                     "image": spec["image"], "max_inputs": spec.get("max_inputs", 1),
                     "sdk_inference_concurrency": 1,
                     "cloud_artifacts": 1,
+                    "telemetry_schema_version": 1,
                     "cpu": spec.get("cpu", 4), "memory": spec.get("memory", 32768),
                     "startup_seconds": self.startup_seconds,
                     "startup_measurement": "post_snapshot_hook" if gpu_snapshot else "full_initialization",
@@ -253,20 +315,35 @@ def create_app(config_path):
                 raise RuntimeError("Local configuration differs from deployed model.json; deploy it first")
             if expected_cache_fingerprint != self.cache_fingerprint:
                 raise RuntimeError("Prepared model changed; restart with the current cache")
-            with self.batch_lock:
+            context = item.get("_telemetry", {})
+            telemetry = self.telemetry.bind(**{key: context[key] for key in ("task_id", "job_key") if key in context})
+            with telemetry.span("wait", reason="lock"):
+                self.batch_lock.acquire()
+            try:
                 started = time.perf_counter()
                 print(json.dumps({"event": "generate_one", "id": item["id"], "prefix": prefix,
                                   "container": os.environ.get("MODAL_TASK_ID"),
                                   "input": modal.current_input_id()}), flush=True)
-                record = next(execute(spec, [item], prefix, volume, self.cache_fingerprint))
+                record = next(execute(spec, [item], prefix, volume, self.cache_fingerprint,
+                                      recorder=telemetry, background_telemetry=True))
                 print(json.dumps({"event": "generate_one_completed", "id": item["id"], "prefix": prefix,
                                   "service": spec["service"],
                                   "lock_wait_seconds": started - requested,
                                   "execution_seconds": time.perf_counter() - started,
-                                  "resources": self.resources.snapshot(),
+                                  "resources": self.resources.snapshot(refresh=False),
                                   "container": os.environ.get("MODAL_TASK_ID"),
                                   "input": modal.current_input_id()}), flush=True)
                 return record
+            except BaseException:
+                metadata = Path("/mnt/modal").joinpath(*prefix.split("/"), item["id"] + ".json")
+                try:
+                    if metadata.is_file():
+                        publish_telemetry(telemetry, metadata, read_json(metadata), volume, background=True)
+                except Exception:
+                    pass
+                raise
+            finally:
+                self.batch_lock.release()
 
         @modal.method()
         def generate_batch_stream(self, items, prefix, expected_cache_fingerprint, expected_spec_hash):
@@ -287,6 +364,8 @@ def create_app(config_path):
             # Initialization/capture can fail before runtime objects exist.
             if hasattr(self, "resources") and self.resources.thread.is_alive():
                 self.resources.stop()
+            if hasattr(self, "telemetry") and self.telemetry.writer is not None:
+                self.telemetry.writer.close()
             if hasattr(self, "stopping"):
                 self.stopping.set()
             if hasattr(self, "monitor"):

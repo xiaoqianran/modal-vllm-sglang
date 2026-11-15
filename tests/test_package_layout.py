@@ -15,7 +15,8 @@ class PackageLayoutTests(unittest.TestCase):
             "config": ("model_spec", "model_cache", "cache", "params_moss",
                        "params_pika", "params_minimax"),
             "serving": ("model_service", "modal_setup", "runtime",
-                        "inference_api", "inference_gateway", "metrics"),
+                        "inference_api", "inference_gateway"),
+            "telemetry": ("schema", "recorder", "sampler", "storage", "collector", "report"),
             "tasks": ("task_spec", "job_client", "task_lifecycle", "batch"),
             "utils": ("files", "outputs", "http", "media"),
         }

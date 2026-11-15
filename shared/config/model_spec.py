@@ -44,6 +44,8 @@ def validate(spec):
     spec = copy.deepcopy(spec)
     spec.setdefault("defaults", {})
     spec.setdefault("options", {})
+    if "metrics_interval" in spec:
+        raise ValueError("Use telemetry_interval for telemetry sampling")
     from shared.config.storage import VOLUME_NAME
     if spec.get("volume_name", VOLUME_NAME) != VOLUME_NAME:
         raise ValueError(f"volume_name must be {VOLUME_NAME}")
@@ -84,7 +86,7 @@ def validate(spec):
     for key in ("port", "proxy_port"):
         if key in spec and (type(spec[key]) is not int or not 1 <= spec[key] <= 65535):
             raise ValueError(f"Invalid {key}")
-    for key in ("cpu", "memory", "timeout", "startup_timeout", "scaledown_window", "max_inputs", "metrics_interval"):
+    for key in ("cpu", "memory", "timeout", "startup_timeout", "scaledown_window", "max_inputs", "telemetry_interval"):
         if key in spec and (type(spec[key]) is not int or spec[key] <= 0):
             raise ValueError(f"{key} must be a positive integer")
     if spec.get("startup_timeout", 3600) <= 180:

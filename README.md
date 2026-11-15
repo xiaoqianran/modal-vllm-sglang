@@ -6,6 +6,14 @@
 通用 GPU 快照：MOSS、Pika、MiniMax 共用拍摄与恢复生命周期，保留 30 秒缩容。
 配置、计时边界及逐引擎远程验收要求见 [快照说明](docs/memory-snapshots.md)。
 
+运行记录统一在 `shared/telemetry/`：登记、提交、等待、启动、生成、保存、素材交接、下载使用固定阶段名。
+后台保存事件、采样 CPU / 内存 / 显存，独立收集并输出 Task 报告；详见 [telemetry 说明](docs/telemetry.md)。
+
+```powershell
+uv run python -m orchestration telemetry collect
+uv run python -m orchestration telemetry report outputs/006-moss-pika-demo/001-main
+```
+
 所有任务采用同一种异步方式：run 登记后返回，worker 持续提交与查询，下载在线程池中独立进行。
 同一 job 的提交互斥，状态文件只短暂加锁；视频等待不阻挡其他任务入队。
 
@@ -180,7 +188,7 @@ uv run python -m orchestration check-deployment pika --dry-run
 旧部署没有 `deployment_info()` 时会报错，需要重新部署；自检不能代替真实生成和断线恢复验收。
 
 `model_ready`、`generate_one_completed`、`batch_item_completed` 记录启动/执行耗时和资源快照。
-后台采样间隔由 `metrics_interval` 控制，默认 5 秒。RAM 和 CPU 使用 Linux cgroup v2 的
+后台采样间隔由 `telemetry_interval` 控制，默认 5 秒。RAM 和 CPU 使用 Linux cgroup v2 的
 容器统计（含引擎子进程）；显存使用 nvidia-smi，记录采样峰值，可能漏掉短暂尖峰。
 不支持的统计字段省略，采集不影响生成成功与否。资源峰值是容器生命周期统计，不是单请求独占统计。
 `startup_seconds` 从容器进入初始化开始计时，不含镜像拉取和平台排队；自检的

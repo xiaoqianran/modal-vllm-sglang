@@ -31,16 +31,23 @@ def resource_sample():
 
 class ResourceMonitor:
     """Container lifetime peaks, sampled VRAM peaks; unavailable fields are omitted."""
-    def __init__(self, interval=5):
+    def __init__(self, interval=5, recorder=None):
+        self.recorder = recorder
         self.interval = interval
         self.done = threading.Event()
+        self.wake = threading.Event()
         self.lock = threading.Lock()
         self.latest = {}
         self.gpu_peaks = []
         self.thread = threading.Thread(target=self.run, daemon=True)
 
     def sample(self):
-        value = resource_sample()
+        value = {**resource_sample(), "sample_interval_seconds": self.interval}
+        if self.recorder is not None:
+            try:
+                self.recorder.resource(value)
+            except Exception:
+                pass
         with self.lock:
             self.latest = value
             for index, gpu in enumerate(value.get("gpus", [])):
@@ -51,17 +58,24 @@ class ResourceMonitor:
     def run(self):
         while not self.done.is_set():
             self.sample()
-            self.done.wait(self.interval)
+            self.wake.wait(self.interval)
+            self.wake.clear()
+
+    def request(self):
+        """Ask the background sampler for a boundary sample without waiting for nvidia-smi."""
+        self.wake.set()
 
     def start(self):
         self.thread.start()
 
-    def snapshot(self):
-        self.sample()
+    def snapshot(self, *, refresh=True):
+        if refresh:
+            self.sample()
         with self.lock:
             return {**self.latest, "sampled_gpu_peak_mib": list(self.gpu_peaks),
                     "sample_interval_seconds": self.interval}
 
     def stop(self):
         self.done.set()
+        self.wake.set()
         self.thread.join(timeout=3)

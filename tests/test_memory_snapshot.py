@@ -25,7 +25,7 @@ class MemorySnapshotTests(unittest.TestCase):
         health = stack.enter_context(patch('shared.serving.runtime.wait_for_health'))
         stop = stack.enter_context(patch('shared.serving.runtime.stop_process'))
         monitor = stack.enter_context(patch('shared.serving.runtime.monitor_processes'))
-        resources = stack.enter_context(patch('shared.serving.metrics.ResourceMonitor'))
+        resources = stack.enter_context(patch('shared.telemetry.sampler.ResourceMonitor'))
         resources.return_value.snapshot.return_value = {}
         _, model = create_app(path)
         cls = model._get_user_cls()
@@ -65,7 +65,8 @@ class MemorySnapshotTests(unittest.TestCase):
             cls.start._get_raw_f()(obj)
         self.assertEqual(popen.call_count, 1)
         stop.assert_called_once_with(obj.process)
-        resources.return_value.start.assert_not_called()
+        resources.return_value.start.assert_called_once()
+        resources.return_value.stop.assert_called_once()
         monitor.assert_not_called()
 
     def test_invalid_mode_is_rejected(self):

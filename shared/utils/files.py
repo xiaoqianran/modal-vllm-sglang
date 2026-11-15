@@ -38,7 +38,7 @@ def sha256_file(path):
     return digest.hexdigest()
 
 
-def download_volume_file(volume, remote_path, destination, *, expected_sha256=None, kind=None, refuse_existing=False):
+def download_volume_file(volume, remote_path, destination, *, expected_sha256=None, kind=None, refuse_existing=False, max_bytes=None):
     started = time.perf_counter()
     first_chunk_seconds = None
     size = 0
@@ -49,6 +49,8 @@ def download_volume_file(volume, remote_path, destination, *, expected_sha256=No
     try:
         with os.fdopen(fd, "wb") as stream:
             for chunk in volume.read_file(remote_path):
+                if max_bytes is not None and size + len(chunk) > max_bytes:
+                    raise ValueError("Download exceeds declared size")
                 if first_chunk_seconds is None:
                     first_chunk_seconds = time.perf_counter() - started
                 stream.write(chunk)
