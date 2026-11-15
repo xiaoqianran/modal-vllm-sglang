@@ -6,7 +6,9 @@ from unittest.mock import Mock, patch
 from shared.tasks.batch import intent_digest
 from shared.utils.files import read_json
 from shared.serving.metrics import ResourceMonitor, resource_sample
-from shared.serving.model_service import ROOT, run_cli, run_download_cli
+from shared.serving.model_service import ROOT, run_download_cli
+from orchestration.sdk import check_deployment
+from shared.config.storage import VOLUME_NAME
 from shared.config.model_spec import validate
 
 
@@ -26,11 +28,10 @@ class ReadinessTests(unittest.TestCase):
 
     def test_deployment_dry_run_never_contacts_modal(self):
         config = ROOT / '002-pika-h3-flex/model.json'
-        with patch('sys.argv', ['run.py', '--check-deployment', '--dry-run']), \
-                patch('modal.Cls.from_name') as lookup, \
+        with patch('modal.Cls.from_name') as lookup, \
                 patch('shared.serving.modal_setup.model_volume') as volume, \
                 patch('sys.stdout', new=io.StringIO()):
-            run_cli(config)
+            check_deployment(validate(read_json(config)), dry_run=True)
         lookup.assert_not_called()
         volume.assert_not_called()
 
@@ -39,11 +40,11 @@ class ReadinessTests(unittest.TestCase):
             config = ROOT / folder / 'model.json'
             spec = validate(read_json(config))
             valid = {'spec_hash': intent_digest(spec), 'cache_fingerprint': 'prepared',
-                     'methods': ['generate_one', 'generate_batch_stream']}
-            for update in ({}, {'spec_hash': 'stale'}, {'cache_fingerprint': 'stale'}, {'methods': []}):
+                     'methods': ['generate_one'], 'cloud_artifacts': 1, 'volume': VOLUME_NAME}
+            for update in ({}, {'spec_hash': 'stale'}, {'cache_fingerprint': 'stale'}, {'methods': []},
+                           {'cloud_artifacts': 0}, {'volume': 'old-storage'}):
                 with self.subTest(folder=folder, update=update), \
-                        patch('sys.argv', ['run.py', '--check-deployment']), \
-                        patch('shared.tasks.job_client.remote_cache_fingerprint', return_value='prepared'), \
+                        patch('orchestration.sdk.remote_cache_fingerprint', return_value='prepared'), \
                         patch('shared.serving.modal_setup.model_volume'), \
                         patch('modal.Cls.from_name') as lookup, \
                         patch('sys.stdout', new=io.StringIO()):
@@ -51,9 +52,9 @@ class ReadinessTests(unittest.TestCase):
                     model.deployment_info.remote.return_value = {**valid, **update}
                     if update:
                         with self.assertRaisesRegex(RuntimeError, 'contract mismatch'):
-                            run_cli(config)
+                            check_deployment(spec)
                     else:
-                        self.assertEqual(run_cli(config)['cache_fingerprint'], 'prepared')
+                        self.assertEqual(check_deployment(spec)['cache_fingerprint'], 'prepared')
                     model.generate_one.spawn.assert_not_called()
 
     def test_input_concurrency_and_sampling_interval_validation(self):

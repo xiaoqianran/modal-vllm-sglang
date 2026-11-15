@@ -41,7 +41,8 @@ class DeployOnlyTests(unittest.TestCase):
 
     def test_no_temporary_gpu_app_entrypoints(self):
         for folder in MODELS:
-            for name in ("app.py", "run.py"):
+            self.assertFalse((ROOT / folder / "run.py").exists())
+            for name in ("app.py",):
                 source = (ROOT / folder / name).read_text()
                 self.assertNotIn("app.run(", source)
                 self.assertNotIn("@app.local_entrypoint", source)

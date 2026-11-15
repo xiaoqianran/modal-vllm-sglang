@@ -1,20 +1,19 @@
-# Modal 图片 / 视频模型服务
+# modal-vllm-sglang 图片 / 视频模型服务
 
 `shared/tasks/task_spec.py` 统一任务加载、参数准备、签名、远端结果前缀及本地任务身份。
-部署服务和异步客户端共同依赖它，客户端不导入部署服务；原服务模块的任务函数导入入口保留兼容。
+部署服务和异步编排器共同依赖它。所有业务任务统一交给 orchestration，模型目录不再提供 run.py。
 
 通用 GPU 快照：MOSS、Pika、MiniMax 共用拍摄与恢复生命周期，保留 30 秒缩容。
 配置、计时边界及逐引擎远程验收要求见 [快照说明](docs/memory-snapshots.md)。
 
-异步任务按身份独占提交/查询，登记表锁只保护本地合并与原子写入（竞争最多等待 10 秒）。
-远端查询、提交及八线程下载不持有登记表锁；提交前先持久化 submitting，
-提交结果不确定时仍禁止自动重试。同一任务并行操作仍会报占用，独立任务可并行登记。
+所有任务采用同一种异步方式：run 登记后返回，worker 持续提交与查询，下载在线程池中独立进行。
+同一 job 的提交互斥，状态文件只短暂加锁；视频等待不阻挡其他任务入队。
 
 所有模型都使用同一套公共实现：**model.json → CPU 准备权重 → Deploy → Task JSON → 生成结果**。
 现有 MOSS、Pika 和 MiniMax 与以后新增的模型采用相同入口、任务格式和恢复流程。
 
 ```text
-001-moss-image/          MOSS：model.json + 三个薄入口
+001-moss-image/          MOSS：model.json + 两个薄入口
 002-pika-h3-flex/        Pika：同上，含文生视频与首尾帧能力
 005-minimax-h3-image/    MiniMax：同上，配置独立文本编码器
 shared/                 四个按职责组织的公共包
@@ -26,7 +25,7 @@ tasks/                  提示词、镜头、seed、生成参数
 inputs/                 输入素材
 outputs/<project>/<scene>/  生成结果及 .runner 元数据
 workflows/              单模型或跨模型步骤定义
-orchestration/          私有 HTTP 工作流执行器
+orchestration/          统一 SDK 异步任务入口、依赖调度及云端素材交接
 scripts/new_model.py    新模型目录生成器
 templates/standard-model/model.json  生成器使用的配置模板
 tests/                  全部离线测试
@@ -40,12 +39,11 @@ tests/                  全部离线测试
 model.json              模型、镜像、启动命令、资源、缓存组件、能力与参数
 app.py                  调用 shared.serving.model_service.create_app
 download_model.py       调用公共 CPU 下载及缓存检查
-run.py                  调用公共 Task CLI
 pyproject.toml          本地依赖
 README.md               模型使用说明
 ```
 
-参数默认值只在 model.json 中定义。跨字段约束放在 shared/config/params_*.py，SDK 与 HTTP 编排共用。
+参数默认值只在 model.json 中定义。跨字段约束放在 shared/config/params_*.py，任务与引擎请求共用。
 Pika 的 SGLang Overlay、容器内首尾帧转换，MiniMax 的双组件下载，均由公共配置能力处理。
 
 ## 2. 准备与部署
@@ -70,12 +68,10 @@ Pika、MiniMax 替换目录名执行同样命令。普通任务无需重复 Depl
 没有任务时允许缩容至零，下次调用仍可能需要加载模型。
 
 现有模型保留旧 Volume 缓存目录：007-moss-image、009-pika-h3-flex、003-minimax-h3-image。
-新模型默认 models/<service>/。首次升级先运行 CPU 入口的 `--migrate-only`（不加 --refresh）：
-旧清单经模型身份、快照路径、必需文件及文件大小校验后就地转换，不复制或下载权重。
-原清单保留为 model-ready.legacy.json；校验不通过时停止，不自动重新下载。
-`--migrate-only` 在清单缺失时也会停止；普通准备入口仅在没有清单时允许下载。
-`--check-only`、`--refresh`、`--migrate-only` 互斥。
-GPU 只接受新清单，因此必须先完成 CPU 转换再部署。详见 [升级说明](docs/unified-migration.md)。
+新模型默认 models/<service>/。所在 Volume 统一为 modal-vllm-sglang。
+新盘为空时先运行普通 CPU 准备命令；旧 modal-forge Volume 不会自动复制到新盘。
+只有同一盘已有旧清单时才用 --migrate-only，它只校验并转换，不下载权重。
+--check-only、--refresh、--migrate-only 互斥；GPU 只接受已准备好的新清单。
 Hugging Face 组件记录实际解析的 snapshot；分支引用首次准备后复用已固定的缓存。
 显式更新或修复 HF 权重时使用 download_model.py --refresh；GPU 只验证和读取缓存，不下载权重。
 CPU 模型下载默认把 Hugging Face `snapshot_download()` 的文件工作线程设置为 8；
@@ -87,69 +83,73 @@ CPU 下载会检查 Modal Secret `huggingface-secret`：存在且包含 `HF_TOKE
 Pika 使用引擎 Overlay 注册表物化基础组件，CPU 与 GPU 使用相同镜像。
 启动时检查组件必需文件与文件大小清单；缓存清单指纹参与生成记录校验。
 
-## 3. 只指定 Task 运行
+## 3. 统一提交 Task
+
+Task 的 workflow 决定模型和依赖，不需要选择模型目录里的命令：
+
+| workflow | 行为 |
+| --- | --- |
+| moss-t2i | MOSS 图片 |
+| minimax-t2i | MiniMax 图片 |
+| pika-t2va / pika-fl2va | Pika 文生视频 / 本地首尾帧视频 |
+| storyboard-to-video | MOSS 首尾帧 → Pika 视频 |
 
 ```powershell
-uv run python 001-moss-image/run.py --task tasks/003-stop-rain-001-rain-bus-stop.json --dry-run
-uv run python 002-pika-h3-flex/run.py --task tasks/004-pika-video-demo.json --dry-run
-uv run python 005-minimax-h3-image/run.py --task tasks/005-minimax-image-demo.json --dry-run
+# 离线校验，不连接 Modal、不写运行记录
+uv run python -m orchestration plan tasks/006-moss-pika-demo.json
+# 登记后立即返回，不等待生成或下载
+uv run python -m orchestration run tasks/006-moss-pika-demo.json
+# 一次登记多份单模型或组合任务
+uv run python -m orchestration run tasks/004-pika-video-demo.json tasks/005-minimax-image-demo.json
 ```
 
-去掉 --dry-run 才提交真实 GPU 推理。三个入口均支持重复 --task、--limit 和 --output。
-整批任务先完成离线校验再开始提交；--limit 不会绕过未选中条目的参数校验。
-SDK 使用本机 Modal 账号，不需要 HTTP 地址或 Proxy Token。
-
-统一 Task 格式：
+run 只有异步登记这一种行为，无需 --enqueue，也没有同步等待模式。
+使用本机 Modal 账号；无需 HTTP 地址或 Proxy Token。一次注册前先离线校验所有 Task。
+统一格式示例：
 
 ```json
 {
   "version": 1,
   "name": "006-demo",
-  "project": "006-demo",
-  "scene": "001-main",
   "workflow": "moss-t2i",
-  "params": {"size": "1024x1024"},
-  "items": [
-    {"id": "001", "prompt": "A red paper boat at sunrise", "seed": 42}
-  ]
+  "items": [{"id": "001", "prompt": "A red paper boat at sunrise", "seed": 42}]
 }
 ```
 
-workflow 可选 moss-t2i、minimax-t2i、pika-t2va、pika-fl2va。
-params 覆盖顺序为模型默认值 → task params → item params。
-不写 seed 时按任务名、能力和镜头 ID 稳定生成，调整条目顺序不改变 seed。
-project 默认等于 name，scene 默认 001-main。相对素材路径以仓库根目录为基准。
-首尾帧使用 {"file":"inputs/pika/001_first.png"}，参考 tasks/004-pika-frames-demo.json。
+文件名需与 name 一致。project 默认 name，scene 默认 001-main。
+参数覆盖为模型默认值 → task params → item params；多步骤的参数写在 workflow step 上。
+省略 seed 时稳定生成；本地首尾帧使用 {"file":"inputs/pika/001_first.png"}。
 
-## 4. 结果与恢复
+## 4. 执行、追加和恢复
 
-结果写入 outputs/<project>/<scene>/001.png 或 001.mp4。
-三个模型都支持异步 `--enqueue`、`--status`、`--collect`，以及不依赖本地提交收据、
-直接从 Volume 按 Task 身份收集的 `--collect --remote --task <JSON>`。
-多次传入 `--task` 时，图片与视频均在同一服务内使用
-`ThreadPoolExecutor(max_workers=8)` 跨 Task 并发下载，复用 SHA-256 校验和镜头级文件锁。
-各服务的提交收据分别位于 `outputs/.runner/jobs/moss.json`、
-`outputs/.runner/jobs/pika.json`、`outputs/.runner/jobs/minimax.json`。
-下载不会调用 GPU 生成；`--enqueue` 会提交付费生成，须预先准备缓存和部署云端服务。
-同步 `--task` 的缓存恢复与生成结果下载也复用相同八线程收集器，生成阶段仍串行。
-下载并发与容器输入并发独立；`model.json` 的 `max_inputs` 默认 1，SDK 推理仍由锁串行化。
-提高 `max_inputs` 只允许更多请求进入容器，不会提高 GPU 推理并发。
-每个镜头的 .runner 元数据记录请求签名、实际模型缓存指纹及结果 SHA256。
-重复原命令：完整本地结果直接复用；缺失本地文件先从 Volume 恢复，缺失的镜头才提交 GPU。
-添加新镜头不改变已有镜头的云端目录。已存在但与签名或哈希不一致的文件拒绝覆盖。
+另一个终端保持 worker 运行：
 
-提交请求前保存状态；视频获得 job ID 后立即保存。查询或下载失败后继续同一个任务。
-图片响应丢失、或视频提交后没有拿到 job ID 时停止自动重提。
-Ctrl+C 停止本地客户端不等于取消云端任务。
-SDK 在生成前校验客户端与已部署 model.json 的指纹，拒绝配置不一致的调用。
+```powershell
+uv run python -m orchestration worker
+```
 
-## 5. 跨模型组合与新增模型
+worker 发现已登记的 SDK 计划后才提交付费生成；run 本身不访问云端。
+随时再执行 run 登记其他 Task，或保留旧镜头定义、追加新镜头后重新 run。
+MOSS 和 Pika 各自串行生成，两个独立 GPU 容器可重叠运行。
+某镜头的首尾帧在云端 Volume 完成后即可提交视频，本地八线程下载不构成依赖。
 
-MOSS 首尾帧 → Pika 视频等组合使用 python -m orchestration plan/run/resume/status。
-需要配置相应的 *_ENDPOINT 和 *_MODAL_KEY / *_MODAL_SECRET；见 [工作流说明](docs/workflow-runner.md)。
-能力从各模型 model.json 自动发现，无需为每个模型修改编排器。
+```powershell
+# 查看最后一次保存的状态，不访问云端
+uv run python -m orchestration status outputs/006-moss-pika-demo/001-main
+# 通知运行中的 worker 继续查询原调用，并补下载；不重复生成
+uv run python -m orchestration resume outputs/006-moss-pika-demo/001-main
+```
 
-新增模型使用 [接入指南](docs/add-model.md)，通常只需要配置 model.json。
+状态权威为 outputs/<project>/<scene>/state.json，plan.json 冻结原始计划。
+云端 artifacts 与本地 local_artifact 分开保存。提交结果不明时不自动重新生成。
+关闭 worker 不取消已提交的云端工作，但新的依赖任务需要 worker 恢复后才会提交。
+同模型持续排队通常能复用热容器；确实空闲后仍允许 30 秒缩容，并从快照恢复。
+详见 [工作流说明](docs/workflow-runner.md)。
+
+## 5. 新增模型
+
+使用 [接入指南](docs/add-model.md)。生成器创建模型配置、部署/下载入口、单模型 workflow 与
+符合统一命名的示例 Task；所有新模型也直接使用 orchestration，不再生成独立 run.py。
 
 ## 6. 验证与依赖
 
@@ -170,10 +170,10 @@ MOSS/Pika 镜像延续现有版本选择，Pika dev 镜像仍是可变标签，�
 uv run python -m modal run 002-pika-h3-flex/download_model.py --migrate-only
 uv run python -m modal run 005-minimax-h3-image/download_model.py --migrate-only
 # 部署后进行实时自检：会启动 GPU、加载模型，但不生成媒体
-uv run python 002-pika-h3-flex/run.py --check-deployment
-uv run python 005-minimax-h3-image/run.py --check-deployment
+uv run python -m orchestration check-deployment pika
+uv run python -m orchestration check-deployment minimax
 # 只查看自检计划，无云端访问
-uv run python 002-pika-h3-flex/run.py --check-deployment --dry-run
+uv run python -m orchestration check-deployment pika --dry-run
 ```
 
 自检校验部署配置签名、缓存指纹及异步接口版本，输出请求总耗时和容器内启动耗时。

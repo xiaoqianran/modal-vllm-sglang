@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "name": "006-moss-pika-demo",
+  "project": "006-moss-pika-demo",
+  "scene": "001-main",
+  "workflow": "storyboard-to-video",
+  "items": [
+    {
+      "id": "001",
+      "first_prompt": "A red paper boat close to the shore of a quiet lake at sunrise, cinematic wide shot, warm soft light.",
+      "last_prompt": "A red paper boat farther from the shore of a quiet lake at sunrise, cinematic wide shot, warm soft light.",
+      "motion_prompt": "The red paper boat drifts slowly away from shore. Fixed camera, gentle ripples, natural lake ambience, continuous shot."
+    },
+    {
+      "id": "002",
+      "first_prompt": "A small wooden pier on a quiet lake at sunrise, a white bird perched at its end, cinematic medium wide shot.",
+      "last_prompt": "A small wooden pier on a quiet lake at sunrise, a white bird gliding just above the water beside the pier, cinematic medium wide shot.",
+      "motion_prompt": "The white bird takes off from the wooden pier and glides over the lake. Fixed camera, soft wing sounds and natural lake ambience, continuous shot."
+    }
+  ]
+}

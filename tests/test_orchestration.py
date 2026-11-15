@@ -71,7 +71,7 @@ class WorkflowTests(unittest.TestCase):
         self.services = FakeServices()
 
     def plan(self):
-        return runner.build_plan(self.task_path, root=self.root)
+        return runner.build_plan(self.task_path, root=self.root, transport="http")
 
     def create(self, workflow=None):
         if workflow:

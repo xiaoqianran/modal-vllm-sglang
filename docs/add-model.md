@@ -11,7 +11,8 @@
 uv run python scripts/new_model.py --directory 006-example-image --service example --engine sglang --kind image --model org/model --revision <模型commit> --image <镜像地址及digest>
 ```
 
-生成 model.json、app.py、download_model.py、run.py、task.example.json、pyproject.toml 和 README.md。
+生成 model.json、app.py、download_model.py、006-example-image.json、pyproject.toml 和 README.md，
+同时生成 workflows/example-t2i.json；不再生成模型级 run.py。
 生成器读取 [配置模板](../templates/standard-model/model.json)，拒绝覆盖已有目录。
 模板的占位值不能直接部署。
 
@@ -41,31 +42,33 @@ revision 不允许空白字符或未替换的 REPLACE_ 占位值；引用是否�
 port 和 gpu 也可省略，默认分别为 8000 和 RTX-PRO-6000。
 图片和视频自动使用相同的生成准入规则，新增模型无需编写并发锁或任务恢复策略。
 引擎端口仅供容器内部使用，Modal HTTP 和 SDK 都访问网关端口。
-异步视频协议必须返回 id，并提供 completed / failed / cancelled 终态；查询失败或未知状态不会释放生成名额。
+异步视频协议必须返回 id，并提供 completed / failed / cancelled 终态；SDK 单项调用持有推理锁直到执行结束。
 
 ## 使用
 
 运行目录均为仓库根目录：
 
 ```powershell
-uv sync --project 006-example-image
-uv run python 006-example-image/run.py --task 006-example-image/task.example.json --dry-run
+uv sync
+uv run python -m orchestration plan 006-example-image/006-example-image.json
 uv run python -m modal run 006-example-image/download_model.py
 uv run python -m modal deploy 006-example-image/app.py
-uv run python 006-example-image/run.py --task 006-example-image/task.example.json
+uv run python -m orchestration worker
+# 另一个终端登记任务
+uv run python -m orchestration run 006-example-image/006-example-image.json
 ```
 
 日常业务 task 保存到根目录 tasks/，素材放 inputs/，输出放 outputs/。
-三个入口通常无需修改。CPU 下载器 --check-only 校验缓存；HF 权重 --refresh 显式重新下载。
+两个部署/下载入口通常无需修改。CPU 下载器 --check-only 校验缓存；HF 权重 --refresh 显式重新下载。
 HF 分支引用在首次准备时解析并固定到缓存 snapshot，GPU 不联网补权重。
 CPU SGLang Overlay 物化和 GPU 加载必须使用同一引擎镜像，不能用普通 snapshot 下载替代 Overlay。
 
-## 接入 HTTP 工作流
+## 接入 SDK 工作流
 
 编排器自动发现一级模型目录的 model.json，注册 service.operation。
-为新模型添加 workflows/<service>-<operation>.json，步骤 uses 填对应能力。
-服务地址与代理鉴权环境变量放在 endpoints.local.json（格式参考 endpoints.example.json），
-然后使用 orchestration plan/run/resume。单模型 Task 的 params 与 seed 规则和 SDK 一致；
+生成器已添加 workflows/<service>-<operation>.json，步骤 uses 填对应能力。
+统一使用 orchestration plan/run/worker/status/resume，无需设置 HTTP 地址与 Proxy Token。
+run 登记后返回，worker 负责生成；所有模型使用同一种异步方式。单模型 Task 的 params 与 seed 规则和 SDK 一致；
 多步骤组合的参数写在各 workflow step 中。
 
 ## 验收

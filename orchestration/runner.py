@@ -1,4 +1,4 @@
-"""Offline planning and sequential, stage-first workflow execution."""
+"""One SDK task interface: register asynchronously, execute with a worker."""
 import argparse
 import copy
 import hashlib
@@ -44,7 +44,7 @@ def reference(binding):
     return parts
 
 
-def build_plan(task_path, *, root=ROOT, endpoints_path="endpoints.example.json"):
+def build_plan(task_path, *, root=ROOT, endpoints_path="endpoints.example.json", transport="sdk"):
     """No network, environment lookups, output writes, or GPU startup."""
     root = Path(root).resolve()
     task_path = state.local_path(root, task_path)
@@ -178,6 +178,22 @@ def build_plan(task_path, *, root=ROOT, endpoints_path="endpoints.example.json")
             jobs.append({"key": f"{step_id}/{item['id']}", "step": step_id, "item": item["id"],
                          "uses": step["uses"], "params": params, "inputs": inputs,
                          "reuse_existing": item.get("reuse_existing", False)})
+    if transport == "sdk":
+        from shared.config.model_spec import validate
+        from shared.config.storage import VOLUME_NAME
+        specs = {spec["service"]: spec for path in ROOT.glob("*/model.json")
+                 for spec in [validate(read_json(path))]}
+        services = {name: {"spec": specs[name]} for name in
+                    sorted({adapters.CAPABILITIES[j["uses"]]["service"] for j in jobs})}
+        plan = {"version": 1, "layout_version": 3, "adapter_version": adapters.VERSION,
+                "transport": "sdk", "volume": VOLUME_NAME,
+                "name": task["name"], "project": project, "scene": scene,
+                "workflow": workflow_id, "jobs": jobs, "services": services,
+                "outputs": workflow["outputs"], "imports": imports}
+        plan["hash"] = intent_digest(plan)
+        return plan
+    if transport != "http":
+        raise ValueError("Unknown workflow transport")
     config = read_json(state.local_path(root, endpoints_path))
     fields(config, {"version", "services"})
     if type(config["version"]) is not int or config["version"] != 1 or not isinstance(config["services"], dict):
@@ -205,6 +221,9 @@ def build_plan(task_path, *, root=ROOT, endpoints_path="endpoints.example.json")
 
 
 def bindings(plan):
+    if plan.get("transport") == "sdk":
+        return {name: {"endpoint": "sdk://" + service["spec"].get("app_name", "modal-model-" + name), "headers": {}}
+                for name, service in plan["services"].items()}
     result = {}
     for name, service in plan["services"].items():
         endpoint = os.environ.get(service["endpoint_env"], "").rstrip("/")
@@ -227,7 +246,7 @@ def _extend_scene(directory, old, plan, saved):
         raise ValueError("Cannot extend an older run; migrate it first")
     if intent_digest({key: value for key, value in old.items() if key != "hash"}) != old.get("hash"):
         raise ValueError("Existing scene plan has been modified")
-    for key in ("name", "project", "scene", "workflow", "services", "outputs", "adapter_version"):
+    for key in ("name", "project", "scene", "workflow", "services", "outputs", "adapter_version", "transport", "volume"):
         if old.get(key) != plan.get(key):
             raise ValueError(f"Cannot change frozen scene configuration: {key}")
     for key, value in old.get("imports", {}).items():
@@ -254,8 +273,8 @@ def new_run(plan, *, root=ROOT, output="outputs"):
     root = Path(root).resolve()
     output = state.local_path(root, output)
     runtime = bindings(plan)  # Fail before writing any Run if credentials are missing.
-    with state.lock(output):
-        directory = output / plan["project"] / plan["scene"]
+    directory = output / plan["project"] / plan["scene"]
+    with state.lock(output, timeout=10), state.lock(directory, timeout=10):
         if directory.joinpath("plan.json").exists() or directory.joinpath("state.json").exists():
             if not (directory.joinpath("plan.json").is_file() and directory.joinpath("state.json").is_file()):
                 raise ValueError("Incomplete scene state; refusing overwrite")
@@ -318,8 +337,12 @@ def report(plan, records):
             record = records[job["key"]]
             if step == job["step"] and record["status"] == "completed":
                 outputs.setdefault(job["item"], {})[name] = record["artifacts"][output]
-    return {"name": plan["name"], "counts": dict(Counter(r["status"] for r in records.values())),
-            "outputs": outputs}
+    result = {"name": plan["name"], "counts": dict(Counter(r["status"] for r in records.values())),
+              "outputs": outputs}
+    if plan.get("transport") == "sdk":
+        result["download_errors"] = sum(bool(r.get("download_error")) for r in records.values())
+        result["local_downloaded"] = sum(bool(r.get("local_artifact")) for r in records.values())
+    return result
 
 
 def execute(directory, *, adapter_factory=adapters.Adapter, timeout=3600, poll=2):
@@ -327,6 +350,9 @@ def execute(directory, *, adapter_factory=adapters.Adapter, timeout=3600, poll=2
     if not math.isfinite(timeout) or not math.isfinite(poll) or timeout <= 0 or poll <= 0:
         raise ValueError("timeout and poll must be positive")
     directory = Path(directory).resolve()
+    if read_json(directory / "plan.json").get("transport") == "sdk":
+        from orchestration.sdk import execute as execute_sdk
+        return execute_sdk(directory, timeout=timeout, poll=poll)
     # Scene directory is outputs/project/scene. No run-id directory.
     with state.lock(directory.parent.parent), state.lock(directory):
         plan = read_json(directory / "plan.json")
@@ -496,38 +522,63 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
     for command in ("plan", "run"):
-        p = sub.add_parser(command)
-        p.add_argument("task")
-        p.add_argument("--endpoints", default="endpoints.example.json")
+        p = sub.add_parser(command, help="Preview tasks offline" if command == "plan" else
+                           "Register tasks and return; the worker executes them")
+        p.add_argument("task", nargs="+")
         if command == "run":
             p.add_argument("--output", default="outputs")
             p.add_argument("--dry-run", action="store_true")
-            p.add_argument("--timeout", type=float, default=3600)
-            p.add_argument("--poll", type=float, default=2)
     for command in ("resume", "status"):
-        p = sub.add_parser(command)
+        p = sub.add_parser(command, help="Register recovery for the worker" if command == "resume" else
+                           "Read the last saved progress without cloud access")
         p.add_argument("directory")
-        if command == "resume":
-            p.add_argument("--timeout", type=float, default=3600)
-            p.add_argument("--poll", type=float, default=2)
+    check = sub.add_parser("check-deployment", help="Check model deployments; starts GPU, generates no media")
+    check.add_argument("service", nargs="+")
+    check.add_argument("--dry-run", action="store_true")
+    worker = sub.add_parser("worker", help="Continuously schedule all registered SDK scenes")
+    worker.add_argument("--output", default="outputs")
+    worker.add_argument("--poll", type=float, default=2)
     args = parser.parse_args()
     try:
         if args.command in {"plan", "run"}:
-            plan = build_plan(args.task, endpoints_path=args.endpoints)
+            plans = [build_plan(path) for path in args.task]
             if args.command == "plan" or args.dry_run:
-                print(json.dumps({"name": plan["name"], "calls": len(plan["jobs"]),
-                                  "services": list(plan["services"]), "jobs": plan["jobs"]}, ensure_ascii=False, indent=2))
+                for plan in plans:
+                    print(json.dumps({"name": plan["name"], "transport": "sdk", "calls": len(plan["jobs"]),
+                                      "services": list(plan["services"]), "jobs": plan["jobs"]}, ensure_ascii=False, indent=2))
                 return
-            directory = new_run(plan, output=args.output)
-            print(f"Run: {directory}", flush=True)
+            directories = [new_run(plan, output=args.output) for plan in plans]
+            from orchestration.sdk import request_resume
+            for directory in directories:
+                request_resume(directory)
+                print(f"Registered: {directory}", flush=True)
+            print("Registration complete. Keep `python -m orchestration worker` running to execute jobs.", flush=True)
+            return
+        elif args.command == "check-deployment":
+            from orchestration.sdk import check_deployment, model_specs
+            specs = model_specs()
+            if any(service not in specs for service in args.service):
+                raise ValueError("Unknown service; choose from " + ", ".join(sorted(specs)))
+            for service in args.service:
+                print(json.dumps(check_deployment(specs[service], dry_run=args.dry_run), ensure_ascii=False))
+            return
+        elif args.command == "worker":
+            from orchestration.sdk import worker as run_worker
+            run_worker(state.local_path(ROOT, args.output), poll=args.poll)
+            return
         else:
             directory = state.local_path(ROOT, args.directory)
         if args.command == "status":
-            result = report(read_json(directory / "plan.json"), read_json(directory / "state.json")["jobs"])
+            from orchestration.sdk import snapshot
+            plan, current = snapshot(directory)
+            result = report(plan, current["jobs"])
         else:
-            result = execute(directory, timeout=args.timeout, poll=args.poll)
+            from orchestration.sdk import request_resume
+            request_resume(directory)
+            print("Resume registered. The worker will query original calls and retry local collection.", flush=True)
+            return
         print(json.dumps(result, ensure_ascii=False, indent=2))
-        if any(status != "completed" and count for status, count in result["counts"].items()):
+        if result.get("download_errors") or any(status != "completed" and count for status, count in result["counts"].items()):
             raise SystemExit(1)
     except (ValueError, OSError, RuntimeError, KeyError, TypeError) as exc:
         parser.exit(2, f"{type(exc).__name__}: {exc}\n")

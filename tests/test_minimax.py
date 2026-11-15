@@ -28,7 +28,7 @@ class MiniMaxTests(unittest.TestCase):
             for name in ("tasks", "workflows"):
                 shutil.copytree(runner.ROOT / name, root / name)
             shutil.copy(runner.ROOT / "endpoints.example.json", root)
-            plan = runner.build_plan("tasks/005-minimax-image-demo.json", root=root)
+            plan = runner.build_plan("tasks/005-minimax-image-demo.json", root=root, transport="http")
             self.assertEqual(plan["jobs"][0]["params"]["num_inference_steps"], 6)
             png = b"\x89PNG\r\n\x1a\n" + b"test" * 20
             env = {"MINIMAX_ENDPOINT": "http://minimax.test", "MINIMAX_MODAL_KEY": "key",

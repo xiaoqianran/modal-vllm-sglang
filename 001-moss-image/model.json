@@ -1,4 +1,5 @@
 {
+  "volume_name": "modal-vllm-sglang",
   "revision": "main",
   "gpu": "RTX-PRO-6000",
   "cpu": 4,

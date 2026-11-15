@@ -2,9 +2,11 @@
 
 此升级保留三个 App 名称、原 HTTP endpoint 标签与 Moss / Pika / H3 部署类名。
 SDK 方法采用新契约：`generate_batch_stream(items, prefix, expected_cache_fingerprint, expected_spec_hash)`。
-旧 Pika / H3 的 `generate_batch` 及旧 Moss 的两参数调用不能直接继续使用；请切换各模型 `run.py --task ...`，或按公共实现的新签名调用。
+旧 Pika / H3 的 `generate_batch` 及旧 Moss 的两参数调用不能直接继续使用；请统一使用 `python -m orchestration run tasks/<任务>.json`，由 worker 调度。
 Python 薄入口导出 `Model`，Modal 注册名由 `model.json` 的 `modal_class` 决定。
 旧输出日志不迁移；新任务写入独立的 `model-results/`，不要用旧任务名重新生成未知状态的旧任务。
+
+新盘 modal-vllm-sglang 不会自动复制旧盘缓存。以下 migrate-only 仅适用于同盘已有旧清单；空盘使用普通 CPU 准备命令。
 
 ## 升级顺序
 
@@ -26,8 +28,8 @@ uv run python -m modal run 005-minimax-h3-image/download_model.py --check-only
 校验是文件列表和大小校验，不能检测同长度的内容损坏。
 
 3. CPU 检查成功后，分别 `uv run python -m modal deploy <模型目录>/app.py`。
-4. 用 `run.py --check-deployment` 核对新版接口、配置签名和缓存指纹（会启动 GPU，但不生成媒体）。
-5. 再用新 run.py 或 HTTP 入口做每模型单任务生成、客户端断线恢复与收集验收，再恢复正常使用。
+4. 用 `python -m orchestration check-deployment moss pika minimax` 核对新版接口、配置签名和缓存指纹（会启动 GPU，但不生成媒体）。
+5. 再用 orchestration run 配合 worker 做每模型单任务生成、客户端断线恢复与收集验收，再恢复正常使用。
 
 HTTP endpoint 标签保留旧值；部署后仍需从 Modal 输出核实实际 URL，核对环境变量 MOSS_ENDPOINT、PIKA_ENDPOINT、MINIMAX_ENDPOINT。
 网关无跨 SDK/HTTP 的生成锁。SDK 原有批次锁保留；共享引擎决定并发处理方式。

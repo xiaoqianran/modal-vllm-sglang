@@ -2,13 +2,13 @@
 from pathlib import Path
 
 import modal
+from shared.config.storage import VOLUME_NAME
 
 ROOT = Path(__file__).resolve().parents[1]
-VOLUME_NAME = "modal-forge"
 
 
 def model_volume():
-    """Preserve the existing volume and cloud cache paths."""
+    """Project storage shared by model workers and SDK clients."""
     return modal.Volume.from_name(VOLUME_NAME, create_if_missing=True)
 
 

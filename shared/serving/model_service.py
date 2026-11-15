@@ -3,7 +3,6 @@
 Engine-specific behavior belongs in model.json's argv and image. This module
 targets /v1/images/generations and /v1/videos, including inline keyframes.
 """
-import argparse
 import json
 import hashlib
 import subprocess
@@ -77,6 +76,8 @@ def execute(spec, items, prefix, volume, cache_fingerprint="unverified"):
         if action == "resume":
             job = old["job_id"]
         else:
+            from shared.tasks.artifacts import resolve_frames
+            payload = resolve_frames(payload, volume)
             # Persist before submit: a lost response never causes automatic resubmission.
             atomic_json(metadata, {"status": "submitting", "intent_hash": signature, "execution_hash": execution_hash})
             volume.commit()
@@ -226,11 +227,13 @@ def create_app(config_path):
         @modal.method()
         def deployment_info(self):
             """Explicit live check: starts the GPU container, but generates no media."""
-            return {"service": spec["service"], "spec_hash": intent_digest(spec),
+            from shared.config.storage import VOLUME_NAME
+            return {"service": spec["service"], "spec_hash": intent_digest(spec), "volume": VOLUME_NAME,
                     "cache_fingerprint": self.cache_fingerprint,
                     "methods": ["generate_one", "generate_batch_stream", "deployment_info"],
                     "image": spec["image"], "max_inputs": spec.get("max_inputs", 1),
                     "sdk_inference_concurrency": 1,
+                    "cloud_artifacts": 1,
                     "cpu": spec.get("cpu", 4), "memory": spec.get("memory", 32768),
                     "startup_seconds": self.startup_seconds,
                     "startup_measurement": "post_snapshot_hook" if gpu_snapshot else "full_initialization",
@@ -417,63 +420,3 @@ def run_task(spec, path, *, root=ROOT, output=None, dry_run=False, limit=0):
             model = modal.Cls.from_name(spec.get("app_name", "modal-model-" + spec["service"]), spec.get("modal_class", "Model"))()
             collect_results(result_job(record) for record in model.generate_batch_stream.remote_gen(
                 pending, prefix, cache_fingerprint, intent_digest(spec)))
-
-
-def run_cli(config_path):
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--task", action="append", type=Path)
-    mode = parser.add_mutually_exclusive_group()
-    mode.add_argument("--enqueue", action="store_true")
-    mode.add_argument("--status", action="store_true")
-    mode.add_argument("--collect", action="store_true")
-    mode.add_argument("--check-deployment", action="store_true",
-                      help="Live GPU startup and deployment contract check; generates no media")
-    parser.add_argument("--remote", action="store_true",
-                        help="Collect by task metadata from Volume without a local job receipt")
-    parser.add_argument("--output", type=Path)
-    parser.add_argument("--limit", type=int, default=0)
-    parser.add_argument("--dry-run", action="store_true")
-    args = parser.parse_args()
-    if args.limit < 0:
-        parser.error("limit must be nonnegative")
-    if args.remote and not args.collect:
-        parser.error("--remote requires --collect")
-    if args.remote and not args.task:
-        parser.error("--collect --remote requires --task")
-    spec = validate(read_json(config_path))
-    if args.check_deployment:
-        if args.task or args.remote or args.limit or args.output:
-            parser.error("--check-deployment cannot be combined with task/download options")
-        if args.dry_run:
-            print(json.dumps({"mode": "check_deployment", "service": spec["service"], "starts_gpu": True}))
-            return
-        import modal
-        from shared.tasks.job_client import remote_cache_fingerprint
-        from shared.serving.modal_setup import model_volume
-        fingerprint = remote_cache_fingerprint(spec, model_volume())
-        model = modal.Cls.from_name(spec.get("app_name", "modal-model-" + spec["service"]),
-                                    spec.get("modal_class", "Model"))()
-        started = time.perf_counter()
-        info = model.deployment_info.remote()
-        if (info.get("spec_hash") != intent_digest(spec) or info.get("cache_fingerprint") != fingerprint
-                or not {"generate_one", "generate_batch_stream"} <= set(info.get("methods", []))):
-            raise RuntimeError("Deployment contract mismatch; prepare cache and redeploy current code")
-        print(json.dumps({**info, "request_seconds": time.perf_counter() - started}, ensure_ascii=False))
-        return info
-    if args.enqueue or args.status or args.collect:
-        from shared.tasks.job_client import run_jobs
-        if args.enqueue and not args.task:
-            parser.error("--enqueue requires --task")
-        return run_jobs(spec, args.task or [], output=args.output, limit=args.limit,
-                        dry_run=args.dry_run,
-                        mode="enqueue" if args.enqueue else "collect_remote" if args.remote else "collect" if args.collect else "status")
-    if not args.task:
-        parser.error("--task is required")
-    destinations = set()
-    for path in args.task:
-        project, scene, _, _ = load_task(spec, path, limit=args.limit)
-        if (project.lower(), scene.lower()) in destinations:
-            raise ValueError("Repeated project/scene across task files")
-        destinations.add((project.lower(), scene.lower()))
-    for path in args.task:
-        run_task(spec, path, output=args.output, dry_run=args.dry_run, limit=args.limit)

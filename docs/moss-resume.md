@@ -1,14 +1,16 @@
-# MOSS 统一 SDK 恢复
+# MOSS 统一恢复
 
-MOSS 与 Pika、MiniMax 使用相同的公共执行器，见 [根目录说明](../README.md#4-结果与恢复)。
-从仓库根目录指定一个或多个 task：
+MOSS 与视频、组合任务都使用 orchestration。
 
 ```powershell
-uv run python 001-moss-image/run.py --task tasks/003-stop-rain-001-rain-bus-stop.json --dry-run
-uv run python 001-moss-image/run.py --task tasks/003-stop-rain-001-rain-bus-stop.json
+uv run python -m orchestration plan tasks/003-stop-rain-001-rain-bus-stop.json
+uv run python -m orchestration run tasks/003-stop-rain-001-rain-bus-stop.json
+# 另一个终端保持运行
+uv run python -m orchestration worker
+uv run python -m orchestration status outputs/003-stop-rain-001-rain-bus-stop/001-main
+uv run python -m orchestration resume outputs/003-stop-rain-001-rain-bus-stop/001-main
 ```
 
-重复原命令会校验本地结果；缺失文件先读取云端 Volume，完成记录包含请求与模型缓存指纹、SHA256。
-每张图片在云端提交后立即流式通知客户端，不必等待整批完成。
-客户端中断后不改变 task，重新执行同一命令即可恢复。
-同步图片响应丢失且没有可验证的已保存文件时，停止自动重提，避免重复生成。
+run/resume 只登记后返回；worker 查询原云端调用，校验并补下载已有产物。
+已完成工作不重新生成；提交结果不明且无法恢复时不自动重提。
+勿删除 state.json 来强行重试。详见 [工作流说明](workflow-runner.md)。

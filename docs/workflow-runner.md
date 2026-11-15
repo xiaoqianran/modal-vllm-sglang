@@ -1,63 +1,118 @@
-# HTTP Workflow / Task
+# SDK Workflow / Task
 
-单模型日常任务可以直接使用各模型的 run.py；跨模型组合使用本机 HTTP 编排器。
-两者共用 model.json 中的能力、默认参数和 params_*.py 校验器。
+跨模型编排默认使用 Modal SDK，本机只负责调度，不需要 MOSS_ENDPOINT、PIKA_ENDPOINT 或 HTTP Proxy Token。
+单模型与组合任务都使用同一个入口；各模型 run.py 已移除，run 只有异步登记一种行为。
 
-## 使用
+## Task 006：图片在云端交给视频，本地下载独立进行
 
-```powershell
-uv run python -m orchestration plan tasks/001-story-demo.json
+```text
+MOSS generate_one → 图片写入 modal-vllm-sglang Volume 并 commit
+                                    ├→ 图片引用解锁对应 Pika generate_one
+                                    │       → Pika 云端校验并读取首尾帧 → 生成视频 → commit
+                                    └→ 后台下载到本地（最多 8 个下载线程）
 ```
 
-plan 完全离线。实际运行前为涉及的模型设置以下环境变量：
+图片引用包含 Volume 内相对路径、字节数和 SHA256。Pika 在自己的云端容器中通过 SDK
+读取已提交的 Volume 文件，校验格式、大小和 SHA256，再交给视频引擎；图片不经过本地电脑回传。
+不调用模型挂载的 reload，避免为了读取新图片而刷新已有权重 mmap。
+本地下载慢或失败不会阻止视频提交；云端完成状态与本地下载状态分开保存。
+
+MOSS 和 Pika 是两个独立服务，各允许一个 GPU 容器，SDK 推理在各自容器中串行。
+重叠执行两个模型通常需要两张云端 GPU；这不是在同一张卡上同时运行两个模型。
+
+## 首次使用新的 Volume
+
+统一存储名为 `modal-vllm-sglang`。旧 `modal-forge` Volume 不会被修改、删除或自动复制。
+新的 Volume 没有旧盘的缓存，必须先在新盘准备权重，再部署本次更新后的服务：
 
 ```powershell
-$env:MOSS_ENDPOINT = 'https://your-moss-service.modal.run'
-$env:MOSS_MODAL_KEY = 'your-key'
-$env:MOSS_MODAL_SECRET = 'your-secret'
-$env:PIKA_ENDPOINT = 'https://your-pika-service.modal.run'
-$env:PIKA_MODAL_KEY = 'your-key'
-$env:PIKA_MODAL_SECRET = 'your-secret'
-uv run python -m orchestration run tasks/001-story-demo.json
-uv run python -m orchestration status outputs/001-story-demo/001-main
-uv run python -m orchestration resume outputs/001-story-demo/001-main
+uv run python -m modal run 001-moss-image/download_model.py
+uv run python -m modal run 002-pika-h3-flex/download_model.py
+uv run python -m modal deploy 001-moss-image/app.py
+uv run python -m modal deploy 002-pika-h3-flex/app.py
 ```
 
-私有 HTTP 地址取自实际 Deploy 输出。不同端点配置用 --endpoints endpoints.local.json。
-服务地址、鉴权和部署 revision 定义见 endpoints.example.json；部署配置变化时更新 revision。
+MiniMax 如需使用，也要在新盘准备并重新部署。新盘为空时不要使用 `--migrate-only`，
+该参数仅转换同一盘内已有旧清单。模型内的 cache_directory 保留原布局，所在 Volume 已更换。
+model.json 增加 volume_name 进入部署/请求签名，旧部署会拒绝新配置的生成调用。
+GPU 快照仍分别受各模型 memory_snapshot 配置控制，空闲缩容窗口仍为 30 秒。
 
-## 配置
+## 先离线检查
 
-Workflow 定义步骤和素材连接，Task 定义本次提示词与镜头。能力从模型目录 model.json 自动发现：
-目前有 moss.t2i、minimax.t2i、pika.t2va、pika.fl2va。
-绑定只支持 input.FIELD 或 STEP.OUTPUT，输出名为 image / video，根据引用推导依赖。
-首尾帧用 {"file":"inputs/pika/001_first.png"} 引入；文件在冻结计划时复制到运行目录。
+```powershell
+uv run python -m orchestration plan tasks/006-moss-pika-demo.json
+uv run python -m orchestration run tasks/006-moss-pika-demo.json --dry-run
+```
 
-单步骤 workflow 支持 task 顶层及 item 的 params，覆盖顺序为 step → task → item；
-item 的显式 seed 优先，省略时按任务名、能力、镜头 ID 稳定生成，与 SDK 规则相同。
-多步骤组合的参数写在对应 workflow step 中，seed 可以显式绑定 input 中的字段。
-参见 tasks/001-story-demo.json 与 workflows/storyboard-to-video.json。
+以上不连接 Modal、不写运行记录、不启动 GPU。示例有两个镜头、四张图片和两段视频。
+示例提示词用于验证管线，不保证独立图片之间的角色或场景一致性。
 
-任务名与文件名一致，使用 NNN-short-description，project 默认 name，scene 默认 001-main。
-输出直接写入 outputs/<project>/<scene>/；plan.json 保存冻结计划，state.json 是状态权威，
-report.json 是摘要，.runner 保存请求和产物记录。
+## 持续接收新任务（推荐）
 
-## 执行与恢复
+终端 A 保持运行调度器：
 
-按阶段串行执行，例如所有首帧 → 所有尾帧 → 所有视频。单 item 失败阻断其下游，其他 item 继续。
+```powershell
+uv run python -m orchestration worker
+```
 
-SDK 和 HTTP 工作流共用恢复判断：已有有效产物直接复用；有 job_id 则查询原任务；
-提交后缺少 job_id 且没有有效产物时标记 uncertain，不自动重新生成；远端明确失败则停止。
-同一模型的生成请求统一经过网关，视频直到终态才释放名额，GET 查询与下载无需等待生成锁。
-网关明确拒绝且未转发的请求保持 pending，稍后使用原命令或 resume 重试。
-提交结果不明确会关闭后续生成准入；需核查远端后重启整个模型容器，禁止单独重启网关绕过占用状态。
-恢复读取冻结计划，不读取后续修改的 task/workflow；同一场次只允许追加新镜头。
-文件有 SHA256 校验、原子写入与本机单写者锁。修改已有镜头应创建新场次。
+终端 B 注册一个或多个 Task：
 
-生成 POST 不自动重试。请求前保存 submitting，拿到视频 ID 后先保存再轮询。
-查询或下载失败可以 resume 同一个 job；没有 job ID 的不确定提交不会自动重新生成。
-图片为同步协议，响应丢失时不能靠 HTTP 端点自动找回；需要逐张提交到 Volume 的恢复使用 SDK。
-Ctrl+C 不代表云端任务取消。服务进程重启后视频 ID 可能失效，本地状态不能保证远端恰好执行一次。
+```powershell
+uv run python -m orchestration run tasks/006-moss-pika-demo.json
+# 多份真实 Task 可一次注册：run tasks/A.json tasks/B.json
+```
+
+`run` 仅持久化工作流计划，然后返回，不访问云端。worker 发现新场次/追加镜头后提交就绪工作。
+worker 会启动付费推理，只把准备执行的计划登记到所监视的 outputs 中。
+新任务默认到下一轮扫描进入调度，不等旧视频结束。worker 监视范围可用 --output 更换。
+同场次追加：保留原 Task 的所有 item 和定义，追加新 item，再执行同一条 run。
+修改已有镜头需新建场次；同一场次不能切换 SDK/HTTP、模型配置或 Volume。
+
+调度按镜头优先把首尾帧入队；某镜头的两张图云端完成后，就提交对应视频，不等整批图片完成。
+同模型多个调用已提交时会排队；不保证多个客户端之间的严格 FIFO。
+
+## 查询与恢复
+
+```powershell
+uv run python -m orchestration status outputs/006-moss-pika-demo/001-main
+uv run python -m orchestration resume outputs/006-moss-pika-demo/001-main
+```
+
+run 可一次登记多份 Task，登记后不等待执行。resume 也只写入恢复请求并返回，
+通知运行中的 worker 继续查询原调用、重新校验并补下载，不会将失败/未知生成重新提交。
+重启 worker 也会从持久化状态继续。不要把关闭客户端理解为取消云端调用。
+云端已提交工作可以继续运行，但没有 worker 时，新的依赖任务不会自动提交。
+本地下载失败后可执行 resume，无需为了重试下载而重启 worker。
+
+计划位于 outputs/<project>/<scene>/plan.json，状态在 state.json。
+`artifacts` 是云端引用；`local_artifact` 是本地下载记录；`download_error` 是下载错误。
+report.json 和命令结果中的 counts 表示云端工作状态，local_downloaded 表示本地已收集数量。
+查询 status 不访问云端，显示最后一次调度保存的状态。
+run/resume 返回表示登记成功，不代表云端生成或本地下载成功；通过 status 查看 counts、download_errors 和 local_downloaded。
+恢复时重新校验已下载文件；内容冲突拒绝覆盖，缺失文件重新下载。
+SDK 不自动采用没有记录的现有同名输出，已有本地首尾帧请用 {"file":"inputs/..."} 显式引入。
+
+## 锁与不确定提交
+
+根目录锁仅用于短暂的场次注册；场次锁仅用于读写计划和状态。
+网络请求、推理等待与下载都不持有这些锁。每个 job 有独立提交锁，避免两个调度器重复 spawn；
+下载也有各自文件锁。不同 job、不同场次可以继续推进。
+
+先持久化 submitting 再 spawn，获得 Modal call_id 后保存 queued。
+提交结果不明时保留 uncertain，不自动重新付费生成；若后来能查到已提交的云端结果可恢复。
+拿到 call_id 的任务只查询原调用。Pika 的视频 job_id 另由云端 generate_one 记录与恢复。
+停止/重启引擎可能使引擎内部视频 ID 失效；本地记录不能提供远端恰好执行一次的绝对保证。
+
+## 部署自检
+
+```powershell
+uv run python -m orchestration check-deployment moss pika --dry-run
+uv run python -m orchestration check-deployment moss pika
+```
+
+--dry-run 完全离线；真实自检启动 GPU 并核对配置签名、缓存指纹、云端素材能力和 Volume，
+不生成媒体。自检是诊断操作，不是第二种生成提交方式。
+业务 CLI 不提供 HTTP 传输选项或同步提交选项。底层引擎内部仍使用 HTTP 推理协议。
 
 ## 验证
 
@@ -65,4 +120,5 @@ Ctrl+C 不代表云端任务取消。服务进程重启后视频 ID 可能失效
 uv run python -m unittest discover -s tests -v
 ```
 
-全部测试在本地模拟执行。本轮未执行真实云端 GPU 验收。
+离线测试验证云端引用交接、慢下载不阻塞视频、慢视频期间的新任务/追加、锁粒度和故障恢复。
+真实双模型重叠执行、GPU 快照恢复与性能需要部署后在云端另行验收。

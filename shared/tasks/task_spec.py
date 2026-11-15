@@ -8,6 +8,7 @@ from shared.utils.files import read_json
 from shared.utils.media import MAX_FRAME, decode_frame, image_format
 from shared.config.model_spec import parameters, operation_spec, operations
 from shared.utils.outputs import component
+from shared.tasks.artifacts import image_reference
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -24,10 +25,15 @@ def prepare(spec, item):
     payload.update(prompt=item["prompt"], seed=item["seed"])
     for field in ("first_frame", "last_frame"):
         value = item.get(field + "_base64")
+        artifact = item.get(field + "_artifact")
         required = field in selected["inputs"]
-        if required != (value is not None):
+        if value is not None and artifact is not None:
+            raise ValueError("Provide inline image or cloud artifact, not both")
+        if required != (value is not None or artifact is not None):
             raise ValueError(f"{field} does not match operation {operation}")
-        if required:
+        if artifact is not None:
+            payload[field + "_artifact"] = image_reference(artifact)
+        elif required:
             decode_frame(value)
             payload[field + "_base64"] = value
     return payload, intent_digest({"spec": spec, "operation": operation, "payload": payload})

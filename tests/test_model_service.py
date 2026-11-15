@@ -84,8 +84,11 @@ class ModelServiceTests(unittest.TestCase):
             self.assertIn("example.t2i", discover(directory))
             self.assertIn("Model", runpy.run_path(str(target / "app.py")))
             self.assertIn("download", runpy.run_path(str(target / "download_model.py")))
-            with patch("sys.argv", ["run.py", "--task", str(target / "task.example.json"), "--dry-run"]):
-                runpy.run_path(str(target / "run.py"), run_name="__main__")
+            self.assertFalse((target / "run.py").exists())
+            self.assertTrue((Path(directory) / "workflows/example-t2i.json").is_file())
+            from shared.tasks.task_spec import load_task
+            spec = validate(read_json(target / "model.json"))
+            self.assertEqual(load_task(spec, target / "006-example.json", root=Path(directory))[0], "006-example")
             with self.assertRaises(FileExistsError):
                 new_model.scaffold("006-example", "example", "sglang", "image",
                                    "org/model", "a" * 40, "example/image:tag")

@@ -44,6 +44,9 @@ def validate(spec):
     spec = copy.deepcopy(spec)
     spec.setdefault("defaults", {})
     spec.setdefault("options", {})
+    from shared.config.storage import VOLUME_NAME
+    if spec.get("volume_name", VOLUME_NAME) != VOLUME_NAME:
+        raise ValueError(f"volume_name must be {VOLUME_NAME}")
     if spec.get("memory_snapshot", "off") not in ("off", "gpu"):
         raise ValueError("memory_snapshot must be off or gpu")
     for key in ("service", "operation"):
