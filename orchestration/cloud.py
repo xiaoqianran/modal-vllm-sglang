@@ -17,6 +17,10 @@ def run(payload, identity, *, backend=None, root=Path("/mnt/modal"), timeout=850
     if len(items) != 1 or run_id(plan, next(iter(items))) != identity:
         raise ValueError("Cloud workflow identity mismatch")
     backend = backend or sdk.Backend()
+    if payload.get("provisioning"):
+        from orchestration.protocol import PROVISION_REGISTRY
+        registry = backend.modal.Dict.from_name(PROVISION_REGISTRY)
+        backend.model_readiness = lambda service: registry.get(payload["provisioning"][service], {})
     backend.collect_outputs = False
     destination = Path(root) / state_path(identity)
     if destination.exists():

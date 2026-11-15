@@ -1,6 +1,7 @@
 """Deploy with: uv run python -m modal deploy orchestration/cloud_app.py."""
 from pathlib import Path
 import json
+import os
 import modal
 
 from orchestration.cloud import run
@@ -15,6 +16,14 @@ image = image.add_local_dir(str(root / "orchestration"), "/opt/orchestration", c
 for config in root.glob("*/model.json"):
     image = image.add_local_file(str(config), "/opt/" + config.relative_to(root).as_posix(), copy=False)
 app = modal.App(APP_NAME)
+deployment_version = os.environ.get("MODEL_DEPLOY_VERSION", "manual")
+
+
+@app.function(serialized=True)
+def provision_info():
+    return deployment_version
+
+
 volume = model_volume()
 claims = modal.Dict.from_name(APP_NAME + "-claims", create_if_missing=True)
 

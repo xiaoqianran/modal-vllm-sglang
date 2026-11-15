@@ -245,6 +245,16 @@ def tick(directory, backend, downloads, pool):
                 if any(records[dep]["status"] == "failed" for dep in dependencies):
                     advance(key, status="failed", error="Dependency failed")
                     continue
+                readiness = getattr(backend, "model_readiness", None)
+                if readiness is not None:
+                    preparation = readiness(service)
+                    if preparation.get("status") == "failed":
+                        advance(key, status="failed", error="Model preparation failed: " + preparation.get("error", "unknown"))
+                        continue
+                    if preparation.get("status") != "ready":
+                        if record.get("wait_reason") != "model":
+                            advance(key, status="blocked", wait_reason="model")
+                        continue
                 if any(records[dep]["status"] != "completed" for dep in dependencies):
                     if record["status"] != "blocked":
                         advance(key, status="blocked", dependency_wait_started_at=utc_now())
@@ -267,7 +277,7 @@ def tick(directory, backend, downloads, pool):
                            "cache_fingerprint": fingerprint,
                            "execution_hash": execution_signature(signature, fingerprint)}
                 # Durable intent precedes the one and only spawn attempt.
-                advance(key, **receipt, status="submitting")
+                advance(key, **receipt, status="submitting", wait_reason=None)
                 try:
                     with recorder.span("submit") as fields:
                         call_id = backend.submit(spec, item, prefix, fingerprint)

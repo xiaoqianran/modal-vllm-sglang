@@ -6,6 +6,7 @@ from collections import Counter
 from shared.tasks.batch import intent_digest
 
 APP_NAME = "modal-vllm-sglang-orchestration"
+PROVISION_REGISTRY = APP_NAME + "-provisioning"
 VERSION = 1
 
 

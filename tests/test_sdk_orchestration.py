@@ -88,6 +88,19 @@ class SDKWorkflowTests(unittest.TestCase):
         self.assertEqual(plan["volume"], "modal-vllm-sglang")
         self.assertFalse((self.root / "endpoints.example.json").exists())
 
+    def test_model_preparation_waits_independently_and_never_duplicates_generation(self):
+        directory = self.create()
+        ready = {"moss": {"status": "ready"}, "pika": {"status": "preparing"}}
+        self.backend.model_readiness = lambda service: ready[service]
+        self.backend.collect_outputs = False
+        for _ in range(3):
+            sdk.tick(directory, self.backend, {}, None)
+        self.assertEqual([s[0] for s in self.backend.submissions], ["image", "image"])
+        ready["pika"] = {"status": "ready"}
+        for _ in range(3):
+            sdk.tick(directory, self.backend, {}, None)
+        self.assertEqual([s[0] for s in self.backend.submissions], ["image", "image", "video"])
+
     def test_run_cli_registers_mixed_workflows_and_returns_without_cloud_access(self):
         self.create()
         single = self.root / "tasks/006-single-demo.json"

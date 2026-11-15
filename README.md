@@ -1,5 +1,25 @@
 # modal-vllm-sglang 图片 / 视频模型服务
 
+自动准备入口：登记 Task 后运行 worker，即可按需下载权重、构建镜像、部署模型及云端编排服务。
+
+```powershell
+uv run python -m orchestration run tasks/006-moss-pika-demo.json
+uv run python -m orchestration worker
+```
+
+worker 自动扫描 `*/model.json`，默认最多并行准备两个服务；新模型无需额外注册准备流程，自动路径通过
+`orchestration/provision_entry.py` 使用通用工厂，不依赖模型目录内的薄入口。
+任务仍需在 workflow 中引用模型能力并描述输入依赖；特殊推理协议仍需相应适配代码。
+准备期间云端 job 显示 `blocked`、`wait_reason=model`，已经就绪的模型可以先生成。
+CPU 下载器检查完整文件清单、复用有效缓存，自动路径会修复校验失败的缓存；部署版本包含源码、配置和权重指纹，
+通过 CPU 元数据函数核对，GPU 随实际生成启动。首次接管手动部署会更新为受版本管理的部署。
+
+准备失败最多尝试三次，原因保存在 Modal Dict `modal-vllm-sglang-orchestration-provisioning`。
+完成准备前需保持 worker 运行；正常退出会等待后台准备结束。准备完成后云端生成可独立继续。
+共享锁防止多 worker 同时准备同一应用；强制杀进程或机器掉电可能遗留 `lock:<app_name>`，
+需确认原准备进程及其云端下载已停止后清理该锁再重启，系统不会按超时强抢锁。
+模型配置或源码修改后重启 worker 重新核对版本。固定模型 revision 与镜像版本可保证更稳定的复现。
+
 `shared/tasks/task_spec.py` 统一任务加载、参数准备、签名、远端结果前缀及本地任务身份。
 部署服务和异步编排器共同依赖它。所有业务任务统一交给 orchestration，模型目录不再提供 run.py。
 

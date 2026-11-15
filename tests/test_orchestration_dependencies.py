@@ -17,7 +17,8 @@ class DependencyTests(unittest.TestCase):
             "protocol": set(),
             "sdk": {"adapters", "state", "protocol"},
             "cloud": {"sdk", "state", "protocol"},
-            "cloud_client": {"sdk", "state", "protocol"},
+            "cloud_client": {"sdk", "state", "protocol", "provisioning"},
+            "provisioning": {"protocol"},
         }
         for module, dependencies in allowed.items():
             tree = ast.parse((ROOT / "orchestration" / (module + ".py")).read_text())

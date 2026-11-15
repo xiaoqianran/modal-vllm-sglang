@@ -159,10 +159,13 @@ def publish_telemetry(recorder, metadata, record, volume, *, background=False):
 
 
 def build_image(spec, *, offline):
+    import os
     from shared.serving.modal_setup import runtime_image
     root = cache_directory(spec)
     env = {**spec.get("env", {}), "HF_HOME": root,
            "SGLANG_DIFFUSION_CACHE_ROOT": root + "/sglang"}
+    if os.environ.get("MODEL_DEPLOY_VERSION"):
+        env["MODEL_DEPLOY_VERSION"] = os.environ["MODEL_DEPLOY_VERSION"]
     if spec.get("memory_snapshot", "off") == "gpu":
         env.setdefault("TORCHINDUCTOR_COMPILE_THREADS", "1")
     if offline:
@@ -181,6 +184,13 @@ def create_app(config_path):
     spec = validate(read_json(config_path))
     volume = model_volume()
     app = modal.App(spec.get("app_name", "modal-model-" + spec["service"]))
+    import os
+    deployment_version = os.environ.get("MODEL_DEPLOY_VERSION", "manual")
+
+    @app.function(name="provision_info", image=modal.Image.debian_slim(), serialized=True)
+    def provision_info():
+        return deployment_version
+
     image = build_image(spec, offline=True).add_local_file(str(config_path), "/opt/model.json", copy=False)
     startup = spec.get("startup_timeout", 3600)
     gpu_snapshot = spec.get("memory_snapshot", "off") == "gpu"
@@ -406,7 +416,12 @@ def create_download_app(config_path):
     @app.function(name="download", image=image, serialized=True, cpu=4, memory=8192,
                   timeout=86400, volumes={"/mnt/modal": volume},
                   secrets=optional_hf_download_secrets())
-    def download(refresh: bool = False, migrate_only: bool = False):
+    def download(refresh: bool = False, migrate_only: bool = False, repair: bool = False):
+        if repair and not refresh and not migrate_only:
+            try:
+                return prepare_cache(spec, volume)
+            except RuntimeError:
+                return prepare_cache(spec, volume, refresh=True)
         return prepare_cache(spec, volume, refresh=refresh, migrate_only=migrate_only)
 
     @app.function(name="check_cache", image=image, serialized=True, cpu=2, memory=8192,

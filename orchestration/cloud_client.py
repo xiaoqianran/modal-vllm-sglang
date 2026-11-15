@@ -1,5 +1,6 @@
 """Bounded local delivery and collection; dependency scheduling lives in Modal."""
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import ExitStack
 import copy
 import json
 import math
@@ -64,7 +65,12 @@ def payload_for(directory, plan, item, backend):
     current = sdk.snapshot(directory)[1]
     initial = {key: {k: v for k, v in current["jobs"][key].items()
                      if k not in {"local_artifact", "download_error"}} for key in keys}
-    return {"version": VERSION, "plan": plan, "initial_jobs": initial}
+    payload = {"version": VERSION, "plan": plan, "initial_jobs": initial}
+    provisioner = getattr(backend, "provisioner", None)
+    if provisioner is not None:
+        payload["provisioning"] = {name: provisioner.start(binding["spec"])
+                                   for name, binding in plan["services"].items()}
+    return payload
 
 
 def save_receipt(directory, item, **changes):
@@ -81,6 +87,22 @@ def tick_shot(directory, item, backend, downloads, pool):
         jobs = [job for job in plan["jobs"] if job["item"] == item]
         receipt = current.get("cloud_runs", {}).get(item)
         if receipt is None:
+            if all(current["jobs"][job["key"]]["status"] in {"completed", "failed"} for job in jobs):
+                return sdk.collect_outputs(directory, backend, downloads, pool, item=item)
+            provisioner = getattr(backend, "provisioner", None)
+            if provisioner is not None:
+                cloud_key = provisioner.start()
+                for binding in plan["services"].values():
+                    provisioner.start(binding["spec"])
+                readiness = provisioner.registry.get(cloud_key, {})
+                if readiness.get("status") == "failed":
+                    for job in jobs:
+                        if current["jobs"][job["key"]]["status"] in {"pending", "blocked"}:
+                            sdk.update(directory, job["key"], status="failed",
+                                       error="Cloud preparation failed: " + readiness["error"])
+                    return
+                if readiness.get("status") != "ready":
+                    return
             for job in jobs:
                 if current["jobs"][job["key"]]["status"] not in {"pending", "blocked"}:
                     continue
@@ -133,12 +155,17 @@ def tick_shot(directory, item, backend, downloads, pool):
 def worker(output, *, poll=2, backend=None, stop=None):
     if not math.isfinite(poll) or poll <= 0:
         raise ValueError("poll must be positive")
-    backend = backend or Backend()
+    if backend is None:
+        backend = Backend()
+        from orchestration.provisioning import Provisioner
+        backend.provisioner = Provisioner(backend)
     active, downloads, scheduled = {}, {}, {}
     from shared.telemetry.collector import start
     start(output, backend.volume)
     # A slow network call occupies one delivery slot, never the scan loop or downloads.
-    with ThreadPoolExecutor(max_workers=8) as network, ThreadPoolExecutor(max_workers=8) as pool:
+    with ExitStack() as lifecycle, ThreadPoolExecutor(max_workers=8) as network, ThreadPoolExecutor(max_workers=8) as pool:
+        if getattr(backend, "provisioner", None) is not None:
+            lifecycle.callback(backend.provisioner.close)
         while stop is None or not stop.is_set():
             for key, future in list(active.items()):
                 if future.done():
