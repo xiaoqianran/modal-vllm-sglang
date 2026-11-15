@@ -3,9 +3,9 @@ from pathlib import Path, PurePosixPath
 import json
 import time
 
-from shared.batch import intent_digest
-from shared.cache import file_inventory
-from shared.files import atomic_json, read_json
+from shared.tasks.batch import intent_digest
+from shared.config.cache import file_inventory
+from shared.utils.files import atomic_json, read_json
 
 DOWNLOAD_MAX_WORKERS = 8
 

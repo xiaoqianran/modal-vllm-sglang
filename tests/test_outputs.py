@@ -3,8 +3,8 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from shared import outputs
-from shared.files import read_json, sha256_file
+from shared.utils import outputs
+from shared.utils.files import read_json, sha256_file
 
 
 class OutputTests(unittest.TestCase):

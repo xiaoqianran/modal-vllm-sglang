@@ -30,10 +30,10 @@ flowchart TD
 
 | 现有实现 | 保留与补齐 |
 | --- | --- |
-| `shared/http.py` | 保留生成 POST 单次提交、只读 GET 有限重试；将来补结构化错误和鉴权头，便于区分拒绝与提交结果不明 |
-| `shared/inference_api.py` | 保留图片同步返回、视频 submit/status/content 两种协议；编排层调用分步接口，不能用隐藏中间 ID 的便利方法代替落盘 |
-| `shared/batch.py` | 复用安全 ID、输入摘要、完整性校验；新编排器定义更完整的签名输入 |
-| `shared/files.py` | 复用哈希与原子替换；固定 `.tmp` 名只用于锁保护下的串行写入，不宣称支持多写者 |
+| `shared/utils/http.py` | 保留生成 POST 单次提交、只读 GET 有限重试；将来补结构化错误和鉴权头，便于区分拒绝与提交结果不明 |
+| `shared/serving/inference_api.py` | 保留图片同步返回、视频 submit/status/content 两种协议；编排层调用分步接口，不能用隐藏中间 ID 的便利方法代替落盘 |
+| `shared/tasks/batch.py` | 复用安全 ID、输入摘要、完整性校验；新编排器定义更完整的签名输入 |
+| `shared/utils/files.py` | 复用哈希与原子替换；固定 `.tmp` 名只用于锁保护下的串行写入，不宣称支持多写者 |
 | 各模型 `app.py` / `model_cache.py` / 下载器 | 保持独立，不将 vLLM、SGLang 依赖装进同一个环境 |
 | Pika `workflow_*.json` + `tasks/*.json` | 保留旧入口；这是模型参数预设与批次数据，新增组合 Workflow 时显式导入 |
 | ComfyUI `batch_run.py` | 借鉴 DAG、文件引用、任务锁、提交状态落盘；通过 HTTP 接入已有服务，不跨仓库导入整个脚本 |

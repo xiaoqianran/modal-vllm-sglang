@@ -2,8 +2,8 @@
 import base64
 import copy
 
-from shared.inference_api import SGLangVideoClient, VLLMImageClient
-from shared.model_spec import discover, parameters as spec_parameters
+from shared.serving.inference_api import SGLangVideoClient, VLLMImageClient
+from shared.config.model_spec import discover, parameters as spec_parameters
 from orchestration.state import image_format, local_path, valid
 
 VERSION = 2

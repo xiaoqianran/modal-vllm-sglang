@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from shared.http import modal_proxy_headers
+from shared.utils.http import modal_proxy_headers
 
 ROOT = Path(__file__).resolve().parents[1]
 APPS = ("001-moss-image", "002-pika-h3-flex", "005-minimax-h3-image")
@@ -14,7 +14,7 @@ APPS = ("001-moss-image", "002-pika-h3-flex", "005-minimax-h3-image")
 
 class PrivateHttpTests(unittest.TestCase):
     def test_every_modal_web_server_requires_proxy_auth(self):
-        tree = ast.parse((ROOT / "shared/model_service.py").read_text(encoding="utf-8"))
+        tree = ast.parse((ROOT / "shared/serving/model_service.py").read_text(encoding="utf-8"))
         servers = [decorator for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)
                    for decorator in node.decorator_list
                    if isinstance(decorator, ast.Call) and isinstance(decorator.func, ast.Attribute)

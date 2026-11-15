@@ -6,9 +6,9 @@ import re
 import json
 from pathlib import Path
 
-from shared.files import read_json
+from shared.utils.files import read_json
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parents[2]
 IDENTIFIER = re.compile(r"[a-z][a-z0-9_-]*")
 
 
@@ -143,7 +143,7 @@ def parameters(spec, supplied, operation=None):
         if "pattern" in rule and (not isinstance(value, str) or not re.fullmatch(rule["pattern"], value)):
             raise ValueError(f"Invalid format for {key}")
     if spec.get("validator"):
-        importlib.import_module("shared.params_" + spec["validator"]).validate(result)
+        importlib.import_module("shared.config.params_" + spec["validator"]).validate(result)
     return result
 
 

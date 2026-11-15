@@ -9,12 +9,12 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from shared.batch import intent_digest
-from shared.files import atomic_json, read_json
-from shared.job_client import run_jobs
-from shared.model_cache import component_specs
-from shared.model_service import ROOT
-from shared.model_spec import validate
+from shared.tasks.batch import intent_digest
+from shared.utils.files import atomic_json, read_json
+from shared.tasks.job_client import run_jobs
+from shared.config.model_cache import component_specs
+from shared.serving.model_service import ROOT
+from shared.config.model_spec import validate
 
 
 class JobClientTests(unittest.TestCase):
@@ -38,7 +38,7 @@ class JobClientTests(unittest.TestCase):
         self.call = Mock()
         self.call.get.side_effect = TimeoutError()
         self.addCleanup(patch.stopall)
-        patch("shared.modal_setup.model_volume", return_value=self.volume).start()
+        patch("shared.serving.modal_setup.model_volume", return_value=self.volume).start()
         patch("modal.Cls.from_name", return_value=Mock(return_value=self.model)).start()
         self.from_id = patch("modal.FunctionCall.from_id", return_value=self.call).start()
         patch("sys.stdout", new=io.StringIO()).start()
@@ -249,7 +249,7 @@ class JobClientTests(unittest.TestCase):
 
     def remote_result(self, *, prompt="boat", status="completed"):
         self.write_task(prompt=prompt)
-        from shared.model_service import load_task, prepare
+        from shared.serving.model_service import load_task, prepare
         project, scene, operation, items = load_task(self.spec, self.task, root=self.root)
         signature = prepare(self.spec, items[0])[1]
         prefix = f"model-results/{self.spec['service']}/{project}/{scene}/{operation}-{intent_digest(self.spec)[:20]}"
@@ -303,7 +303,7 @@ class JobClientTests(unittest.TestCase):
     def test_remote_collect_rejects_bad_digest_and_existing_file(self):
         record, data = self.remote_result()
         record["sha256"] = "a" * 64
-        from shared.model_service import load_task
+        from shared.serving.model_service import load_task
         project, scene, operation, _ = load_task(self.spec, self.task, root=self.root)
         prefix = f"model-results/{self.spec['service']}/{project}/{scene}/{operation}-{intent_digest(self.spec)[:20]}"
         self.files[f"/{prefix}/000.json"] = json.dumps(record).encode()
@@ -321,7 +321,7 @@ class JobClientTests(unittest.TestCase):
 
     def test_remote_collect_rejects_unsafe_result_name(self):
         record, _ = self.remote_result()
-        from shared.model_service import load_task
+        from shared.serving.model_service import load_task
         project, scene, operation, _ = load_task(self.spec, self.task, root=self.root)
         prefix = f"model-results/{self.spec['service']}/{project}/{scene}/{operation}-{intent_digest(self.spec)[:20]}"
         record["file"] = "../outside.png"
@@ -330,7 +330,7 @@ class JobClientTests(unittest.TestCase):
             self.run_jobs("collect_remote")
 
     def test_remote_collect_uses_eight_workers_for_same_scene(self):
-        from shared.model_service import load_task, prepare
+        from shared.serving.model_service import load_task, prepare
         self.write_task(count=16)
         project, scene, operation, items = load_task(self.spec, self.task, root=self.root)
         prefix = f"model-results/{self.spec['service']}/{project}/{scene}/{operation}-{intent_digest(self.spec)[:20]}"
@@ -368,7 +368,7 @@ class JobClientTests(unittest.TestCase):
         self.model.generate_one.spawn.assert_not_called()
 
     def test_sync_downloads_use_eight_workers_for_cached_and_streamed_results(self):
-        from shared.model_service import load_task, prepare, run_task
+        from shared.serving.model_service import load_task, prepare, run_task
         for folder, service, operation, kind in (
                 ('001-moss-image', 'moss', 't2i', 'image'),
                 ('002-pika-h3-flex', 'pika', 't2va', 'video'),
@@ -416,7 +416,7 @@ class JobClientTests(unittest.TestCase):
                         return [files[remote]]
                     volume = Mock()
                     volume.read_file.side_effect = read
-                    with patch('shared.modal_setup.model_volume', return_value=volume), \
+                    with patch('shared.serving.modal_setup.model_volume', return_value=volume), \
                             patch('modal.Cls.from_name') as lookup:
                         lookup.return_value.return_value.generate_batch_stream.remote_gen.return_value = iter(records)
                         run_task(self.spec, path, root=root)
@@ -446,7 +446,7 @@ class JobClientTests(unittest.TestCase):
         self.assertFalse((self.root / "outputs/demo/001-main/001.png").exists())
 
     def test_pika_video_across_two_tasks_uses_eight_download_workers(self):
-        from shared.model_service import load_task, prepare
+        from shared.serving.model_service import load_task, prepare
         self.spec = validate(read_json(ROOT / "002-pika-h3-flex/model.json"))
         self.cache = {"version": 1, "cache_spec": intent_digest(component_specs(self.spec))}
         video = b"\x00\x00\x00\x20ftyp" + b"0" * 48

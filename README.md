@@ -1,6 +1,6 @@
 # Modal 图片 / 视频模型服务
 
-`shared/task_spec.py` 统一任务加载、参数准备、签名、远端结果前缀及本地任务身份。
+`shared/tasks/task_spec.py` 统一任务加载、参数准备、签名、远端结果前缀及本地任务身份。
 部署服务和异步客户端共同依赖它，客户端不导入部署服务；原服务模块的任务函数导入入口保留兼容。
 
 通用 GPU 快照：MOSS、Pika、MiniMax 共用拍摄与恢复生命周期，保留 30 秒缩容。
@@ -17,7 +17,11 @@
 001-moss-image/          MOSS：model.json + 三个薄入口
 002-pika-h3-flex/        Pika：同上，含文生视频与首尾帧能力
 005-minimax-h3-image/    MiniMax：同上，配置独立文本编码器
-shared/                 部署、缓存、参数校验、推理、下载与恢复的公共实现
+shared/                 四个按职责组织的公共包
+  config/                模型配置、权重缓存、参数校验
+  serving/               Modal GPU 服务、推理 API、网关及运行时
+  tasks/                 任务解析、提交、恢复与批次处理
+  utils/                 文件、媒体格式、HTTP 与输出路径
 tasks/                  提示词、镜头、seed、生成参数
 inputs/                 输入素材
 outputs/<project>/<scene>/  生成结果及 .runner 元数据
@@ -34,14 +38,14 @@ tests/                  全部离线测试
 
 ```text
 model.json              模型、镜像、启动命令、资源、缓存组件、能力与参数
-app.py                  调用 shared.model_service.create_app
+app.py                  调用 shared.serving.model_service.create_app
 download_model.py       调用公共 CPU 下载及缓存检查
 run.py                  调用公共 Task CLI
 pyproject.toml          本地依赖
 README.md               模型使用说明
 ```
 
-参数默认值只在 model.json 中定义。跨字段约束放在 shared/params_*.py，SDK 与 HTTP 编排共用。
+参数默认值只在 model.json 中定义。跨字段约束放在 shared/config/params_*.py，SDK 与 HTTP 编排共用。
 Pika 的 SGLang Overlay、容器内首尾帧转换，MiniMax 的双组件下载，均由公共配置能力处理。
 
 ## 2. 准备与部署

@@ -13,7 +13,7 @@ import sys
 class NoDeployment(importlib.abc.MetaPathFinder):
     def find_spec(self, fullname, path=None, target=None):
         if fullname == "modal" or fullname.startswith("modal.") or fullname in {
-            "shared.model_service", "shared.inference_gateway", "shared.modal_setup"
+            "shared.serving.model_service", "shared.serving.inference_gateway", "shared.serving.modal_setup"
         }:
             raise AssertionError("Unexpected deployment dependency: " + fullname)
 sys.meta_path.insert(0, NoDeployment())
@@ -22,9 +22,9 @@ import hashlib
 import json
 import tempfile
 from pathlib import Path
-from shared import job_client
-from shared.files import read_json, atomic_json, download_volume_file
-from shared.task_spec import ROOT, load_task, prepare, task_key
+from shared.tasks import job_client
+from shared.utils.files import read_json, atomic_json, download_volume_file
+from shared.tasks.task_spec import ROOT, load_task, prepare, task_key
 for folder in ("001-moss-image", "002-pika-h3-flex", "005-minimax-h3-image"):
     spec = read_json(ROOT / folder / "model.json")
     payload, signature = prepare(spec, {"id": "001", "prompt": "boat", "seed": 42})
@@ -55,7 +55,8 @@ with tempfile.TemporaryDirectory() as directory:
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_existing_task_imports_remain_compatible(self):
-        from shared import model_service, task_spec
+        from shared.serving import model_service
+        from shared.tasks import task_spec
         self.assertIs(model_service.prepare, task_spec.prepare)
         self.assertIs(model_service.load_task, task_spec.load_task)
         self.assertEqual(model_service.ROOT, task_spec.ROOT)

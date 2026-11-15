@@ -6,7 +6,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-from shared.outputs import component
+from shared.utils.outputs import component
 
 
 def scaffold(directory, service, engine, kind, model, revision, image):
@@ -25,7 +25,7 @@ def scaffold(directory, service, engine, kind, model, revision, image):
     spec.update(service=service, operation="t2i" if kind == "image" else "t2v",
                 kind=kind, model=model, revision=revision, image=image, command=command,
                 defaults={"response_format": "b64_json"} if kind == "image" else {})
-    from shared.model_spec import validate, discover
+    from shared.config.model_spec import validate, discover
     validate(spec)
     if any(existing["service"] == service for existing in discover(ROOT).values()):
         raise ValueError(f"Service already exists: {service}")
@@ -33,9 +33,9 @@ def scaffold(directory, service, engine, kind, model, revision, image):
     (target / "model.json").write_text(json.dumps(spec, indent=2) + "\n", encoding="utf-8")
     bootstrap = 'from pathlib import Path\nimport sys\nsys.path.insert(0, str(Path(__file__).resolve().parent.parent))\n'
     for filename, code in {
-        "app.py": 'from shared.model_service import create_app\napp, Model = create_app(Path(__file__).with_name("model.json"))\n',
-        "download_model.py": 'from shared.model_service import create_download_app, run_download_cli\napp, download, check_cache = create_download_app(Path(__file__).with_name("model.json"))\n@app.local_entrypoint()\ndef main(check_only: bool = False, refresh: bool = False, migrate_only: bool = False):\n    run_download_cli(download, check_cache, check_only=check_only, refresh=refresh, migrate_only=migrate_only)\n',
-        "run.py": 'from shared.model_service import run_cli\nif __name__ == "__main__":\n    run_cli(Path(__file__).with_name("model.json"))\n',
+        "app.py": 'from shared.serving.model_service import create_app\napp, Model = create_app(Path(__file__).with_name("model.json"))\n',
+        "download_model.py": 'from shared.serving.model_service import create_download_app, run_download_cli\napp, download, check_cache = create_download_app(Path(__file__).with_name("model.json"))\n@app.local_entrypoint()\ndef main(check_only: bool = False, refresh: bool = False, migrate_only: bool = False):\n    run_download_cli(download, check_cache, check_only=check_only, refresh=refresh, migrate_only=migrate_only)\n',
+        "run.py": 'from shared.serving.model_service import run_cli\nif __name__ == "__main__":\n    run_cli(Path(__file__).with_name("model.json"))\n',
     }.items():
         (target / filename).write_text(bootstrap + code, encoding="utf-8")
     (target / "pyproject.toml").write_text('[project]\nname = "modal-' + service + '"\nversion = "0.1.0"\nrequires-python = ">=3.11"\ndependencies = ["modal>=1.6.3,<2"]\n[tool.uv]\npackage = false\n', encoding="utf-8")

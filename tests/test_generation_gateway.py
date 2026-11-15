@@ -6,9 +6,9 @@ from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest.mock import patch
 
-from shared import inference_gateway
-from shared.http import request_bytes, request_json
-from shared.task_lifecycle import SubmissionRejected, recovery_action
+from shared.serving import inference_gateway
+from shared.utils.http import request_bytes, request_json
+from shared.tasks.task_lifecycle import SubmissionRejected, recovery_action
 
 
 class GatewayTests(unittest.TestCase):
@@ -131,7 +131,7 @@ class FrameCleanupTests(unittest.TestCase):
     def test_only_terminal_jobs_release_frames(self):
         import tempfile
         from pathlib import Path
-        from shared import inference_gateway
+        from shared.serving import inference_gateway
         with tempfile.TemporaryDirectory() as folder:
             running = Path(folder) / "running.png"
             finished = Path(folder) / "finished.png"
@@ -164,7 +164,7 @@ class FrameCleanupTests(unittest.TestCase):
     def test_status_query_failure_preserves_frames(self):
         import tempfile
         from pathlib import Path
-        from shared import inference_gateway
+        from shared.serving import inference_gateway
         with tempfile.TemporaryDirectory() as folder:
             frame = Path(folder) / "recoverable.png"
             frame.write_bytes(b"frame")

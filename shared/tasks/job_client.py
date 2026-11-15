@@ -4,11 +4,11 @@ import json
 import time
 from pathlib import Path
 
-from shared.batch import intent_digest
-from shared.files import atomic_json, download_volume_file, file_lock, read_json, sha256_file
-from shared.model_cache import cache_directory, component_specs
-from shared.outputs import record_artifact
-from shared.task_spec import ROOT, load_task, prepare, task_key, result_prefix, execution_signature
+from shared.tasks.batch import intent_digest
+from shared.utils.files import atomic_json, download_volume_file, file_lock, read_json, sha256_file
+from shared.config.model_cache import cache_directory, component_specs
+from shared.utils.outputs import record_artifact
+from shared.tasks.task_spec import ROOT, load_task, prepare, task_key, result_prefix, execution_signature
 
 DOWNLOAD_WORKERS = 8
 
@@ -186,7 +186,7 @@ def collect_remote(spec, selected, volume, output):
 
 def run_jobs(spec, paths, *, root=None, output=None, limit=0, dry_run=False, mode="enqueue"):
     import modal
-    from shared.modal_setup import model_volume
+    from shared.serving.modal_setup import model_volume
     root = Path(root) if root is not None else ROOT
     output = Path(output) if output is not None else Path("outputs")
     if not output.is_absolute():

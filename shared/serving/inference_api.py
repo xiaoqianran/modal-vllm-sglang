@@ -8,7 +8,7 @@ import binascii
 import urllib.error
 from urllib.parse import quote
 
-from shared.http import poll_job, request_bytes, request_json
+from shared.utils.http import poll_job, request_bytes, request_json
 
 
 class VLLMImageClient:

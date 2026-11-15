@@ -4,7 +4,7 @@ import json
 import re
 from pathlib import Path
 
-from shared.files import read_json, sha256_file
+from shared.utils.files import read_json, sha256_file
 
 _ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 

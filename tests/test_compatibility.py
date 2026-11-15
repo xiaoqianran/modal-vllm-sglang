@@ -7,11 +7,11 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from shared.batch import intent_digest
-from shared.files import atomic_json, read_json
-from shared.model_cache import DOWNLOAD_MAX_WORKERS, component_specs, prepare_cache, verify_cache, checked_inventory
-from shared.model_service import execute, create_app
-from shared.model_spec import discover, parameters
+from shared.tasks.batch import intent_digest
+from shared.utils.files import atomic_json, read_json
+from shared.config.model_cache import DOWNLOAD_MAX_WORKERS, component_specs, prepare_cache, verify_cache, checked_inventory
+from shared.serving.model_service import execute, create_app
+from shared.config.model_spec import discover, parameters
 
 SPECS = discover()
 MP4 = b'\0\0\0\x20ftyp' + b'x' * 32
@@ -179,11 +179,11 @@ class PikaRecoveryTests(unittest.TestCase):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
         self.root = Path(temp.name)
-        redirect = patch('shared.model_service.Path', wraps=Path)
+        redirect = patch('shared.serving.model_service.Path', wraps=Path)
         paths = redirect.start()
         paths.side_effect = lambda value: self.root if value == '/mnt/modal' else Path(value)
         self.addCleanup(redirect.stop)
-        factory = patch('shared.inference_api.SGLangVideoClient')
+        factory = patch('shared.serving.inference_api.SGLangVideoClient')
         self.client = factory.start().return_value
         self.addCleanup(factory.stop)
         self.client.submit.return_value = 'existing-job'
@@ -227,7 +227,7 @@ class PikaRecoveryTests(unittest.TestCase):
             if str(target).endswith('.mp4'):
                 raise OSError('publish failed')
             return replace(source, target)
-        with patch('shared.files.os.replace', side_effect=fail_media), self.assertRaises(OSError):
+        with patch('shared.utils.files.os.replace', side_effect=fail_media), self.assertRaises(OSError):
             self.run_batch()
         self.assertEqual(read_json(self.metadata)['job_id'], 'existing-job')
         self.assertEqual(list(stale.parent.glob('*.tmp')), [])

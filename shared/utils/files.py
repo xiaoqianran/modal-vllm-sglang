@@ -56,7 +56,7 @@ def download_volume_file(volume, remote_path, destination, *, expected_sha256=No
         if expected_sha256 is not None and sha256_file(temp) != expected_sha256:
             raise ValueError("Downloaded content checksum mismatch")
         if kind is not None:
-            from shared.media import media_suffix
+            from shared.utils.media import media_suffix
             with temp.open("rb") as stream:
                 media_suffix(stream.read(32), kind)
         if refuse_existing and destination.exists():

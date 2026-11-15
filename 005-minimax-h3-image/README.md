@@ -1,12 +1,12 @@
 # MiniMax H3 Image
 
-本模型使用公共模板，模型能力为 minimax-t2i。使用 SGLang，独立下载 image 与 encoder 两个组件。固定 6 步，默认 2048×2048，尺寸约束由 shared/params_minimax.py 检查。
+本模型使用公共模板，模型能力为 minimax-t2i。使用 SGLang，独立下载 image 与 encoder 两个组件。固定 6 步，默认 2048×2048，尺寸约束由 shared/config/params_minimax.py 检查。
 
 GPU 服务资源先按 4 vCPU、32 GiB RAM、RTX PRO 6000 配置进行验收，不再预留 12 vCPU、256 GiB。32 GiB 目前只是待验证配置，并非实测峰值：权重的主机侧加载、mmap、文本编码器内存和 SGLang 运行时可能使实际需求更高。若容器被 OOM 杀死，应先分析 CPU RAM 峰值、模型卸载策略与 GPU 显存余量，再决定是否增加内存。CPU 下载容器独立使用 4 vCPU / 8 GiB，不受本项修改影响。
 
 - model.json：模型、镜像、启动命令、权重组件、资源、参数与能力配置。
 - app.py / download_model.py / run.py：公共实现的薄入口。
-- 公共实现：shared/model_service.py、shared/model_cache.py、shared/model_spec.py。
+- 公共实现：shared/serving/model_service.py、shared/config/model_cache.py、shared/config/model_spec.py。
 - 日常任务在根目录 tasks/，素材在 inputs/，结果在 outputs/<project>/<scene>/。
 
 从仓库根目录执行：

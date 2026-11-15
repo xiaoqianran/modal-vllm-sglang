@@ -9,7 +9,7 @@ import time
 import urllib.error
 import urllib.request
 from http.client import HTTPException
-from shared.task_lifecycle import SubmissionRejected
+from shared.tasks.task_lifecycle import SubmissionRejected
 
 
 def modal_proxy_headers(service):

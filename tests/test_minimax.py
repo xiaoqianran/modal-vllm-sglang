@@ -10,7 +10,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from orchestration import adapters, runner
-from shared.cache import file_inventory
+from shared.config.cache import file_inventory
 
 class MiniMaxTests(unittest.TestCase):
     def test_parameters_reject_wrong_schedule_and_foreign_options(self):
@@ -33,7 +33,7 @@ class MiniMaxTests(unittest.TestCase):
             png = b"\x89PNG\r\n\x1a\n" + b"test" * 20
             env = {"MINIMAX_ENDPOINT": "http://minimax.test", "MINIMAX_MODAL_KEY": "key",
                    "MINIMAX_MODAL_SECRET": "secret"}
-            with patch.dict(os.environ, env), patch("shared.inference_api.request_json",
+            with patch.dict(os.environ, env), patch("shared.serving.inference_api.request_json",
                     return_value={"data": [{"b64_json": base64.b64encode(png).decode()}]}) as request:
                 directory = runner.new_run(plan, root=root)
                 self.assertEqual(runner.execute(directory)["counts"], {"completed": 1})

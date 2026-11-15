@@ -4,7 +4,7 @@
 
 - model.json：模型、镜像、启动命令、权重组件、资源、参数与能力配置。
 - app.py / download_model.py / run.py：公共实现的薄入口。
-- 公共实现：shared/model_service.py、shared/model_cache.py、shared/model_spec.py。
+- 公共实现：shared/serving/model_service.py、shared/config/model_cache.py、shared/config/model_spec.py。
 - 日常任务在根目录 tasks/，素材在 inputs/，结果在 outputs/<project>/<scene>/。
 
 从仓库根目录执行：

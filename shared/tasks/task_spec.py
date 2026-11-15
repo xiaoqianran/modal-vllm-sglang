@@ -3,13 +3,13 @@ import base64
 import hashlib
 from pathlib import Path
 
-from shared.batch import intent_digest
-from shared.files import read_json
-from shared.media import MAX_FRAME, decode_frame, image_format
-from shared.model_spec import parameters, operation_spec, operations
-from shared.outputs import component
+from shared.tasks.batch import intent_digest
+from shared.utils.files import read_json
+from shared.utils.media import MAX_FRAME, decode_frame, image_format
+from shared.config.model_spec import parameters, operation_spec, operations
+from shared.utils.outputs import component
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parents[2]
 
 
 def prepare(spec, item):
@@ -71,7 +71,7 @@ def load_task(spec, path, *, root=ROOT, limit=0):
                     raise ValueError("Frame input must be {file: repo-relative-path}")
                 if not isinstance(binding["file"], str) or Path(binding["file"]).is_absolute():
                     raise ValueError("Frame path must be repository relative")
-                from shared.files import local_path
+                from shared.utils.files import local_path
                 # Input identity is its content, never its local path.
                 frame = local_path(root, binding["file"])
                 if not frame.is_file() or not 0 < frame.stat().st_size <= MAX_FRAME:

@@ -3,7 +3,7 @@ from pathlib import Path
 
 import modal
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[1]
 VOLUME_NAME = "modal-forge"
 
 

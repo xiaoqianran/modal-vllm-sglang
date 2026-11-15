@@ -11,9 +11,9 @@ from collections import Counter
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from shared.batch import intent_digest
-from shared.files import read_json, sha256_file
-from shared.task_lifecycle import recovery_action, SubmissionRejected
+from shared.tasks.batch import intent_digest
+from shared.utils.files import read_json, sha256_file
+from shared.tasks.task_lifecycle import recovery_action, SubmissionRejected
 from orchestration import adapters, state
 
 ROOT = Path(__file__).resolve().parent.parent

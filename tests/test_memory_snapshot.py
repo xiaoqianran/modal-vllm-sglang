@@ -5,9 +5,9 @@ from contextlib import ExitStack
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from shared.files import atomic_json
-from shared.model_service import create_app
-from shared.model_spec import validate
+from shared.utils.files import atomic_json
+from shared.serving.model_service import create_app
+from shared.config.model_spec import validate
 from tests.test_model_service import SPEC
 
 
@@ -18,14 +18,14 @@ class MemorySnapshotTests(unittest.TestCase):
         directory = stack.enter_context(tempfile.TemporaryDirectory())
         path = Path(directory) / 'model.json'
         atomic_json(path, {**SPEC, 'memory_snapshot': mode})
-        cache = stack.enter_context(patch('shared.model_service.verify_cache',
+        cache = stack.enter_context(patch('shared.serving.model_service.verify_cache',
                                          side_effect=[({}, 'original'), ({}, 'changed' if changed else 'original')]))
-        stack.enter_context(patch('shared.model_service.command_argv', return_value=['engine']))
-        popen = stack.enter_context(patch('shared.model_service.subprocess.Popen'))
-        health = stack.enter_context(patch('shared.runtime.wait_for_health'))
-        stop = stack.enter_context(patch('shared.runtime.stop_process'))
-        monitor = stack.enter_context(patch('shared.runtime.monitor_processes'))
-        resources = stack.enter_context(patch('shared.metrics.ResourceMonitor'))
+        stack.enter_context(patch('shared.serving.model_service.command_argv', return_value=['engine']))
+        popen = stack.enter_context(patch('shared.serving.model_service.subprocess.Popen'))
+        health = stack.enter_context(patch('shared.serving.runtime.wait_for_health'))
+        stop = stack.enter_context(patch('shared.serving.runtime.stop_process'))
+        monitor = stack.enter_context(patch('shared.serving.runtime.monitor_processes'))
+        resources = stack.enter_context(patch('shared.serving.metrics.ResourceMonitor'))
         resources.return_value.snapshot.return_value = {}
         _, model = create_app(path)
         cls = model._get_user_cls()

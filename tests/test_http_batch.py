@@ -6,9 +6,9 @@ import urllib.error
 from pathlib import Path
 from unittest.mock import patch
 
-from shared.batch import completed_output, counts, intent_digest, safe_id
-from shared.files import atomic_json, sha256_file
-from shared.http import poll_job, request_bytes, request_json
+from shared.tasks.batch import completed_output, counts, intent_digest, safe_id
+from shared.utils.files import atomic_json, sha256_file
+from shared.utils.http import poll_job, request_bytes, request_json
 
 
 class FakeResponse:
@@ -26,7 +26,7 @@ class HTTPBatchTests(unittest.TestCase):
     def test_post_is_not_retried(self):
         with self.assertRaisesRegex(ValueError, "unsafe"):
             request_bytes("http://localhost/", {"prompt": "test"}, attempts=2)
-        with patch("shared.http.urllib.request.urlopen",
+        with patch("shared.utils.http.urllib.request.urlopen",
                    side_effect=urllib.error.URLError("connection lost")) as call:
             with self.assertRaises(urllib.error.URLError):
                 request_bytes("http://localhost/v1/videos", {"prompt": "test"})
@@ -34,8 +34,8 @@ class HTTPBatchTests(unittest.TestCase):
 
     def test_get_retries_then_returns_json(self):
         outcomes = [urllib.error.URLError("temporary"), FakeResponse(b'{"ok":true}')]
-        with patch("shared.http.urllib.request.urlopen", side_effect=outcomes) as call, patch(
-                "shared.http.time.sleep") as delay:
+        with patch("shared.utils.http.urllib.request.urlopen", side_effect=outcomes) as call, patch(
+                "shared.utils.http.time.sleep") as delay:
             response = request_json("http://localhost/health", attempts=2)
             self.assertEqual(response, {"ok": True})
             self.assertEqual(call.call_count, 2)
@@ -44,14 +44,14 @@ class HTTPBatchTests(unittest.TestCase):
     def test_permanent_http_error_not_retried(self):
         import io
         exc = urllib.error.HTTPError("http://localhost/", 401, "unauthorized", {}, io.BytesIO(b"denied"))
-        with patch("shared.http.urllib.request.urlopen", side_effect=exc) as call:
+        with patch("shared.utils.http.urllib.request.urlopen", side_effect=exc) as call:
             with self.assertRaisesRegex(RuntimeError, "HTTP 401"):
                 request_bytes("http://localhost/", attempts=3)
             self.assertEqual(call.call_count, 1)
 
     def test_poll_completion_and_failure(self):
         items = iter(({"status": "queued"}, {"status": "completed"}))
-        with patch("shared.http.time.sleep"):
+        with patch("shared.utils.http.time.sleep"):
             self.assertEqual(poll_job(lambda: next(items), timeout=10, interval=1)["status"],
                              "completed")
         with self.assertRaisesRegex(RuntimeError, "failed"):

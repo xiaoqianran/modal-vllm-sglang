@@ -12,16 +12,16 @@ import os
 import time
 from pathlib import Path
 
-from shared.batch import completed_output, intent_digest
-from shared.files import atomic_json, read_json, sha256_file
-from shared.media import media_suffix
-from shared.model_spec import validate
-from shared.model_cache import cache_directory, verify_cache, prepare_cache, command_argv
-from shared.outputs import component
-from shared.task_lifecycle import recovery_action, TERMINAL, SubmissionRejected
+from shared.tasks.batch import completed_output, intent_digest
+from shared.utils.files import atomic_json, read_json, sha256_file
+from shared.utils.media import media_suffix
+from shared.config.model_spec import validate
+from shared.config.model_cache import cache_directory, verify_cache, prepare_cache, command_argv
+from shared.utils.outputs import component
+from shared.tasks.task_lifecycle import recovery_action, TERMINAL, SubmissionRejected
 
 # Re-export task helpers for existing callers. New code imports task_spec directly.
-from shared.task_spec import ROOT, load_task, prepare, result_prefix, execution_signature
+from shared.tasks.task_spec import ROOT, load_task, prepare, result_prefix, execution_signature
 
 
 def class_name(name):
@@ -32,7 +32,7 @@ def class_name(name):
 
 
 def execute(spec, items, prefix, volume, cache_fingerprint="unverified"):
-    from shared.inference_api import VLLMImageClient, SGLangVideoClient
+    from shared.serving.inference_api import VLLMImageClient, SGLangVideoClient
     parts = prefix.split("/")
     for part in parts:
         component(part)
@@ -112,7 +112,7 @@ def execute(spec, items, prefix, volume, cache_fingerprint="unverified"):
             record["job_id"] = job
         atomic_json(metadata, record)
         volume.commit()
-        from shared.files import atomic_write
+        from shared.utils.files import atomic_write
         if not target.exists():
             atomic_write(target, data)
         record["status"] = "completed"
@@ -122,7 +122,7 @@ def execute(spec, items, prefix, volume, cache_fingerprint="unverified"):
 
 
 def build_image(spec, *, offline):
-    from shared.modal_setup import runtime_image
+    from shared.serving.modal_setup import runtime_image
     root = cache_directory(spec)
     env = {**spec.get("env", {}), "HF_HOME": root,
            "SGLANG_DIFFUSION_CACHE_ROOT": root + "/sglang"}
@@ -138,8 +138,8 @@ def build_image(spec, *, offline):
 def create_app(config_path):
     """One GPU lifecycle shared by all configured models."""
     import modal
-    from shared.modal_setup import model_volume
-    from shared.runtime import monitor_processes, stop_process, wait_for_health
+    from shared.serving.modal_setup import model_volume
+    from shared.serving.runtime import monitor_processes, stop_process, wait_for_health
     config_path = Path(config_path)
     spec = validate(read_json(config_path))
     volume = model_volume()
@@ -184,7 +184,7 @@ def create_app(config_path):
 
         @modal.enter(snap=False)
         def start(self):
-            from shared.metrics import ResourceMonitor
+            from shared.serving.metrics import ResourceMonitor
             started = time.perf_counter()
             self.batch_lock = threading.Lock()
             self.stopping = threading.Event()
@@ -200,7 +200,7 @@ def create_app(config_path):
                     if fingerprint != self.cache_fingerprint:
                         raise RuntimeError("Model cache changed since engine initialization; redeploy to rebuild snapshot")
                 wait_for_health(self.process, f"http://127.0.0.1:{spec.get('port', 8000)}/health", timeout=startup - 60)
-                self.gateway = subprocess.Popen(["python", "-m", "shared.inference_gateway", "--config", "/opt/model.json"])
+                self.gateway = subprocess.Popen(["python", "-m", "shared.serving.inference_gateway", "--config", "/opt/model.json"])
                 port = spec.get("proxy_port", spec.get("port", 8000) + 1)
                 wait_for_health(self.gateway, f"http://127.0.0.1:{port}/health", timeout=120)
             except BaseException:
@@ -311,7 +311,7 @@ def optional_hf_download_secrets():
 
 def create_download_app(config_path):
     import modal
-    from shared.modal_setup import model_volume
+    from shared.serving.modal_setup import model_volume
     spec = validate(read_json(config_path))
     volume = model_volume()
     app = modal.App("prepare-" + spec["service"])
@@ -319,7 +319,7 @@ def create_download_app(config_path):
         image = build_image(spec, offline=False)
     else:
         image = modal.Image.debian_slim(python_version="3.12").pip_install("huggingface_hub>=0.30,<2", "hf_xet")
-        image = image.env({"PYTHONPATH": "/opt"}).add_local_dir(str(Path(__file__).parent), "/opt/shared", copy=False)
+        image = image.env({"PYTHONPATH": "/opt"}).add_local_dir(str(Path(__file__).parent.parent), "/opt/shared", copy=False)
 
     @app.function(name="download", image=image, serialized=True, cpu=4, memory=8192,
                   timeout=86400, volumes={"/mnt/modal": volume},
@@ -350,18 +350,18 @@ def run_task(spec, path, *, root=ROOT, output=None, dry_run=False, limit=0):
     if dry_run:
         return
     import modal
-    from shared.files import file_lock
-    from shared.modal_setup import model_volume
+    from shared.utils.files import file_lock
+    from shared.serving.modal_setup import model_volume
     output_root = Path(output) if output is not None else Path("outputs")
     if not output_root.is_absolute():
         output_root = Path(root) / output_root
     folder = output_root / name / scene
     volume = model_volume()
-    from shared.job_client import remote_cache_fingerprint
+    from shared.tasks.job_client import remote_cache_fingerprint
     cache_fingerprint = remote_cache_fingerprint(spec, volume)
     execution_hashes = {shot: execution_signature(signature, cache_fingerprint) for shot, signature in plans.items()}
 
-    from shared.job_client import check_record, parallel_collect
+    from shared.tasks.job_client import check_record, parallel_collect
 
     def result_job(record):
         shot = record.get("id")
@@ -448,8 +448,8 @@ def run_cli(config_path):
             print(json.dumps({"mode": "check_deployment", "service": spec["service"], "starts_gpu": True}))
             return
         import modal
-        from shared.job_client import remote_cache_fingerprint
-        from shared.modal_setup import model_volume
+        from shared.tasks.job_client import remote_cache_fingerprint
+        from shared.serving.modal_setup import model_volume
         fingerprint = remote_cache_fingerprint(spec, model_volume())
         model = modal.Cls.from_name(spec.get("app_name", "modal-model-" + spec["service"]),
                                     spec.get("modal_class", "Model"))()
@@ -461,7 +461,7 @@ def run_cli(config_path):
         print(json.dumps({**info, "request_seconds": time.perf_counter() - started}, ensure_ascii=False))
         return info
     if args.enqueue or args.status or args.collect:
-        from shared.job_client import run_jobs
+        from shared.tasks.job_client import run_jobs
         if args.enqueue and not args.task:
             parser.error("--enqueue requires --task")
         return run_jobs(spec, args.task or [], output=args.output, limit=args.limit,

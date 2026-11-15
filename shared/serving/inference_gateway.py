@@ -10,9 +10,9 @@ from http.client import HTTPException
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import quote, urlparse
-from shared.media import MAX_FRAME, decode_frame as _decode_frame
-from shared.model_spec import operations, operation_spec, parameters
-from shared.files import read_json
+from shared.utils.media import MAX_FRAME, decode_frame as _decode_frame
+from shared.config.model_spec import operations, operation_spec, parameters
+from shared.utils.files import read_json
 
 SPEC = None
 SG_PORT, PROXY_PORT = 30010, 30020

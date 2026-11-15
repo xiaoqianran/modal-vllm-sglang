@@ -10,12 +10,12 @@ from types import SimpleNamespace
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from shared.batch import intent_digest
-from shared.files import atomic_json, read_json
-from shared.model_cache import component_specs, verify_cache, checked_inventory, command_argv, prepare_cache
-from shared.model_service import load_task, prepare, run_task, execute, build_image
-from shared.model_spec import discover, parameters
-from shared.inference_gateway import prepare_request
+from shared.tasks.batch import intent_digest
+from shared.utils.files import atomic_json, read_json
+from shared.config.model_cache import component_specs, verify_cache, checked_inventory, command_argv, prepare_cache
+from shared.serving.model_service import load_task, prepare, run_task, execute, build_image
+from shared.config.model_spec import discover, parameters
+from shared.serving.inference_gateway import prepare_request
 
 ROOT = Path(__file__).resolve().parents[1]
 SPECS = discover()
@@ -43,7 +43,7 @@ class UnifiedModelsTests(unittest.TestCase):
             self.assertEqual(payload["guidance_scale"], 5)
 
     def test_container_cache_environment_uses_linux_paths_on_windows_hosts(self):
-        with patch("shared.modal_setup.runtime_image") as factory:
+        with patch("shared.serving.modal_setup.runtime_image") as factory:
             build_image(SPECS["pika.t2va"], offline=True)
             env = factory.call_args.kwargs["env"]
             self.assertEqual(env["HF_HOME"], "/mnt/modal/009-pika-h3-flex")
@@ -168,7 +168,7 @@ class UnifiedModelsTests(unittest.TestCase):
                              "first_frame": {"file": "first.png"}, "last_frame": {"file": "last.png"}}])
             items = load_task(spec, path, root=root)[3]
             payload, signature = prepare(spec, items[0])
-            with patch("shared.inference_gateway.FRAME_DIR", root / "staged"):
+            with patch("shared.serving.inference_gateway.FRAME_DIR", root / "staged"):
                 staged = prepare_request(payload, spec)
             self.assertEqual([c["frame_index"] for c in staged["conditions"]], [0, -1])
             self.assertEqual(staged["conditions"][0]["role"], "keyframe")
@@ -233,7 +233,7 @@ class UnifiedModelsTests(unittest.TestCase):
                 available[f"/{prefix}/001.png"] = PNG
                 available[f"/{prefix}/001.json"] = json.dumps(record).encode()
                 yield record
-            with patch("shared.modal_setup.model_volume", return_value=volume), patch("modal.Cls.from_name") as lookup:
+            with patch("shared.serving.modal_setup.model_volume", return_value=volume), patch("modal.Cls.from_name") as lookup:
                 lookup.return_value.return_value.generate_batch_stream.remote_gen.side_effect = remote_gen
                 run_task(spec, path, root=root)
                 target = root / "outputs/006-demo/001-main/001.png"
@@ -257,16 +257,16 @@ class UnifiedModelsTests(unittest.TestCase):
     def test_remote_image_publish_crash_can_finish_without_regeneration(self):
         spec = SPECS["moss.t2i"]
         item = {"id": "001", "prompt": "boat", "seed": 42}
-        with tempfile.TemporaryDirectory() as directory, patch("shared.model_service.Path", wraps=Path) as paths:
+        with tempfile.TemporaryDirectory() as directory, patch("shared.serving.model_service.Path", wraps=Path) as paths:
             paths.side_effect = lambda value: Path(directory) if value == "/mnt/modal" else Path(value)
-            with patch("shared.inference_api.VLLMImageClient") as factory:
+            with patch("shared.serving.inference_api.VLLMImageClient") as factory:
                 factory.return_value.generate.return_value = (PNG, ".png")
                 original = atomic_json
                 def crash(path, record):
                     if record.get("status") == "completed":
                         raise OSError("client died after file publish")
                     original(path, record)
-                with patch("shared.model_service.atomic_json", side_effect=crash), self.assertRaises(OSError):
+                with patch("shared.serving.model_service.atomic_json", side_effect=crash), self.assertRaises(OSError):
                     list(execute(spec, [item], "batch", Mock()))
                 result = list(execute(spec, [item], "batch", Mock()))
                 self.assertEqual(result[0]["status"], "completed")

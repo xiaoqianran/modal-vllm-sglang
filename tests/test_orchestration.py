@@ -12,8 +12,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 from orchestration import adapters, runner, state
-from shared.files import read_json, sha256_file
-from shared.task_lifecycle import SubmissionRejected
+from shared.utils.files import read_json, sha256_file
+from shared.tasks.task_lifecycle import SubmissionRejected
 
 PNG = b"\x89PNG\r\n\x1a\n" + b"test-image" * 10
 MP4 = b"\x00\x00\x00\x1cftypisom" + b"test-video" * 10

@@ -2,9 +2,9 @@
 import re
 from pathlib import Path
 
-from shared.files import atomic_json, sha256_file
+from shared.utils.files import atomic_json, sha256_file
 
-REPO = Path(__file__).resolve().parent.parent
+REPO = Path(__file__).resolve().parents[2]
 
 
 def component(value):

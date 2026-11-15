@@ -5,10 +5,10 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from shared.files import atomic_json, download_volume_file, read_json
-from shared.model_service import create_app, create_download_app, execute, prepare, optional_hf_download_secrets
-from shared.model_spec import discover, parameters, validate
-from shared.task_lifecycle import SubmissionRejected
+from shared.utils.files import atomic_json, download_volume_file, read_json
+from shared.serving.model_service import create_app, create_download_app, execute, prepare, optional_hf_download_secrets
+from shared.config.model_spec import discover, parameters, validate
+from shared.tasks.task_lifecycle import SubmissionRejected
 
 
 SPEC = {"service": "example", "operation": "t2i", "kind": "image", "model": "org/model",
@@ -19,8 +19,8 @@ SPEC = {"service": "example", "operation": "t2i", "kind": "image", "model": "org
 
 class ModelServiceTests(unittest.TestCase):
     def test_pika_gateway_does_not_share_sglang_broker_port(self):
-        from shared.inference_gateway import PROXY_PORT
-        from shared.model_spec import validate
+        from shared.serving.inference_gateway import PROXY_PORT
+        from shared.config.model_spec import validate
         config = validate(read_json(Path(__file__).resolve().parents[1] / "002-pika-h3-flex" / "model.json"))
         self.assertEqual(config["port"], 30010)
         self.assertEqual(config["proxy_port"], 30020)
@@ -109,17 +109,17 @@ class ModelServiceTests(unittest.TestCase):
             atomic_json(path, SPEC)
             app, model = create_app(path)
             self.assertIn("Model", app.registered_classes)
-            with patch("shared.model_service.optional_hf_download_secrets", return_value=[]):
+            with patch("shared.serving.model_service.optional_hf_download_secrets", return_value=[]):
                 download_app, download, check_cache = create_download_app(path)
             self.assertIn("download", download_app.registered_functions)
 
     def test_lost_image_response_is_not_resubmitted(self):
         volume = Mock()
         item = {"id": "001", "prompt": "boat", "seed": 42}
-        with tempfile.TemporaryDirectory() as directory, patch("shared.model_service.Path", wraps=Path) as paths:
+        with tempfile.TemporaryDirectory() as directory, patch("shared.serving.model_service.Path", wraps=Path) as paths:
             # Redirect only the remote mount, leaving all other Path behavior intact.
             paths.side_effect = lambda value: Path(directory) if value == "/mnt/modal" else Path(value)
-            with patch("shared.inference_api.VLLMImageClient") as factory:
+            with patch("shared.serving.inference_api.VLLMImageClient") as factory:
                 factory.return_value.generate.side_effect = TimeoutError("lost response")
                 with self.assertRaises(TimeoutError):
                     list(execute(SPEC, [item], "batch", volume))
@@ -130,9 +130,9 @@ class ModelServiceTests(unittest.TestCase):
     def test_video_resumes_same_job_after_download_failure(self):
         spec = {**SPEC, "kind": "video", "operation": "t2v"}
         item = {"id": "001", "prompt": "boat", "seed": 42}
-        with tempfile.TemporaryDirectory() as directory, patch("shared.model_service.Path", wraps=Path) as paths:
+        with tempfile.TemporaryDirectory() as directory, patch("shared.serving.model_service.Path", wraps=Path) as paths:
             paths.side_effect = lambda value: Path(directory) if value == "/mnt/modal" else Path(value)
-            with patch("shared.inference_api.SGLangVideoClient") as factory:
+            with patch("shared.serving.inference_api.SGLangVideoClient") as factory:
                 client = factory.return_value
                 client.submit.return_value = "job-1"
                 client.content.side_effect = [OSError("disconnect"), b"\0\0\0\x20ftyp" + b"x" * 32]
@@ -155,9 +155,9 @@ class ModelServiceTests(unittest.TestCase):
 
     def test_busy_sdk_task_can_retry_without_changing_identity(self):
         item = {"id": "001", "prompt": "boat", "seed": 42}
-        with tempfile.TemporaryDirectory() as directory, patch("shared.model_service.Path", wraps=Path) as paths:
+        with tempfile.TemporaryDirectory() as directory, patch("shared.serving.model_service.Path", wraps=Path) as paths:
             paths.side_effect = lambda value: Path(directory) if value == "/mnt/modal" else Path(value)
-            with patch("shared.inference_api.VLLMImageClient") as factory:
+            with patch("shared.serving.inference_api.VLLMImageClient") as factory:
                 factory.return_value.generate.side_effect = [SubmissionRejected(), (b"\x89PNG\r\n\x1a\n" + b"x" * 32, ".png")]
                 with self.assertRaises(SubmissionRejected):
                     list(execute(SPEC, [item], "batch", Mock()))
@@ -168,9 +168,9 @@ class ModelServiceTests(unittest.TestCase):
     def test_sdk_records_terminal_failure_and_does_not_resume_it(self):
         spec = {**SPEC, "kind": "video", "operation": "t2v"}
         item = {"id": "001", "prompt": "boat", "seed": 42}
-        with tempfile.TemporaryDirectory() as directory, patch("shared.model_service.Path", wraps=Path) as paths:
+        with tempfile.TemporaryDirectory() as directory, patch("shared.serving.model_service.Path", wraps=Path) as paths:
             paths.side_effect = lambda value: Path(directory) if value == "/mnt/modal" else Path(value)
-            with patch("shared.inference_api.SGLangVideoClient") as factory:
+            with patch("shared.serving.inference_api.SGLangVideoClient") as factory:
                 client = factory.return_value
                 client.submit.return_value = "job-1"
                 def failed(job, *, timeout, on_status):
