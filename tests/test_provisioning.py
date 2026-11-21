@@ -85,6 +85,7 @@ class ProvisioningTests(unittest.TestCase):
             p = self.provisioner(path)
             p.command_benchmark.side_effect = RuntimeError("download failed")
             with patch("orchestration.provisioning.time.sleep"), \
+                 patch("orchestration.provisioning.source_version", return_value="source"), \
                  patch("orchestration.provisioning.remote_cache_fingerprint",
                        side_effect=RuntimeError("Remote cache manifest missing")):
                 p.prepare(validate(SPEC), "key")
@@ -118,6 +119,31 @@ class ProvisioningTests(unittest.TestCase):
             p.command.assert_not_called()
             self.assertEqual(p.registry["key"]["status"], "ready")
 
+    def test_changed_sources_fail_before_any_cloud_deployment(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "model.json"
+            atomic_json(path, SPEC)
+            p = self.provisioner(path)
+            with patch("orchestration.provisioning.source_version", return_value="changed"), \
+                 patch("orchestration.provisioning.remote_cache_fingerprint") as cache:
+                p.prepare(validate(SPEC), "key")
+            cache.assert_not_called()
+            p.deployed.assert_not_called()
+            p.command.assert_not_called()
+            self.assertEqual(p.registry["key"]["status"], "failed")
+            self.assertEqual(p.registry["key"]["error_code"], "configuration")
+
+    def test_sources_changing_during_cache_check_cannot_trigger_redeploy(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "model.json"
+            atomic_json(path, SPEC)
+            p = self.provisioner(path)
+            with patch("orchestration.provisioning.source_version", side_effect=["source", "changed"]), \
+                 patch("orchestration.provisioning.remote_cache_fingerprint", return_value="weights"):
+                p.prepare(validate(SPEC), "key")
+            p.command.assert_not_called()
+            self.assertEqual(p.registry["key"]["status"], "failed")
+
     def test_overlay_success_uses_shared_benchmark_once(self):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "model.json"
@@ -149,6 +175,7 @@ class ProvisioningTests(unittest.TestCase):
             p.command_benchmark.side_effect = RuntimeError("network")
             with patch("orchestration.provisioning.remote_cache_fingerprint",
                        side_effect=RuntimeError("Remote cache manifest missing")), \
+                 patch("orchestration.provisioning.source_version", return_value="source"), \
                  patch("orchestration.provisioning.time.sleep"):
                 p.prepare(validate(overlay), "key")
             p.command_benchmark.assert_called_once_with(path)
@@ -163,7 +190,7 @@ class ProvisioningTests(unittest.TestCase):
             with patch("orchestration.provisioning.subprocess.run") as run:
                 Provisioner.command(p, "deploy", "orchestration/provision_entry.py", MODEL_CONFIG=str(config))
             args, kwargs = run.call_args
-            self.assertEqual(args[0][-2:], ["--strategy", "recreate"])
+            self.assertEqual(args[0][-2:], ["--strategy", "rolling"])
             self.assertEqual(kwargs["timeout"], 90000)
             self.assertEqual(kwargs["env"]["MODEL_CONFIG"], str(config))
             self.assertTrue((p.root / ".runtime/logs/models/example.log").exists())

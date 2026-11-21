@@ -57,6 +57,13 @@ class Provisioner:
             return self.model_versions[spec["service"]]
         return self.version
 
+    def assert_sources_unchanged(self, spec, expected):
+        """Fail before a costly deployment if the worker's inputs changed."""
+        current = (model_source_version(spec) if spec is not None and hasattr(self, "model_versions")
+                   else source_version())
+        if current != expected:
+            raise RuntimeError("Sources changed during preparation; restart worker")
+
     def start(self, spec=None, *, retry=False):
         key = key_for(spec, self.version_for(spec))
         with self.lock:
@@ -87,7 +94,9 @@ class Provisioner:
         workspace = getattr(self, "root", ROOT)
         argv = [sys.executable, "-m", "modal", action, entry]
         if action == "deploy":
-            argv.extend(["--strategy", "recreate"])
+            # Keep previously accepted inference calls alive while deploying.
+            # Recreate terminates active GPU containers and loses their results.
+            argv.extend(["--strategy", "rolling"])
         service = "orchestration"
         if environment.get("MODEL_CONFIG"):
             service = read_json(Path(environment["MODEL_CONFIG"]))["service"]
@@ -163,6 +172,7 @@ class Provisioner:
             weights_prepared = False
             for attempt in range(3):
                 try:
+                    self.assert_sources_unchanged(spec, base_version)
                     self.publish(key, {"status": "preparing", "attempt": attempt + 1}, spec)
                     env = {}
                     if spec is not None:
@@ -198,6 +208,9 @@ class Provisioner:
                     else:
                         version = base_version
                     if not self.deployed(app, version):
+                        # Validate again after potentially slow cache checks,
+                        # before a deployment can disrupt running generations.
+                        self.assert_sources_unchanged(spec, base_version)
                         with self.phase(key, spec, "build_deploy"):
                             with lease.external("deploy", app=app, version=version):
                                 self.command("deploy", "orchestration/cloud_app.py" if spec is None else
@@ -205,10 +218,7 @@ class Provisioner:
                                              MODEL_PREPARE="0", MODEL_DEPLOY_VERSION=version)
                     if not self.deployed(app, version):
                         raise RuntimeError("Deployment version verification failed")
-                    current_source = (model_source_version(spec) if spec is not None and hasattr(self, "model_versions")
-                                      else source_version())
-                    if current_source != base_version:
-                        raise RuntimeError("Sources changed during preparation; restart worker")
+                    self.assert_sources_unchanged(spec, base_version)
                     self.publish(key, {"status": "ready", "version": version, "error": None,
                                        "last_failed_stage": None,
                                        "spec_hash": intent_digest(spec) if spec is not None else None,
