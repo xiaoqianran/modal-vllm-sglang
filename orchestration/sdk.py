@@ -236,7 +236,15 @@ def tick(directory, backend, downloads, pool):
                                 advance(key, status="completed", result=result,
                                        artifacts={kind: artifact}, error=None, cloud_observed_at=utc_now())
                     except Exception as exc:
-                        advance(key, status="uncertain", error=type(exc).__name__ + ": query failed; retained call ID")
+                        # A deterministic remote pre-inference configuration
+                        # rejection is terminal. Keep its call ID for audit,
+                        # but do not leave it polling as an ambiguous request.
+                        if isinstance(exc, RuntimeError) and (
+                            "Local configuration differs from deployed model.json" in str(exc)
+                        ):
+                            advance(key, status="failed", error=str(exc))
+                        else:
+                            advance(key, status="uncertain", error=type(exc).__name__ + ": query failed; retained call ID")
                     finally:
                         from shared.telemetry.collector import enqueue
                         manifest = getattr(backend, "telemetry_manifests", {}).pop(record.get("call_id"), {})

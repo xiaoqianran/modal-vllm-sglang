@@ -259,6 +259,20 @@ class SDKWorkflowTests(unittest.TestCase):
         self.assertEqual(records["last/001"]["status"], "queued")
         self.assertEqual(len(self.backend.submissions), 1)
 
+    def test_remote_config_rejection_is_terminal_and_preserves_call_id(self):
+        directory = self.create()
+        self.backend.collect_outputs = False
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            sdk.tick(directory, self.backend, {}, pool)
+            with patch.object(self.backend, "poll", side_effect=RuntimeError(
+                "Local configuration differs from deployed model.json; deploy it first")):
+                sdk.tick(directory, self.backend, {}, pool)
+                sdk.tick(directory, self.backend, {}, pool)
+        records = sdk.snapshot(directory)[1]["jobs"]
+        self.assertEqual(records["first/001"]["status"], "failed")
+        self.assertTrue(records["first/001"]["call_id"])
+        self.assertEqual(len(self.backend.submissions), 2)
+
     def test_resume_restores_deleted_local_file_and_refuses_corruption(self):
         directory = self.create()
         self.backend.videos_complete = True
