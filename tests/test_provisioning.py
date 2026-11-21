@@ -1,3 +1,4 @@
+import json
 import tempfile
 import threading
 import unittest
@@ -36,6 +37,8 @@ class ProvisioningTests(unittest.TestCase):
     def provisioner(self, path):
         p = Provisioner.__new__(Provisioner)
         p.root = path.parent
+        p.verified = {}
+        p.closing = threading.Event()
         p.backend = Mock()
         p.registry = Registry()
         p.version = "source"
@@ -257,7 +260,7 @@ class ProvisioningTests(unittest.TestCase):
                 self.assertEqual(p.start(spec), key)
                 self.assertEqual(p.start(spec), key)
             p.pool.submit.assert_not_called()
-            p.deployed.assert_called_with(spec.get("app_name", "modal-model-example"), "v1")
+            p.deployed.assert_called_once_with(spec.get("app_name", "modal-model-example"), "v1")
 
     def test_ready_orchestration_does_not_reschedule_preparation(self):
         p = self.provisioner(Path("unused.json"))
@@ -331,3 +334,85 @@ class ProvisioningTests(unittest.TestCase):
             self.assertEqual(pika_before, model_source_version(pika, root))
             atomic_json(root / "002-pika/model.json", {**pika, "revision": "b" * 40})
             self.assertNotEqual(pika_before, model_source_version(pika, root))
+
+    def test_new_rollout_waits_for_all_six_shots_including_unsubmitted(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "model.json"
+            atomic_json(path, SPEC)
+            spec = validate(SPEC)
+            worker_a = self.provisioner(path)
+            worker_b = self.provisioner(path)
+            worker_b.registry = worker_a.registry
+            worker_b.closing = threading.Event()
+            worker_a.registry["old"] = {"status": "ready"}
+            services = {"example": {"spec": spec}}
+            members = {f"{shot:064x}": [f"image/{shot}"] for shot in range(6)}
+            keys = {"example": "old"}
+            self.assertTrue(worker_a.admit_batch(services, keys, {"example": members}, next(iter(members))))
+            progress = {}
+            def checkpoint(path):
+                identity = path.split("/")[2]
+                if identity not in progress:
+                    raise FileNotFoundError
+                return [json.dumps({"jobs": {members[identity][0]: {"status": progress[identity]}}}).encode()]
+            worker_b.backend.volume.read_file.side_effect = checkpoint
+            def finish_queue(_):
+                worker_b.command.assert_not_called()
+                for identity in members:
+                    self.assertTrue(worker_a.admit_batch(services, keys, {"example": members}, identity))
+                    progress[identity] = "completed"
+                return False
+            worker_b.closing.wait = Mock(side_effect=finish_queue)
+            with patch("orchestration.provisioning.source_version", return_value="source"), \
+                 patch("orchestration.provisioning.remote_cache_fingerprint", return_value="weights"):
+                worker_b.prepare(spec, "new")
+            worker_b.command.assert_called_once()
+            self.assertEqual(worker_b.registry["new"]["status"], "ready")
+            self.assertNotIn("admitted:old", worker_b.registry)
+
+    def test_transient_cache_query_preserves_ready_record(self):
+        p = self.provisioner(Path("unused.json"))
+        p.lock, p.pool, p.futures = threading.Lock(), Mock(), {}
+        spec = validate(SPEC)
+        key = key_for(spec, "source")
+        p.registry[key] = {"status": "ready", "version": "v1"}
+        with patch("orchestration.provisioning.remote_cache_fingerprint", side_effect=RuntimeError("network unavailable")):
+            with self.assertRaisesRegex(RuntimeError, "network unavailable"):
+                p.start(spec)
+        self.assertEqual(p.registry[key]["status"], "ready")
+        p.pool.submit.assert_not_called()
+
+    def test_second_worker_uses_persisted_batch_version_after_source_change(self):
+        p = self.provisioner(Path("unused.json"))
+        p.start = Mock()
+        services = {"example": {"spec": validate(SPEC)}}
+        original = p.batch_keys(services, "batch")
+        p.registry[original["example"]] = {"status": "ready"}
+        p.start.reset_mock()
+        p.version = "next"
+        self.assertEqual(p.batch_keys(services, "batch"), original)
+        p.start.assert_not_called()
+
+    def test_two_workers_share_six_shots_without_redeploying(self):
+        spec = validate(SPEC)
+        services = {"example": {"spec": spec}}
+        keys = {"example": key_for(spec, "source")}
+        members = {f"{shot:064x}": ["image"] for shot in range(6)}
+        workers = [self.provisioner(Path("unused.json")) for _ in range(2)]
+        workers[1].registry = workers[0].registry
+        workers[0].registry[keys["example"]] = {
+            "status": "ready", "version": "v1", "cache_fingerprint": "weights"}
+        for worker in workers:
+            worker.lock, worker.pool, worker.futures = threading.Lock(), Mock(), {}
+            worker.deployed = Mock(return_value=True)
+            worker.legacy_admissions = Mock(return_value={})
+        with patch("orchestration.provisioning.remote_cache_fingerprint", return_value="weights") as check:
+            for index, identity in enumerate(members):
+                worker = workers[index % 2]
+                self.assertEqual(worker.batch_keys(services, "batch"), keys)
+                self.assertTrue(worker.admit_batch(services, keys, {"example": members}, identity))
+        self.assertEqual(check.call_count, 2)
+        for worker in workers:
+            worker.deployed.assert_called_once()
+            worker.pool.submit.assert_not_called()
+            worker.command.assert_not_called()

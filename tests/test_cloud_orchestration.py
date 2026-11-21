@@ -109,6 +109,19 @@ class CloudTests(unittest.TestCase):
         backend.submit = checked
         cloud.run(payload, identity, backend=backend, root=self.remote, poll=0.001)
 
+    def test_unchanged_polls_do_not_commit_again(self):
+        backend = FakeBackend()
+        plan = sdk.snapshot(self.directory)[0]
+        payload = cloud_client.payload_for(self.directory, plan, "001", backend)
+        identity = protocol.run_id(plan, "001")
+        def unchanged(directory, backend, *_):
+            for _ in range(5):
+                backend.checkpoint(directory)
+        with patch("orchestration.cloud.sdk.tick", side_effect=unchanged):
+            result = cloud.run(payload, identity, backend=backend, root=self.remote, timeout=0)
+        self.assertEqual(result["status"], "uncertain")
+        self.assertEqual(backend.volume.commit.call_count, 2)
+
     def test_checkpoint_failure_closes_writer_and_releases_callback(self):
         for failed_commit in (1, 2):
             with self.subTest(failed_commit=failed_commit):

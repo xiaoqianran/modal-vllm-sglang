@@ -39,7 +39,7 @@ class Backend(sdk.Backend):
         return result
 
 
-def payload_for(directory, plan, item, backend):
+def payload_for(directory, plan, item, backend, preparation=None):
     plan = copy.deepcopy(plan)
     plan["jobs"] = [job for job in plan["jobs"] if job["item"] == item]
     keys = {job["key"] for job in plan["jobs"]}
@@ -66,10 +66,8 @@ def payload_for(directory, plan, item, backend):
     initial = {key: {k: v for k, v in current["jobs"][key].items()
                      if k not in {"local_artifact", "download_error", "local_collected_at"}} for key in keys}
     payload = {"version": VERSION, "plan": plan, "initial_jobs": initial}
-    provisioner = getattr(backend, "provisioner", None)
-    if provisioner is not None:
-        payload["provisioning"] = {name: provisioner.start(binding["spec"])
-                                   for name, binding in plan["services"].items()}
+    if preparation is not None:
+        payload["provisioning"] = preparation
     return payload
 
 
@@ -90,10 +88,10 @@ def tick_shot(directory, item, backend, downloads, pool):
             if all(current["jobs"][job["key"]]["status"] in {"completed", "failed"} for job in jobs):
                 return sdk.collect_outputs(directory, backend, downloads, pool, item=item)
             provisioner = getattr(backend, "provisioner", None)
+            preparation = None
             if provisioner is not None:
-                cloud_key = provisioner.start()
-                for binding in plan["services"].values():
-                    provisioner.start(binding["spec"])
+                cloud_key = provisioner.start(batch=plan["hash"])
+                preparation = provisioner.batch_keys(plan["services"], plan["hash"])
                 readiness = provisioner.registry.get(cloud_key, {})
                 if readiness.get("status") == "failed":
                     for job in jobs:
@@ -111,8 +109,21 @@ def tick_shot(directory, item, backend, downloads, pool):
                 suffixes = (".png", ".jpg", ".jpeg", ".webp") if kind == "image" else (".mp4",)
                 if any((state.media_directory(directory) / (stem + suffix)).exists() for suffix in suffixes):
                     raise FileExistsError("Untracked output; refusing GPU submission")
-            payload = payload_for(directory, plan, item, backend)
-            receipt = {"id": run_id(plan, item), "payload_hash": intent_digest(payload), "status": "submitting"}
+            identity = run_id(plan, item)
+            if preparation:
+                groups = {}
+                for step in plan["jobs"]:
+                    if current["jobs"][step["key"]]["status"] in {"failed", "completed"}:
+                        continue
+                    service = sdk.adapters.CAPABILITIES[step["uses"]]["service"]
+                    members = groups.setdefault(service, {})
+                    members.setdefault(run_id(plan, step["item"]), []).append(step["key"])
+                if not provisioner.admit_batch(plan["services"], preparation, groups, identity):
+                    return
+            payload = payload_for(directory, plan, item, backend, preparation)
+            receipt = {"id": identity, "payload_hash": intent_digest(payload), "status": "submitting"}
+            if preparation:
+                receipt["provisioning"] = preparation
             save_receipt(directory, item, **receipt)
             try:
                 recorder = local_recorder(state.telemetry_directory(directory), task_id=f"{plan['project']}/{plan['scene']}")

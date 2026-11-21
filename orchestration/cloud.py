@@ -40,14 +40,20 @@ def run(payload, identity, *, backend=None, root=Path("/mnt/modal"), timeout=850
         writer = backend.recorder.writer
         scheduler_manifest = writer.reference() if writer is not None else None
 
+        payload_hash = intent_digest(payload)
+        last_committed = None
+
         def checkpoint(directory):
+            nonlocal last_committed
             current = sdk.snapshot(directory)[1]
-            record = {"version": VERSION, "payload_hash": intent_digest(payload),
+            record = {"version": VERSION, "payload_hash": payload_hash,
                       "status": workflow_status, "jobs": current["jobs"]}
             if workflow_status != "running" and scheduler_manifest:
                 record["telemetry"] = scheduler_manifest
-            state.save(destination, record)
-            backend.volume.commit()
+            if record != last_committed:
+                state.save(destination, record)
+                backend.volume.commit()
+                last_committed = record
 
         backend.checkpoint = checkpoint
         try:
@@ -68,17 +74,12 @@ def run(payload, identity, *, backend=None, root=Path("/mnt/modal"), timeout=850
         finally:
             # Scheduler events have their own discoverable manifest, including failures.
             try:
-                checkpoint(directory)
-                writer = backend.recorder.writer
                 if writer is not None:
                     try:
-                        manifest = writer.publish(scheduler_manifest)
-                        current = sdk.snapshot(directory)[1]
-                        state.save(destination, {"version": VERSION, "payload_hash": intent_digest(payload),
-                                   "status": workflow_status, "jobs": current["jobs"], "telemetry": manifest})
-                        backend.volume.commit()
+                        scheduler_manifest = writer.publish(scheduler_manifest)
                     except Exception:
-                        pass  # Optional evidence must not change completed generation.
+                        pass  # Keep the original manifest reference on telemetry failure.
+                checkpoint(directory)
             finally:
                 backend.checkpoint = None
                 if writer is not None:

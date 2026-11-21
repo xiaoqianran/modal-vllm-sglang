@@ -158,11 +158,15 @@ def snapshot(directory):
 def update(directory, key, *, checkpoint=None, **changes):
     with state.lock(directory, timeout=10):
         current = read_json(directory / "state.json")
-        current["jobs"][key].update(changes)
-        if changes.get("status") in {"completed", "failed"}:
-            current["jobs"][key].setdefault("finished_at", utc_now())
-        state.save(directory / "state.json", current)
-    state.record_event(directory, key, changes)
+        record = current["jobs"][key]
+        if changes.get("status") in {"completed", "failed"} and "finished_at" not in record:
+            changes.setdefault("finished_at", utc_now())
+        changed = any(field not in record or record[field] != value for field, value in changes.items())
+        if changed:
+            record.update(changes)
+            state.save(directory / "state.json", current)
+    if changed:
+        state.record_event(directory, key, changes)
     if checkpoint is not None:
         checkpoint(directory)
 
