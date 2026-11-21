@@ -1,0 +1,44 @@
+{
+  "version": 1,
+  "name": "008-before-rain-stops-4k",
+  "project": "008-before-rain-stops-4k",
+  "scene": "001-main",
+  "workflow": "moss-t2i",
+  "params": {
+    "size": "3840x2160",
+    "num_inference_steps": 50,
+    "guidance_scale": 3
+  },
+  "items": [
+    {
+      "id": "001",
+      "seed": 260821,
+      "prompt": "The SAME fictional 21-year-old Japanese female university student throughout the series: delicate oval face with a small beauty mark under the left eye, warm dark-brown eyes, straight long black hair with soft wispy bangs, natural skin texture and nearly invisible makeup. Live-action Japanese and Korean romance film still, believable human anatomy, fine hair strands, realistic fabric texture, natural green and cream color palette, tender restrained emotion, soft highlight roll-off, 35mm film aesthetics, realistic photographic optics, sophisticated natural color grading, absolutely no CGI, no anime, no illustration, no text, no watermark. Spring reunion, opening wide shot. University campus walkway in Kyoto in late April, pale cherry blossoms and fresh emerald tree foliage, early golden-hour morning. The heroine wears an ivory cardigan over a pale blue blouse and a dark navy pleated long skirt, holding two paperback books against her chest, walking slowly toward camera. She stops and sees someone familiar just outside the right edge of the frame; a tiny uncertain smile appears. Cinematic medium-wide shot at eye-level, heroine placed on left third, deep campus walkway vanishing into verdant distance, foreground blossoms framing face, gentle backlight, quiet nostalgic mood."
+    },
+    {
+      "id": "002",
+      "seed": 260822,
+      "prompt": "The SAME fictional 21-year-old Japanese female university student throughout the series: delicate oval face with a small beauty mark under the left eye, warm dark-brown eyes, straight long black hair with soft wispy bangs, natural skin texture and nearly invisible makeup. Live-action Japanese and Korean romance film still, believable human anatomy, fine hair strands, realistic fabric texture, natural green and cream color palette, tender restrained emotion, soft highlight roll-off, 35mm film aesthetics, realistic photographic optics, sophisticated natural color grading, absolutely no CGI, no anime, no illustration, no text, no watermark. Quiet longing, interior medium close shot. Old university library beside a large wood-framed window as afternoon rain is approaching. SAME heroine, same ivory cardigan, pale blue blouse and navy long skirt, seated by the window with a worn notebook, touching a faded photograph with one hand. Outside, wet ivy and green ginkgo leaves are softly blurred; her reflection is faintly visible in the glass. Her expression becomes contemplative and guarded. Natural window key light, subdued shadow side, realistic skin and micro-expressions, intimate 50mm lens framing, calm melancholic cinematic mood."
+    },
+    {
+      "id": "003",
+      "seed": 260823,
+      "prompt": "The SAME fictional 21-year-old Japanese female university student throughout the series: delicate oval face with a small beauty mark under the left eye, warm dark-brown eyes, straight long black hair with soft wispy bangs, natural skin texture and nearly invisible makeup. Live-action Japanese and Korean romance film still, believable human anatomy, fine hair strands, realistic fabric texture, natural green and cream color palette, tender restrained emotion, soft highlight roll-off, 35mm film aesthetics, realistic photographic optics, sophisticated natural color grading, absolutely no CGI, no anime, no illustration, no text, no watermark. Turning point, railway crossing. In a quiet Japanese seaside town at late afternoon, the crossing barrier is down and a commuter train has just passed. SAME heroine, now wearing a cream cotton summer dress and light sage cardigan, standing in front of the raised crossing. Opposite her, at a respectful distance, stands an attractive 22-year-old Japanese man in a white linen shirt with a navy backpack, his face partially seen in profile. She recognizes him, stunned, with her hand half raised. Strong leading lines of tracks, soft sea breeze moving her hair, sea-glass greens, realistic town textures, 35mm cinematic two-shot."
+    },
+    {
+      "id": "004",
+      "seed": 260824,
+      "prompt": "The SAME fictional 21-year-old Japanese female university student throughout the series: delicate oval face with a small beauty mark under the left eye, warm dark-brown eyes, straight long black hair with soft wispy bangs, natural skin texture and nearly invisible makeup. Live-action Japanese and Korean romance film still, believable human anatomy, fine hair strands, realistic fabric texture, natural green and cream color palette, tender restrained emotion, soft highlight roll-off, 35mm film aesthetics, realistic photographic optics, sophisticated natural color grading, absolutely no CGI, no anime, no illustration, no text, no watermark. Unspoken affection, medium two shot in light rainfall. SAME heroine in cream cotton dress and sage cardigan stands under a single transparent umbrella with the SAME 22-year-old Japanese male lead in white linen shirt, in a quiet tree-lined lane beside the sea. Their shoulders nearly touch but they do not kiss; she averts her eyes with a vulnerable half smile while he gently angles the umbrella to protect her from rain. Fine raindrops sharply visible against warm storefront bokeh, wet leaves and moss, natural subdued pastel colors, authentic restrained performances, realistic umbrella perspective, cinematic 50mm shallow depth of field."
+    },
+    {
+      "id": "005",
+      "seed": 260825,
+      "prompt": "The SAME fictional 21-year-old Japanese female university student throughout the series: delicate oval face with a small beauty mark under the left eye, warm dark-brown eyes, straight long black hair with soft wispy bangs, natural skin texture and nearly invisible makeup. Live-action Japanese and Korean romance film still, believable human anatomy, fine hair strands, realistic fabric texture, natural green and cream color palette, tender restrained emotion, soft highlight roll-off, 35mm film aesthetics, realistic photographic optics, sophisticated natural color grading, absolutely no CGI, no anime, no illustration, no text, no watermark. Confession, emotional climax. SAME heroine in cream cotton dress and sage cardigan faces the SAME young man on a nearly empty coastal train platform at sunset. Her eyes glisten with tears as she finally expresses her feelings; the man is seen softly out of focus over her shoulder. Track and coastal horizon visible, distant waves, weathered wooden station building, gold rim light on her loose hair, delicate wind through the pale fabric. Close-up over-the-shoulder composition focused on natural micro-expression, realistic tear reflections, emotionally honest Japanese romantic film still, subtle warm and mint-green palette."
+    },
+    {
+      "id": "006",
+      "seed": 260826,
+      "prompt": "The SAME fictional 21-year-old Japanese female university student throughout the series: delicate oval face with a small beauty mark under the left eye, warm dark-brown eyes, straight long black hair with soft wispy bangs, natural skin texture and nearly invisible makeup. Live-action Japanese and Korean romance film still, believable human anatomy, fine hair strands, realistic fabric texture, natural green and cream color palette, tender restrained emotion, soft highlight roll-off, 35mm film aesthetics, realistic photographic optics, sophisticated natural color grading, absolutely no CGI, no anime, no illustration, no text, no watermark. Hopeful resolution, closing wide shot. SAME heroine in cream dress and sage cardigan walks hand in hand with the SAME young man in white linen shirt on a green coastal hillside path early next morning. They are seen from behind in a wide environmental shot, not facing camera; their linked hands are clearly visible and naturally proportioned. Tiny white wildflowers, fresh green grasses, blue ocean and a faraway small railway line, soft morning sun breaking through mist. Serene new beginning, deliberate composition with generous sky and negative space, realistic landscape perspective, graceful motion in garments, subtle cinematic film grain, no excessive saturation."
+    }
+  ]
+}
