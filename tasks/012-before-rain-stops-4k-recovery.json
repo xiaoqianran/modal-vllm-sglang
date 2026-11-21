@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "name": "012-before-rain-stops-4k-recovery",
+  "project": "012-before-rain-stops-4k-recovery",
+  "scene": "001-main",
+  "workflow": "moss-t2i",
+  "params": {
+    "size": "3840x2160",
+    "num_inference_steps": 50,
+    "guidance_scale": 3
+  },
+  "items": [
+    {
+      "id": "002",
+      "seed": 260822,
+      "prompt": "The SAME fictional 21-year-old Japanese female university student throughout the series: delicate oval face with a small beauty mark under the left eye, warm dark-brown eyes, straight long black hair with soft wispy bangs, natural skin texture and nearly invisible makeup. Live-action Japanese and Korean romance film still, believable human anatomy, fine hair strands, realistic fabric texture, natural green and cream color palette, tender restrained emotion, soft highlight roll-off, 35mm film aesthetics, realistic photographic optics, sophisticated natural color grading, absolutely no CGI, no anime, no illustration, no text, no watermark. Quiet longing, interior medium close shot. Old university library beside a large wood-framed window as afternoon rain is approaching. SAME heroine, same ivory cardigan, pale blue blouse and navy long skirt, seated by the window with a worn notebook, touching a faded photograph with one hand. Outside, wet ivy and green ginkgo leaves are softly blurred; her reflection is faintly visible in the glass. Her expression becomes contemplative and guarded. Natural window key light, subdued shadow side, realistic skin and micro-expressions, intimate 50mm lens framing, calm melancholic cinematic mood."
+    },
+    {
+      "id": "004",
+      "seed": 260824,
+      "prompt": "The SAME fictional 21-year-old Japanese female university student throughout the series: delicate oval face with a small beauty mark under the left eye, warm dark-brown eyes, straight long black hair with soft wispy bangs, natural skin texture and nearly invisible makeup. Live-action Japanese and Korean romance film still, believable human anatomy, fine hair strands, realistic fabric texture, natural green and cream color palette, tender restrained emotion, soft highlight roll-off, 35mm film aesthetics, realistic photographic optics, sophisticated natural color grading, absolutely no CGI, no anime, no illustration, no text, no watermark. Unspoken affection, medium two shot in light rainfall. SAME heroine in cream cotton dress and sage cardigan stands under a single transparent umbrella with the SAME 22-year-old Japanese male lead in white linen shirt, in a quiet tree-lined lane beside the sea. Their shoulders nearly touch but they do not kiss; she averts her eyes with a vulnerable half smile while he gently angles the umbrella to protect her from rain. Fine raindrops sharply visible against warm storefront bokeh, wet leaves and moss, natural subdued pastel colors, authentic restrained performances, realistic umbrella perspective, cinematic 50mm shallow depth of field."
+    }
+  ]
+}
