@@ -51,4 +51,4 @@ Pika 原有 `download_model.py` 仍可独立使用，作为人工恢复路径；
 
 离线模拟测试覆盖三仓库计划、固定版本、拒绝额外联网请求、失败保留旧标记及现有推理路径。
 未在此次改动后运行 Pika 273+ GiB 的云端全量下载、真实 SGLang 物化及 GPU 推理；云端是否支持全部文件链接/符号链接和运行镜像中的 SGLang Overlay API 需要专项实测。
-`lmsysorg/sglang:dev` 是可变镜像标签：后续生产部署应固定经过真实验证的镜像 digest。
+`lmsysorg/sglang:dev` 是可变镜像标签。当前本地 Pika 配置已固定 Docker Hub 于 2026-11-21 查询得到的 digest，但尚未通过新镜像的远程 GPU 推理验证；在远程任务空闲并验收成功前，不应将该 digest 视为已验证的生产基线。详见 [镜像构建策略](image-build-policy.md)。

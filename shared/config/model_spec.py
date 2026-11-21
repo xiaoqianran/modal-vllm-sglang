@@ -54,8 +54,10 @@ def validate(spec):
     for key in ("service", "operation"):
         if not isinstance(spec[key], str) or not IDENTIFIER.fullmatch(spec[key]):
             raise ValueError(f"Invalid model {key}")
-    if spec["kind"] not in {"image", "video"}:
-        raise ValueError("kind must be image or video")
+    if spec["kind"] not in {"image", "video", "llm"}:
+        raise ValueError("kind must be image, video or llm")
+    if spec["kind"] == "llm" and spec["operation"] != "chat":
+        raise ValueError("LLM only supports chat")
     for key in ("model", "revision", "image"):
         if not isinstance(spec[key], str) or not spec[key].strip():
             raise ValueError(f"Missing {key}")
@@ -95,6 +97,10 @@ def validate(spec):
         raise ValueError("env must map strings to strings")
     if not isinstance(spec.get("build_commands", []), list) or not all(isinstance(v, str) for v in spec.get("build_commands", [])):
         raise ValueError("build_commands must be a string list")
+    if (not isinstance(spec.get("uv_packages", []), list)
+            or not all(isinstance(v, str) and v.strip() and not v.startswith("-")
+                       for v in spec.get("uv_packages", []))):
+        raise ValueError("uv_packages must be a list of nonempty package requirements")
     if spec.get("proxy_port") == spec.get("port", 8000):
         raise ValueError("Proxy and engine must use distinct ports")
     if "proxy_port" not in spec and spec.get("port", 8000) == 65535:
@@ -167,6 +173,8 @@ def discover(root=ROOT):
     result = {}
     for path in sorted(Path(root).glob("*/model.json")):
         spec = validate(read_json(path))
+        if spec["kind"] == "llm":
+            continue
         for operation in operations(spec):
             key = f"{spec['service']}.{operation}"
             if key in result:

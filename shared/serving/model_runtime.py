@@ -35,7 +35,8 @@ def build_image(spec, *, offline):
         env.update(HF_HUB_OFFLINE="1", TRANSFORMERS_OFFLINE="1")
     else:
         env.update(HF_HUB_OFFLINE="0", TRANSFORMERS_OFFLINE="0")
-    return runtime_image(spec["image"], env=env, commands=spec.get("build_commands", ()))
+    return runtime_image(spec["image"], env=env, commands=spec.get("build_commands", ()),
+                         uv_packages=spec.get("uv_packages", ()))
 
 
 def create_app(config_path):

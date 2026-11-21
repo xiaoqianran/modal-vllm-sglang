@@ -6,14 +6,15 @@ import urllib.error
 import urllib.request
 
 
-def wait_for_health(process, url, *, timeout=900, interval=3, request_timeout=3):
+def wait_for_health(process, url, *, timeout=900, interval=3, request_timeout=3, headers=None):
     """Wait for HTTP 200, failing immediately when the engine dies."""
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if process is not None and process.poll() is not None:
             raise RuntimeError(f"Engine exited during startup: {process.returncode}")
         try:
-            with urllib.request.urlopen(url, timeout=request_timeout) as response:
+            request = urllib.request.Request(url, headers=headers) if headers else url
+            with urllib.request.urlopen(request, timeout=request_timeout) as response:
                 if response.status == 200:
                     return
         except (urllib.error.URLError, TimeoutError, OSError):

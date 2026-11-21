@@ -16,8 +16,8 @@
   "kind": "image",
   "model": "MiniMaxAI/MiniMax-H3-Image",
   "image": "lmsysorg/sglang@sha256:7d2f322fbe8eda16ee65f969f8c9c2be602ecb0a29bf3c8b219945432f3992b2",
-  "build_commands": [
-    "python -m pip install 'sglang[diffusion] @ git+https://github.com/sgl-project/sglang.git@a9d721f36e16dab1835de0203b620256da1e612d#subdirectory=python'"
+  "uv_packages": [
+    "sglang[diffusion] @ git+https://github.com/sgl-project/sglang.git@a9d721f36e16dab1835de0203b620256da1e612d#subdirectory=python"
   ],
   "command": [
     "sglang",
@@ -34,7 +34,7 @@
     "off"
   ],
   "defaults": {
-    "size": "2048x2048",
+    "size": "2048x1152",
     "num_inference_steps": 6,
     "generator_device": "cpu",
     "response_format": "b64_json"

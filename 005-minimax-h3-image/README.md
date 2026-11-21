@@ -1,6 +1,6 @@
 # MiniMax H3 Image
 
-SGLang；独立下载 image 与 encoder，固定 6 步，默认 2048×2048。 模型参数、资源与启动命令统一写在 model.json。
+SGLang；独立下载 image 与 encoder，固定 6 步，默认 2048×1152（2k 长边，16:9）。 模型参数、资源与启动命令统一写在 model.json。
 模型目录只保留 app.py 和 download_model.py 两个操作入口，业务任务统一交给 orchestration。
 
 从仓库根目录执行：

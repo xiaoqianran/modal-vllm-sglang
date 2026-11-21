@@ -169,6 +169,11 @@ def command_argv(spec, paths):
         for key, value in values.items():
             arg = arg.replace("{" + key + "}", value)
         if "{" in arg or "}" in arg:
-            raise ValueError(f"Unknown command placeholder: {arg}")
+            try:
+                structured = json.loads(arg)
+            except (ValueError, TypeError):
+                raise ValueError(f"Unknown command placeholder: {arg}") from None
+            if not isinstance(structured, dict):
+                raise ValueError(f"Unknown command placeholder: {arg}")
         argv.append(arg)
     return argv

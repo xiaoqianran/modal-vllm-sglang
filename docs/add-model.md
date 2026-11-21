@@ -22,7 +22,7 @@ uv run python scripts/new_model.py --directory 006-example-image --service examp
 | --- | --- |
 | service / operation / kind | 服务 ID、默认能力、image 或 video |
 | model / revision | 必填：仓库与版本；revision 支持 commit、分支（如 main）或标签，推荐固定完整 commit |
-| image / build_commands | 引擎镜像和可选镜像构建命令 |
+| image / uv_packages / build_commands | 推荐固定引擎镜像 digest；Python 依赖优先使用可选 `uv_packages`（Modal 自动提供 uv），非 Python 构建操作才使用 `build_commands` |
 | command | 引擎 argv，支持 {model}、{model_path}、{port}、{encoder_path} 等组件占位符 |
 | defaults / options | 选填，省略分别等于 {}：默认请求参数、允许调整的参数与校验规则 |
 | operations | 多能力的输入与默认值覆盖；参考 Pika t2va/fl2va |

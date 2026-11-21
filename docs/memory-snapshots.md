@@ -1,6 +1,6 @@
 # 通用 GPU 内存快照
 
-公共 `shared/serving/model_runtime.py` 为所有引擎提供相同生命周期，无模型名称分支。
+媒体服务的公共 `shared/serving/model_runtime.py` 提供统一快照生命周期，无模型名称分支。
 MOSS、Pika、MiniMax 及新模型模板使用 `"memory_snapshot": "gpu"`；
 设为 `"off"` 可回退到普通初始化。旧配置省略此项时仍为 off。
 三个模型的 `scaledown_window` 保留 30 秒，`min_containers` 保留 0。
@@ -53,3 +53,29 @@ GPU 驱动兼容性、快照恢复成功或实际加速。
 
 参考：[Modal 快照文档](https://modal.com/docs/guide/memory-snapshots)、
 [官方 SGLang 示例](https://modal.com/docs/examples/sglang_snapshot)。
+
+## Qwen3.8-27B + Pi LoRA 冷启动实测（2026-11-21）
+
+在独立 Modal 测试端点使用单张 RTX PRO 6000、vLLM 0.34.0、未量化 BF16 基座和同一 Pi LoRA。
+客户端就绪时间从发出请求算到 `/v1/models` 返回。热态生成速度取同一提示模板下两次热请求的中位数，
+每次输出 256 token，首 token 等待单独计时。130K 长上下文是独立的功能测试。
+
+| 测试方案 | 客户端等到模型可用 | 热态生成速度 |
+| --- | ---: | ---: |
+| 对照组 | 223.7 秒 | 22.8 token/s |
+| 关闭 FlashInfer 自动调优 | 212.4 秒 | 22.8 token/s |
+| Fast Boot（关闭调优并启用 `--enforce-eager`） | 203.5 秒 | 22.9 token/s |
+| GPU Snapshot 恢复 | 29.8 秒 | 23.2 token/s |
+
+快照组首次创建并就绪约 203 秒。Sleep Mode level 1 将约 50.7 GiB 权重转存到 CPU，测试容器配置了 96 GiB 主存。
+原容器缩到零后，新容器的 Modal 日志出现 `Restoring Function from memory snapshot`，并唤醒同一个捕获 ID。
+vLLM 唤醒步骤约 1.4 秒，29.8 秒是客户端端到端时间。恢复后，LoRA 流式聊天、130,034 输入 token 的请求，
+以及 Pi 读取测试文件并把工具结果交回模型均通过。
+
+以上是单轮对照，并行读取权重存在波动。Fast Boot 本轮就绪快约 20 秒，但首次流式请求的首 token 等待从约 0.9 秒增至约 3.0 秒，暂不设为默认。
+GPU Snapshot 的收益主要体现在首次可用时间，几个方案的热态单请求生成速度接近。
+
+临时测试 App 已停止，正式端点仍以 `memory_snapshot: off` 运行。后续可在独立的
+[`llm_runtime.py`](../shared/serving/llm_runtime.py) 里加入可选的 Snapshot + Sleep Mode 生命周期，
+多次缩到零后复测恢复时间、LoRA、SSE、Pi 工具调用及长上下文，再考虑启用。
+参考：[Modal 官方 vLLM 快照实现](https://github.com/modal-labs/modal-examples/blob/main/06_gpu_and_ml/llm-serving/ministral3_inference.py)。

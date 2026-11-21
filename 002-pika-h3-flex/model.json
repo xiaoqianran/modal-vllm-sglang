@@ -14,7 +14,7 @@
   "operation": "t2va",
   "kind": "video",
   "model": "Pika-Labs/Pika-H3-Flex",
-  "image": "lmsysorg/sglang:dev",
+  "image": "lmsysorg/sglang@sha256:56e4024e21c35266192fd4c3313f39960156fcee1bee6aa8aab293e65131d838",
   "proxy_port": 30020,
   "frame_transport": "keyframes",
   "command": [
