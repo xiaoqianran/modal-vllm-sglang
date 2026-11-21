@@ -5,6 +5,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 from orchestration.provisioning import Provisioner, key_for, model_paths, model_source_version, source_version
+from orchestration.deployment_state import classify_error
 from orchestration.leases import Lease
 from shared.config.model_spec import validate
 from shared.utils.files import atomic_json
@@ -118,6 +119,19 @@ class ProvisioningTests(unittest.TestCase):
                 p.prepare(validate(SPEC), "key")
             p.command.assert_not_called()
             self.assertEqual(p.registry["key"]["status"], "ready")
+
+    def test_rolling_deployment_waits_for_version_convergence(self):
+        p = self.provisioner(Path("unused.json"))
+        p.deployed = Mock(side_effect=[False, False, True])
+        with patch("orchestration.provisioning.time.sleep") as sleep:
+            self.assertTrue(p.wait_deployed("model", "v2", timeout=15, interval=1))
+        self.assertEqual(p.deployed.call_count, 3)
+        self.assertEqual(sleep.call_count, 2)
+
+    def test_version_verification_failure_is_not_redeployed_blindly(self):
+        result = classify_error(RuntimeError("Deployment version verification failed after rollout wait"))
+        self.assertEqual(result["error_code"], "deployment_verification")
+        self.assertFalse(result["retryable"])
 
     def test_changed_sources_fail_before_any_cloud_deployment(self):
         with tempfile.TemporaryDirectory() as temp:

@@ -156,6 +156,16 @@ class Provisioner:
             return False
         return info == version
 
+    def wait_deployed(self, app, version, *, timeout=90, interval=3):
+        """A rolling deployment may resolve the previous version briefly."""
+        deadline = time.monotonic() + timeout
+        while True:
+            if self.deployed(app, version):
+                return True
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(interval)
+
     def prepare(self, spec, key):
         # Atomic shared claim prevents two hosts mutating the same app/cache.
         app = APP_NAME if spec is None else spec.get("app_name", "modal-model-" + spec["service"])
@@ -216,8 +226,10 @@ class Provisioner:
                                 self.command("deploy", "orchestration/cloud_app.py" if spec is None else
                                              "orchestration/provision_entry.py", **env,
                                              MODEL_PREPARE="0", MODEL_DEPLOY_VERSION=version)
-                    if not self.deployed(app, version):
-                        raise RuntimeError("Deployment version verification failed")
+                    if not self.wait_deployed(app, version):
+                        # Do not immediately redeploy the same version again:
+                        # the rollout may still be settling or require review.
+                        raise RuntimeError("Deployment version verification failed after rollout wait")
                     self.assert_sources_unchanged(spec, base_version)
                     self.publish(key, {"status": "ready", "version": version, "error": None,
                                        "last_failed_stage": None,

@@ -10,13 +10,18 @@ from shared.serving.modal_setup import model_volume
 from shared.tasks.batch import intent_digest
 
 root = Path(__file__).resolve().parents[1]
-image = modal.Image.debian_slim(python_version="3.12").pip_install("modal>=1.6.3,<2").env({"PYTHONPATH": "/opt"})
+deployment_version = os.environ.get("MODEL_DEPLOY_VERSION", "manual")
+# The cloud app also includes local orchestration files mounted copy=False.
+# Keep its deployment fingerprint in the image to prevent a silent skipped
+# deployment when source-version metadata changes but Python entrypoints do not.
+image = (modal.Image.debian_slim(python_version="3.12")
+         .pip_install("modal>=1.6.3,<2")
+         .env({"PYTHONPATH": "/opt", "MODEL_DEPLOY_VERSION": deployment_version}))
 image = image.add_local_dir(str(root / "shared"), "/opt/shared", copy=False)
 image = image.add_local_dir(str(root / "orchestration"), "/opt/orchestration", copy=False)
 for config in root.glob("*/model.json"):
     image = image.add_local_file(str(config), "/opt/" + config.relative_to(root).as_posix(), copy=False)
 app = modal.App(APP_NAME)
-deployment_version = os.environ.get("MODEL_DEPLOY_VERSION", "manual")
 
 
 def make_provision_info(version):

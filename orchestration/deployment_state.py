@@ -61,6 +61,10 @@ def model_source_version(spec, root=ROOT):
 
 def classify_error(error, stage=None):
     name, text = type(error).__name__, str(error)
+    if "Deployment version verification failed" in text:
+        # Deployment was already requested. Blind replay can interrupt other
+        # jobs and create repeated remote versions; require explicit review.
+        return {"error_code": "deployment_verification", "retryable": False, "failed_stage": stage}
     if isinstance(error, ValueError) or "configuration" in text.lower() or "Sources changed" in text:
         return {"error_code": "configuration", "retryable": False, "failed_stage": stage}
     if any(word in name.lower() for word in ("auth", "permission", "secret", "invalid")):
