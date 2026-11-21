@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "name": "017-minimax-campus-4k-test",
+  "workflow": "minimax-t2i",
+  "render": {
+    "aspect_ratio": "16:9",
+    "resolution": "4k"
+  },
+  "items": [
+    {
+      "id": "001",
+      "seed": 42,
+      "prompt": "A single photorealistic cinematic still from a contemporary university romance, composed as a horizontal 16:9 frame. An early-autumn campus walkway runs diagonally from the lower left toward a pale stone library in the far background. On the left third of the frame, a 19-year-old woman with shoulder-length dark hair wears an ivory knit cardigan over a white shirt and a long muted sage-green skirt; she holds one closed cream notebook against her chest with both hands. On the right third, a 20-year-old man with short dark hair wears a pale blue cotton shirt and dark charcoal trousers; he stands three steps away, facing slightly toward her, holding a single folded timetable by his side. Their eyes meet in a fleeting, tentative smile, neither person touching the other. An unobstructed center walkway preserves the space between them. Eye-level medium-wide shot, natural 35mm photographic perspective, believable human proportions, accurately placed hands, subtle fabric creases, and authentic campus architecture. Late afternoon sunlight passes through dense green ginkgo leaves and illuminates their faces from the same direction; soft contact shadows fall on the pavement. Fresh green foliage, warm pale stone, muted ivory and gentle amber light, realistic skin texture, nuanced expressions, shallow but not excessive depth of field, restrained film color grading. A quiet, sincere feeling of a first encounter. No cyberpunk aesthetics, neon, dramatic spotlights, additional prominent people, collages or overlays. The image contains no text, letters or numbers."
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "name": "007-natural-dreamcore",
+  "workflow": "moss-t2i",
+  "render": {
+    "aspect_ratio": "1:1",
+    "resolution": "1k"
+  },
+  "items": [
+    {
+      "id": "001",
+      "seed": 42017,
+      "prompt": "A dreamlike yet photorealistic summer meadow that seems to stretch beyond the horizon, seen from a quiet eye-level vantage point. An old freestanding ivory-white wooden door stands slightly ajar among waist-high emerald grass, delicate white cosmos flowers and tiny pale yellow wildflowers; beyond the doorway is only a continuation of the same impossibly beautiful meadow. A narrow irregular path of flattened grass leads toward the door, creating subtle visual depth and an uncanny sense of childhood nostalgia. Soft late-afternoon sunlight filters through translucent clouds; a vast pale mint-blue sky fills the upper half of the frame, with faint golden haze near the horizon. Verdant natural colors, dreamy gentle atmosphere, understated surrealism, delicate botanical detail, believable wood grain and grass textures, elegant restrained composition, film-like tonal gradation. The scene is peaceful and inviting rather than frightening. No people, no buildings other than the solitary door, no text, no logos, no neon, no cyberpunk aesthetics."
+    },
+    {
+      "id": "002",
+      "seed": 42018,
+      "prompt": "An ethereal natural landscape captured as a photorealistic cinematic still: a small antique glass greenhouse covered with climbing vines and ferns sits on a gently sloping mossy peninsula above an extraordinarily clear turquoise alpine lake. Beyond the lake, misty forested mountains recede into luminous pale-blue distance; clouds cast soft shadows across the water, and the greenhouse windows reflect the quiet morning sky. The composition leads the eye from lush close-up clover and wet grasses in the foreground to the delicate greenhouse at center and the immense peaceful landscape behind it. Soft diffuse morning light, floating wisps of mist, botanical greens, subtle pastel cyan, realistic glass reflections, delicate atmospheric perspective, beautifully balanced negative space. A faint impossible feeling, as though this place exists in a half-remembered dream, yet every natural texture feels tangible and authentic. Calm, tender, restorative mood. No people, no text, no artificial neon lighting, no futuristic or cyberpunk structures."
+    },
+    {
+      "id": "003",
+      "seed": 42019,
+      "prompt": "A tranquil abandoned single-track countryside railway disappearing into a dense green forest, dreamcore landscape photography with a subtle surreal sense of eternity. The weathered rails and moss-covered wooden sleepers form precise leading lines from the bottom center toward a distant bend hidden by trees. Tall leafy branches create a soft green canopy, pale pink flowering trees punctuate the forest edge, and warm sunlight breaks through the foliage in delicate shafts, illuminating suspended morning mist. A few tiny white flowers grow between the sleepers and soft grass gently reclaims the tracks. The scene feels like a beautiful forgotten summer memory, peaceful, wistful and intimate, with no danger or decay. Rich but restrained emerald and sage greens, muted cream highlights, delicate blush-pink blossoms, realistic natural detail, cinematic depth and soft film texture, highly coherent perspective, minimal visual clutter. No train, no people, no signage, no text, no logos, no neon or cyberpunk elements."
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "name": "019-minimax-official-16x9-5k-test",
+  "workflow": "minimax-t2i",
+  "params": {
+    "size": "5472x3072"
+  },
+  "items": [
+    {
+      "id": "001",
+      "seed": 42,
+      "prompt": "A peaceful early-autumn campus arcade at the instant a loose blank ivory note slips from the heroine's notebook. She stands in the right foreground, fingertips still holding the open notebook. The hero stands two paces away at screen left, bending slightly to catch the single falling sheet with his right hand; his left hand holds his backpack strap. Their eyes unexpectedly meet over the drifting paper. The ground beneath both figures is visible, and their hands do not overlap. Tall ginkgo trees frame a pale limestone library through the arches. Light enters from upper left, producing coherent diagonal shadows. Eye-level medium-wide camera, restrained 35mm-lens perspective, generous airy space between them. A single finished cinematic photograph from an original contemporary East Asian university romance, composed on a wide horizontal 16:9 image. Exactly two recurring protagonists, clearly 19 and 20 years old respectively: the woman has a softly oval face, dark brown eyes, straight shoulder-length black hair with a left-side part, and wears an ivory textured knit cardigan over a white cotton blouse, a flowing muted sage-green midi skirt and simple white flats; the man has a slender angular face, warm dark eyes, short neat black hair, and wears an unpatterned pale-blue cotton shirt, charcoal straight-leg trousers, off-white sneakers, and a washed-beige canvas backpack. Keep these identifying visual details identical across the sequence. A restrained naturalistic film aesthetic with gentle emerald and pale-sage foliage, realistic East Asian campus limestone architecture, perceptible skin pores, tactile knit and cotton fibers, correct contact shadows, natural anatomy and believable hands; optical depth of field should never hide the important interaction. No neon, cyberpunk, fantasy effects, beauty-filter skin, exaggerated bokeh, posters, logos, watermarks, additional prominent people or collage. The image contains no text, letters or numbers."
+    }
+  ]
+}

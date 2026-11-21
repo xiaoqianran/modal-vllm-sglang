@@ -2,12 +2,12 @@
   "version": 1,
   "name": "005-minimax-image-demo",
   "workflow": "minimax-t2i",
-  "render": {"aspect_ratio": "1:1", "resolution": "2k"},
+  "render": {"aspect_ratio": "16:9", "resolution": "2k"},
   "items": [
     {
       "id": "001",
       "seed": 42,
-      "prompt": "A red paper boat floating on a still mountain lake at sunrise. Soft golden light touches the folded paper, gentle ripples spread across the water, and distant pine-covered mountains fade into pale morning mist. A cinematic wide composition with realistic reflections and fine paper texture."
+      "prompt": "A cinematic photorealistic still frame from a gentle contemporary campus romance, composed for a widescreen 16:9 film frame. In the foreground on the right, a 19-year-old university student in a cream cardigan stands beside a quiet tree-lined walkway, holding a closed notebook, looking toward a 20-year-old student in a pale blue shirt standing several steps away on the left. They exchange a subtle, hesitant smile without touching. The middle ground reveals sunlit grass, a few scattered fallen leaves, and a softly blurred university building; the background recedes into lush green trees. Late-afternoon natural sunlight filters through leaves, creating delicate highlights on hair and realistic skin, soft shadows, warm ivory tones and fresh muted greens. Eye-level medium-wide camera framing, natural 35mm lens perspective, clear visual separation between the two subjects, accurate hands, natural anatomy, believable fabric texture, subtle film grain and restrained cinematic color grading. A peaceful, wistful atmosphere, with balanced negative space in the center. No cyberpunk elements, neon lights, artificial-looking skin, exaggerated beauty filters, collage, or graphic overlays. The image contains no text, letters or numbers."
     }
   ]
 }

@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "name": "013-minimax-campus-romance",
+  "workflow": "minimax-t2i",
+  "render": {
+    "aspect_ratio": "16:9",
+    "resolution": "2k"
+  },
+  "items": [
+    {
+      "id": "001",
+      "seed": 42,
+      "prompt": "A single photorealistic cinematic still from a contemporary university romance, composed as a horizontal 16:9 frame. An early-autumn campus walkway runs diagonally from the lower left toward a pale stone library in the far background. On the left third of the frame, a 19-year-old woman with shoulder-length dark hair wears an ivory knit cardigan over a white shirt and a long muted sage-green skirt; she holds one closed cream notebook against her chest with both hands. On the right third, a 20-year-old man with short dark hair wears a pale blue cotton shirt and dark charcoal trousers; he stands three steps away, facing slightly toward her, holding a single folded timetable by his side. Their eyes meet in a fleeting, tentative smile, neither person touching the other. An unobstructed center walkway preserves the space between them. Eye-level medium-wide shot, natural 35mm photographic perspective, believable human proportions, accurately placed hands, subtle fabric creases, and authentic campus architecture. Late afternoon sunlight passes through dense green ginkgo leaves and illuminates their faces from the same direction; soft contact shadows fall on the pavement. Fresh green foliage, warm pale stone, muted ivory and gentle amber light, realistic skin texture, nuanced expressions, shallow but not excessive depth of field, restrained film color grading. A quiet, sincere feeling of a first encounter. No cyberpunk aesthetics, neon, dramatic spotlights, additional prominent people, collages or overlays. The image contains no text, letters or numbers."
+    },
+    {
+      "id": "002",
+      "seed": 123,
+      "prompt": "A single photorealistic cinematic frame of a gentle university romance during a light spring rain, horizontal 16:9 composition. On a quiet campus path bordered by lush trees, a 20-year-old man with short dark hair, pale blue cotton shirt and charcoal trousers stands at screen left holding one transparent umbrella above himself and a 19-year-old woman standing beside him at screen right. She has shoulder-length dark hair, an ivory cardigan, white shirt and long muted sage-green skirt, and hugs a closed cream notebook close to her body. Both figures stand naturally under the same umbrella with their heads fully covered; the man's raised right hand grips the umbrella handle, the transparent canopy is centered above them, and the woman's hands remain visible around her notebook. They look at each other with subtle, believable affection. Medium-wide eye-level view, both figures visible from knees upward, a wet stone walkway with restrained reflections extending into soft-focus trees and a distant university building. Fine raindrops are visible against the foliage and umbrella, with overcast natural daylight and a delicate warm break in the clouds, dewy greens, pale gray sky and soft skin tones. Natural human anatomy, precisely defined fingers, convincing wet pavement, translucent umbrella material, realistic raindrop scale, delicate texture in fabric, cinematic 50mm lens rendering, modest background blur and gentle film grain. Tender, peaceful, grounded, never melodramatic. No neon, artificial skin smoothing, extreme poses, crowds, graphics or watermarks. The image contains no text, letters or numbers."
+    },
+    {
+      "id": "003",
+      "seed": 314,
+      "prompt": "A single photorealistic cinematic still of a quiet farewell on a university campus at sunset, composed as a horizontal 16:9 widescreen film frame. A tree-lined walkway stretches toward a low cream-colored teaching building in the background. On the left, a 19-year-old woman with shoulder-length dark hair, wearing an ivory cardigan, white shirt and long muted sage-green skirt, stands holding a closed cream notebook at waist level. On the right, a 20-year-old man in a pale blue cotton shirt and charcoal trousers stands about two meters away, his body angled as if he has just turned back to look at her. They share a restrained, slightly wistful smile across the clear, empty center of the walkway; no physical contact. Eye-level wide shot, both full bodies visible with anatomically natural posture, hands and feet clearly resolved and in contact with the ground. Soft amber sunlight enters from camera right, filtering through deep green leaves, casting elongated coherent shadows toward screen left. A few fallen leaves rest on the path; layered trees and the distant campus façade create a believable depth of field. Natural skin texture, subtle emotion, crisp cloth weave, gentle lens bloom only around strong sunlight, delicate analog-film grain, muted green-and-gold palette, realistic cinematic photography rather than illustration. An understated closing scene with room for the viewer to imagine what comes next. No cyberpunk, saturated neon, dramatic special effects, decorative writing, collage or watermark. The image contains no text, letters or numbers."
+    }
+  ]
+}
