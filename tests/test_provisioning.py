@@ -40,6 +40,7 @@ class ProvisioningTests(unittest.TestCase):
         p.version = "source"
         p.paths = {"example": path}
         p.command = Mock()
+        p.command_benchmark = Mock()
         p.deployed = Mock(side_effect=[False, True])
         return p
 
@@ -82,16 +83,16 @@ class ProvisioningTests(unittest.TestCase):
             path = Path(temp) / "model.json"
             atomic_json(path, SPEC)
             p = self.provisioner(path)
-            p.command.side_effect = RuntimeError("download failed")
+            p.command_benchmark.side_effect = RuntimeError("download failed")
             with patch("orchestration.provisioning.time.sleep"), \
                  patch("orchestration.provisioning.remote_cache_fingerprint",
                        side_effect=RuntimeError("Remote cache manifest missing")):
                 p.prepare(validate(SPEC), "key")
-            self.assertEqual(p.command.call_count, 1)
+            p.command_benchmark.assert_called_once_with(path)
             p.deployed.assert_not_called()
             self.assertEqual(p.registry["key"]["status"], "failed")
             self.assertEqual([s["stage"] for s in p.registry["key"]["stages"]],
-                             ["cache_check", "prepare_service"])
+                             ["cache_check", "weights"])
             self.assertTrue(all(stage["status"] == "failed" and stage["duration_ms"] >= 0 for stage in p.registry["key"]["stages"]))
 
     def test_command_writes_model_log_in_runtime_without_cloud_execution(self):
@@ -117,24 +118,41 @@ class ProvisioningTests(unittest.TestCase):
             p.command.assert_not_called()
             self.assertEqual(p.registry["key"]["status"], "ready")
 
-    def test_download_retry_reuses_named_service(self):
+    def test_overlay_success_uses_shared_benchmark_once(self):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "model.json"
-            atomic_json(path, SPEC)
+            overlay = {**SPEC, "cache": {"mode": "sglang_overlay"}}
+            atomic_json(path, overlay)
             p = self.provisioner(path)
-            p.backend.modal.Function.from_name.return_value.spawn.return_value.get.side_effect = [RuntimeError("network"), {}]
+            calls = 0
+
             def cache_check(*_args):
-                if p.backend.modal.Function.from_name.return_value.spawn.call_count < 2:
+                nonlocal calls
+                calls += 1
+                if calls == 1:
                     raise RuntimeError("Remote cache manifest missing")
                 return "weights"
+
             with patch("orchestration.provisioning.remote_cache_fingerprint", side_effect=cache_check), \
-                 patch("orchestration.provisioning.source_version", return_value="source"), \
-                 patch("orchestration.provisioning.time.sleep"):
-                p.prepare(validate(SPEC), "key")
-            self.assertEqual(p.command.call_count, 2)
-            self.assertTrue(all(c.args[0] == "deploy" for c in p.command.call_args_list))
-            self.assertEqual(p.backend.modal.Function.from_name.return_value.spawn.call_count, 2)
+                 patch("orchestration.provisioning.source_version", return_value="source"):
+                p.prepare(validate(overlay), "key")
+            p.command_benchmark.assert_called_once_with(path)
+            p.backend.modal.Function.from_name.assert_not_called()
             self.assertEqual(p.registry["key"]["status"], "ready")
+
+    def test_overlay_uncertain_external_failure_is_not_replayed(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "model.json"
+            overlay = {**SPEC, "cache": {"mode": "sglang_overlay"}}
+            atomic_json(path, overlay)
+            p = self.provisioner(path)
+            p.command_benchmark.side_effect = RuntimeError("network")
+            with patch("orchestration.provisioning.remote_cache_fingerprint",
+                       side_effect=RuntimeError("Remote cache manifest missing")), \
+                 patch("orchestration.provisioning.time.sleep"):
+                p.prepare(validate(overlay), "key")
+            p.command_benchmark.assert_called_once_with(path)
+            self.assertEqual(p.registry["key"]["status"], "failed")
 
     def test_command_reads_model_config_and_runs_bounded_deploy(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -184,6 +202,60 @@ class ProvisioningTests(unittest.TestCase):
             self.assertEqual(p.start(spec, retry=True), key)
             p.pool.submit.assert_called_once_with(p.prepare, spec, key)
 
+    def test_ready_cache_and_deployment_do_not_reschedule_preparation(self):
+        spec = validate(SPEC)
+        with tempfile.TemporaryDirectory() as temp:
+            config = Path(temp) / "model.json"
+            atomic_json(config, SPEC)
+            p = self.provisioner(config)
+            p.lock, p.pool, p.futures = threading.Lock(), Mock(), {}
+            p.deployed = Mock(return_value=True)
+            key = key_for(spec, "source")
+            p.registry[key] = {"status": "ready", "cache_fingerprint": "weights", "version": "v1"}
+            with patch("orchestration.provisioning.remote_cache_fingerprint", return_value="weights"):
+                self.assertEqual(p.start(spec), key)
+                self.assertEqual(p.start(spec), key)
+            p.pool.submit.assert_not_called()
+            p.deployed.assert_called_with(spec.get("app_name", "modal-model-example"), "v1")
+
+    def test_ready_orchestration_does_not_reschedule_preparation(self):
+        p = self.provisioner(Path("unused.json"))
+        p.lock, p.pool, p.futures = threading.Lock(), Mock(), {}
+        p.deployed = Mock(return_value=True)
+        key = key_for(None, "source")
+        p.registry[key] = {"status": "ready", "version": "source"}
+        self.assertEqual(p.start(), key)
+        p.pool.submit.assert_not_called()
+
+    def test_ready_record_without_deployment_requires_preparation(self):
+        spec = validate(SPEC)
+        with tempfile.TemporaryDirectory() as temp:
+            config = Path(temp) / "model.json"
+            atomic_json(config, SPEC)
+            p = self.provisioner(config)
+            p.lock, p.pool, p.futures = threading.Lock(), Mock(), {}
+            p.deployed = Mock(return_value=False)
+            key = key_for(spec, "source")
+            p.registry[key] = {"status": "ready", "cache_fingerprint": "weights", "version": "v1"}
+            with patch("orchestration.provisioning.remote_cache_fingerprint", return_value="weights"):
+                self.assertEqual(p.start(spec), key)
+            self.assertEqual(p.registry[key]["status"], "preparing")
+            p.pool.submit.assert_called_once_with(p.prepare, spec, key)
+
+    def test_competing_preparer_cannot_overwrite_active_owner_status(self):
+        spec = validate(SPEC)
+        with tempfile.TemporaryDirectory() as temp:
+            config = Path(temp) / "model.json"
+            atomic_json(config, SPEC)
+            p = self.provisioner(config)
+            key = key_for(spec, "source")
+            preparing = {"status": "preparing", "attempt": 1}
+            p.registry[key] = dict(preparing)
+            with Lease(p.registry, "lock:modal-model-example"):
+                p.prepare(spec, key)
+                self.assertEqual(p.registry[key], preparing)
+            p.command.assert_not_called()
+
     def test_stale_claim_fails_closed_without_deleting_other_owner(self):
         import time
         with tempfile.TemporaryDirectory() as temp:
@@ -195,8 +267,7 @@ class ProvisioningTests(unittest.TestCase):
             p.registry[name] = holder
             p.prepare(validate(SPEC), "my-key")
             self.assertEqual(p.registry[name], holder)
-            self.assertEqual(p.registry["my-key"]["status"], "failed")
-            self.assertIn("Stale preparation lock", p.registry["my-key"]["error"])
+            self.assertNotIn("my-key", p.registry)
             p.command.assert_not_called()
 
     def test_model_source_versions_do_not_cross_redeploy(self):

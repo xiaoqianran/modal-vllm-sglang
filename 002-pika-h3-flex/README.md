@@ -9,6 +9,9 @@ SGLang Overlay；固定 6 步，5–15 秒，支持 t2va 与 fl2va。 模型参�
 # 离线校验
 uv run python -m orchestration plan tasks/004-pika-video-demo.json
 # CPU 准备新 Volume 的权重，然后部署
+# 推荐：Azure 5 Worker / 15 候选下载三仓库，再由 SGLang 物化
+uv run python scripts/download_azure.py 002-pika-h3-flex/model.json --execute --max-workers 5
+# 可选：旧版单容器 CPU 下载/物化
 uv run python -m modal run 002-pika-h3-flex/download_model.py
 uv run python -m modal deploy 002-pika-h3-flex/app.py
 # 此自检会启动 GPU，但不生成媒体
@@ -32,5 +35,5 @@ CPU 下载器 --check-only 检查缓存，--refresh 显式重新准备；三种�
 真实生成、GPU 快照恢复和性能仍需部署后验收。
 详见 [统一工作流说明](../docs/workflow-runner.md) 与 [根目录说明](../README.md)。
 
-Pika 通过引擎 maybe_download_model 物化 Overlay；内部 HF snapshot_download 默认八线程，不能用普通快照下载替代 Overlay。
+统一入口由 modal-benchmark 下载固定版本的 Pika Adapter、Overlay 元数据和 MiniMax-H3 基础组件，再由 SGLang 物化本地目录；不能跳过 Overlay 物化直接推理。原生 download_model.py 仍可手工使用。
 引擎端口为 30010，ZMQ Broker 为 30011，内部网关为 30020。镜像仍是 dev，生产固定 digest 前须先验收。

@@ -65,14 +65,17 @@ class Provisioner:
                 # Respect terminal failure even after a worker restart.
                 return key
             future = self.futures.get(key)
-            if spec is not None and persisted.get("status") == "ready" and (future is None or future.done()):
+            if not retry and persisted.get("status") == "ready" and (future is None or future.done()):
                 try:
-                    changed = remote_cache_fingerprint(spec, self.backend.volume) != persisted.get("cache_fingerprint")
+                    cache_matches = (spec is None or remote_cache_fingerprint(spec, self.backend.volume)
+                                     == persisted.get("cache_fingerprint"))
                 except RuntimeError:
-                    changed = True
-                if changed:
-                    self.publish(key, {"status": "preparing", "reason": "cache_changed"}, spec)
-                    future = None
+                    cache_matches = False
+                app = APP_NAME if spec is None else spec.get("app_name", "modal-model-" + spec["service"])
+                if cache_matches and persisted.get("version") and self.deployed(app, persisted["version"]):
+                    return key
+                self.publish(key, {"status": "preparing", "reason": "readiness_changed"}, spec)
+                future = None
             # Failure is sticky by default: worker polling must not cause an
             # infinite deployment/download loop. Only an explicit retry restarts it.
             if future is None or (retry and future.done()
@@ -97,6 +100,13 @@ class Provisioner:
             subprocess.run(argv, cwd=workspace, stdout=stream, stderr=subprocess.STDOUT,
                            env={**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1", **environment},
                            check=True, timeout=90000)
+
+    def command_benchmark(self, model_path):
+        """Use the same public HF downloader as the standalone CLI."""
+        workspace = getattr(self, "root", ROOT)
+        subprocess.run([sys.executable, str(workspace / "scripts/download_models.py"),
+                        str(model_path), "--execute"], cwd=workspace, check=True,
+                       timeout=90000)
 
     def store(self):
         if not hasattr(self, "_state_store"):
@@ -144,13 +154,12 @@ class Provisioner:
         lease = Lease(self.registry, claim, key=key, proof=self.lease_proof)
         try:
             lease.acquire().start_heartbeat()
-        except LeaseBusy as exc:
-            self.publish(key, {"status": "failed", "error_code": "lease",
-                               "error": "Stale preparation lock or active owner: " + str(exc), "retryable": False}, spec)
+        except LeaseBusy:
+            # Only the lease owner may publish readiness or failure.
+            # Contenders wait for that owner's durable result.
             return
         try:
             base_version = self.version_for(spec)
-            downloader_deployed = False
             weights_prepared = False
             for attempt in range(3):
                 try:
@@ -170,19 +179,12 @@ class Provisioner:
                             except RuntimeError as exc:
                                 if not str(exc).startswith(("Remote cache manifest missing", "Remote cache differs")):
                                     raise
-                                if not downloader_deployed:
-                                    with self.phase(key, spec, "prepare_service"):
-                                        with lease.external("deploy", app="prepare-" + spec["service"], version=base_version):
-                                            self.command("deploy", "orchestration/provision_entry.py", **env,
-                                                         MODEL_PREPARE="1", MODEL_DEPLOY_VERSION=base_version)
-                                    downloader_deployed = True
+                                # Benchmark owns HF downloads for every model, including
+                                # Pika. Its specialized stage still uses SGLang materialization.
                                 with self.phase(key, spec, "weights"):
-                                    download = self.backend.modal.Function.from_name(
-                                        "prepare-" + spec["service"], "download")
                                     with lease.external("download"):
-                                        call = download.spawn(repair=True)
-                                        lease.attach_call(call.object_id)
-                                        result = call.get(timeout=86500)
+                                        self.command_benchmark(path)
+                                result = {}
                                 if isinstance(result, dict):
                                     self.publish(key, {"status": "deploying",
                                                        "cache_fingerprint": result.get("fingerprint")}, spec)

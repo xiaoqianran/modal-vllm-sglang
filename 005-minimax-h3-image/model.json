@@ -49,6 +49,11 @@
       "enum": [
         6
       ]
+    },
+    "min_generation_area": {
+      "type": "integer",
+      "minimum": 1024,
+      "maximum": 16777216
     }
   },
   "validator": "minimax",

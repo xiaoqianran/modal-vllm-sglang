@@ -126,7 +126,7 @@ class UnifiedModelsTests(unittest.TestCase):
                     spec["model"], force_diffusers_model=True, revision=spec["revision"])
             paths, _ = verify_cache(spec, root)
             argv = command_argv(spec, paths)
-            self.assertEqual(argv[argv.index("--model-path") + 1], spec["model"])
+            self.assertEqual(argv[argv.index("--model-path") + 1], str(paths["model"]))
             marker.unlink()
             with self.assertRaises(RuntimeError):
                 verify_cache(spec, root)
@@ -146,7 +146,7 @@ class UnifiedModelsTests(unittest.TestCase):
 
     def test_invalid_model_params_rejected_by_both_entrypoints(self):
         for capability, overrides in (("moss.t2i", {"typo": 1}), ("moss.t2i", {"guidance_scale": 0}),
-                ("minimax.t2i", {"size": "1024x1024"}), ("minimax.t2i", {"num_inference_steps": True}),
+                ("minimax.t2i", {"size": "512x512"}), ("minimax.t2i", {"num_inference_steps": True}),
                 ("pika.t2va", {"num_inference_steps": 7}), ("pika.t2va", {"seconds": 4})):
             spec = SPECS[capability]
             with self.subTest(capability=capability, params=overrides):

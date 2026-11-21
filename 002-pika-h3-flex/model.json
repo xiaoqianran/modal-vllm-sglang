@@ -23,7 +23,7 @@
     "sglang.multimodal_gen.runtime.entrypoints.cli.main",
     "serve",
     "--model-path",
-    "{model}",
+    "{model_path}",
     "--host",
     "127.0.0.1",
     "--port",

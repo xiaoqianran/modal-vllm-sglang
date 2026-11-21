@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "name": "005-minimax-image-live-test",
+  "workflow": "minimax-t2i",
+  "render": {
+    "aspect_ratio": "1:1",
+    "resolution": "1k"
+  },
+  "items": [
+    {
+      "id": "001",
+      "seed": 42,
+      "prompt": "A small red paper boat floating on a calm alpine lake at sunrise, misty pine-covered mountains in the background, golden morning light, delicate ripples, photorealistic paper texture, cinematic composition, high detail, no lettering or watermark."
+    }
+  ],
+  "params": {
+    "min_generation_area": 1024
+  }
+}

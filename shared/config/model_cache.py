@@ -78,12 +78,12 @@ def checked_inventory(path, config):
     return inventory
 
 
-def verify_cache(spec, root=None, *, phase=None):
+def verify_cache(spec, root=None, *, phase=None, record=None):
     """Full file-name/size validation; optional timing never changes checks."""
     started = time.perf_counter()
     success = False
     try:
-        result = _verify_cache_full(spec, root)
+        result = _verify_cache_full(spec, root, record=record)
         success = True
         return result
     finally:
@@ -94,12 +94,13 @@ def verify_cache(spec, root=None, *, phase=None):
                               "seconds": time.perf_counter() - started}), flush=True)
 
 
-def _verify_cache_full(spec, root=None):
+def _verify_cache_full(spec, root=None, *, record=None):
     root = Path(root) if root is not None else cache_root(spec)
-    marker = root / "model-ready.json"
-    if not marker.is_file():
-        raise RuntimeError("CPU cache missing; run download_model.py first")
-    record = read_json(marker)
+    if record is None:
+        marker = root / "model-ready.json"
+        if not marker.is_file():
+            raise RuntimeError("CPU cache missing; run download_model.py first")
+        record = read_json(marker)
     if record.get("version") != 1 or record.get("cache_spec") != intent_digest(component_specs(spec)):
         raise RuntimeError("Model cache configuration mismatch; prepare it again on CPU")
     paths = {}

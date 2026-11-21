@@ -10,7 +10,7 @@ uv run python -m orchestration resolutions
 
 **默认图片档位为 1K（长边1024）**，默认比例1:1；仅写 `"render": {"aspect_ratio": "16:9"}` 即为1024×576。
 对于原生默认画布为 1024×1024 的图片模型，未指定尺寸时使用1K；其他模型优先保留各自 `model.json` 的原生默认画布。
-显式的 workflow/Task/item 尺寸仍优先保留。MiniMax 原生最少4MP，不能以1K运行；未指定 `render` 时使用其默认2K方图，005 示例也已显式指定2K方图。
+显式的 workflow/Task/item 尺寸仍优先保留。MiniMax 默认2K方图；当前仓库参数校验允许 1–20 MP 且宽高须为32的倍数，这只是请求校验范围，不代表各尺寸均经过引擎/质量验收。
 视频链沿用明确配置的模型原生画布，不把480p伪称为默认1K；显式请求模型不支持的1K视频会在登记前报错。
 
 在 Task JSON 顶层增加以下字段，替代手填图片像素：
@@ -34,7 +34,7 @@ uv run python -m orchestration resolutions
 
 建议：256/512 用于构图草稿，768 用于快速预览，1K 用于常规图片，2K/4K 按模型能力与资源选择。
 档位只描述尺寸，不保证低分辨率的细节表现，也不把像素数等同于画质。
-MOSS 仍须满足 16 像素对齐；MiniMax 仍须满足 32 像素对齐和 4–20 MP，不能原生生成所有低档位。
+MOSS 仍须满足 16 像素对齐；MiniMax 仍须满足 32 像素对齐和 1–20 MP。官方建议范围与仓库校验边界、预设可用性并不等价，详见[各模型分辨率与尺寸目录](docs/model-resolution-catalog.md)。
 模型验证失败会在登记前报错，不静默改尺寸或降低档位。新增模型可在自己的 `model.json` 声明
 `resolution_profiles`，无需另建服务注册表。
 
@@ -44,7 +44,7 @@ MOSS 仍须满足 16 像素对齐；MiniMax 仍须满足 32 像素对齐和 4–
 "render": {"aspect_ratio": "16:9", "resolution": "480p"}
 ```
 
-此配置同步选择视频目标和 864×480 首尾帧；1K/2K/4K 不是这条视频链的原生预设。
+当前仓库配置同步选择视频目标和 864×480 首尾帧；1K/2K/4K 不是这条视频链的原生预设。该画布是本地配置声明，不等同于上游保证的尺寸。
 `768p` 是识别的原生档位名称，但当前模型配置尚未声明对应 SGLang 画布，使用会明确报错。
 视频模型的原生画布以当前版本 `model.json` 中的映射为准，不直接套用其他后端的桶位表。
 当前没有接入自动超分或低档导出流程；不支持的预设不会冒充已支持。
@@ -308,3 +308,5 @@ uv run python -m orchestration check-deployment pika --dry-run
 Pika digest，不应把 MiniMax 的 digest 直接套用。获得验证版本后修改 Pika 的 `image`
 为 `lmsysorg/sglang@sha256:<digest>`，CPU 准备和 GPU 服务会共同采用该镜像；配置签名
 也随之改变，因此必须重新部署并使用新的任务身份验收。
+
+Modal 多云 Worker 模型准备入口见 [接入说明](docs/azure-download.md)。
