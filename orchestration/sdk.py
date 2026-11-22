@@ -12,7 +12,7 @@ from runtime.tasks.task_identity import intent_digest
 from runtime.tasks.task_spec import prepare, result_prefix, execution_signature
 from runtime.tasks.job_client import remote_cache_fingerprint, remote_record, check_record
 from runtime.tasks.artifacts import image_reference
-from runtime.utils.files import download_volume_file, read_json, sha256_file
+from runtime.utils.files import read_json
 from runtime.telemetry.recorder import local_recorder
 from runtime.telemetry.schema import utc_now
 
@@ -124,20 +124,12 @@ class Backend:
             return self._download(directory, job, record, plan, fields)
 
     def _download(self, directory, job, record, plan, fields):
-        kind = model_capabilities.CAPABILITIES[job["uses"]]["output"]
-        stem = state.output_stem(job)
-        suffix = Path(record["result"]["file"]).suffix
-        target = state.media_directory(directory) / (stem + suffix)
-        artifact = record["artifacts"][kind]
-        with state.lock(directory, filename=".download-" + intent_digest(job["key"]) + ".lock"):
-            if target.exists():
-                if sha256_file(target) != artifact["sha256"]:
-                    raise FileExistsError("Local output differs from cloud artifact")
-                fields["reused"] = True
-            else:
-                fields.update(download_volume_file(self.volume, "/" + artifact["path"], target,
-                              expected_sha256=artifact["sha256"], kind=kind, refuse_existing=True))
-        return {**artifact, "storage": "local", "path": target.relative_to(state.media_directory(directory)).as_posix()}
+        from runtime.delivery.local import download_to_local
+        return download_to_local(self.volume, directory, job, record, fields)
+
+    def archive(self, directory, job, record, plan):
+        from runtime.delivery.huggingface import archive_from_volume
+        return archive_from_volume(self.volume, job, record, plan)
 
 
 def snapshot(directory):

@@ -42,4 +42,11 @@ def report(plan, records):
     if plan.get("transport") == "sdk":
         result["download_errors"] = sum(bool(r.get("download_error")) for r in records.values())
         result["local_downloaded"] = sum(bool(r.get("local_artifact")) for r in records.values())
+        result["cloud_archived"] = sum(bool(r.get("cloud_archive")) for r in records.values())
+        result["archive_errors"] = sum(bool(r.get("archive_error")) for r in records.values())
+        from runtime.delivery import destinations
+        result["delivery_pending"] = sum(
+            record["status"] == "completed" and not all(
+                record.get("local_artifact" if dest == "local" else "cloud_archive")
+                for dest in destinations(plan)) for record in records.values())
     return result

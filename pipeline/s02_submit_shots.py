@@ -65,7 +65,7 @@ def payload_for(directory, plan, item, backend, preparation=None):
     plan["hash"] = intent_digest({key: value for key, value in plan.items() if key != "hash"})
     current = sdk.snapshot(directory)[1]
     initial = {key: {k: v for k, v in current["jobs"][key].items()
-                     if k not in {"local_artifact", "download_error", "local_collected_at"}} for key in keys}
+                     if k not in {"local_artifact", "download_error", "local_collected_at", "cloud_archive", "archive_error", "archive_collected_at"}} for key in keys}
     payload = {"version": VERSION, "plan": plan, "initial_jobs": initial}
     if preparation is not None:
         payload["provisioning"] = preparation
@@ -148,7 +148,7 @@ def tick_shot(directory, item, backend, downloads, pool):
                         for key, record in remote["jobs"].items():
                             # Local downloads are a separate lifecycle.
                             local = {k: v for k, v in current["jobs"][key].items()
-                                     if k in {"local_artifact", "download_error", "local_collected_at"}}
+                                     if k in {"local_artifact", "download_error", "local_collected_at", "cloud_archive", "archive_error", "archive_collected_at"}}
                             merged = {**record, **local}
                             if current["jobs"][key] != merged:
                                 state.record_event(directory, key, merged)

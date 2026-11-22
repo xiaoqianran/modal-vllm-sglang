@@ -75,7 +75,7 @@ def build_plan(task_path, *, root=ROOT):
     root = Path(root).resolve()
     task_path = state.local_path(root, task_path)
     task = read_json(task_path)
-    fields(task, {"version", "name", "workflow", "items"}, {"project", "scene", "params", "render"})
+    fields(task, {"version", "name", "workflow", "items"}, {"project", "scene", "params", "render", "delivery"})
     render = None
     if "render" in task:
         if not isinstance(task["items"], list):
@@ -242,6 +242,9 @@ def build_plan(task_path, *, root=ROOT):
             "outputs": workflow["outputs"], "imports": imports}
     if render:
         plan["render"] = render
+    if "delivery" in task:
+        from runtime.delivery import normalize_delivery
+        plan["delivery"] = normalize_delivery(task["delivery"])
     plan["hash"] = intent_digest(plan)
     return plan
 
@@ -255,7 +258,7 @@ def _extend_scene(directory, old, plan, saved):
         raise ValueError("Cannot extend an older run; migrate it first")
     if intent_digest({key: value for key, value in old.items() if key != "hash"}) != old.get("hash"):
         raise ValueError("Existing scene plan has been modified")
-    for key in ("name", "project", "scene", "workflow", "services", "outputs", "adapter_version", "transport", "volume"):
+    for key in ("name", "project", "scene", "workflow", "services", "outputs", "adapter_version", "transport", "volume", "delivery"):
         if old.get(key) != plan.get(key):
             raise ValueError(f"Cannot change frozen scene configuration: {key}")
     for key, value in old.get("imports", {}).items():

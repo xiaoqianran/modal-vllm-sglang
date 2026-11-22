@@ -94,7 +94,7 @@ def main():
             if args.command == "plan" or args.dry_run:
                 for plan in plans:
                     print(json.dumps({"name": plan["name"], "render": plan.get("render"), "transport": "sdk", "calls": len(plan["jobs"]),
-                                      "services": list(plan["services"]), "jobs": plan["jobs"]}, ensure_ascii=False, indent=2))
+                                      "services": list(plan["services"]), "delivery": plan.get("delivery", {"provider": "local"}), "jobs": plan["jobs"]}, ensure_ascii=False, indent=2))
                 return
             directories = [new_run(plan, output=args.output) for plan in plans]
             from orchestration.sdk import request_resume
@@ -138,7 +138,7 @@ def main():
             print("Resume registered. The worker will query original calls and retry local collection.", flush=True)
             return
         print(json.dumps(result, ensure_ascii=False, indent=2))
-        if result.get("download_errors") or any(status != "completed" and count for status, count in result["counts"].items()):
+        if result.get("download_errors") or result.get("archive_errors") or result.get("delivery_pending") or any(status != "completed" and count for status, count in result["counts"].items()):
             raise SystemExit(1)
     except (ValueError, OSError, RuntimeError, KeyError, TypeError) as exc:
         parser.exit(2, f"{type(exc).__name__}: {exc}\n")
