@@ -17,3 +17,8 @@
 /benchmarks/
 /endpoints.local.json
 /.env
+
+# Personal Agent skills (including bundled fonts) and regenerable code indexes
+/.agents/
+/.code-review-graph/
+/.codegraph/
