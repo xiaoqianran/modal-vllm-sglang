@@ -1,6 +1,7 @@
 """Frozen output policy. No configuration means unchanged local outputs."""
 from __future__ import annotations
 
+from runtime.archive.config import DEFAULT_ASSET_BUCKET
 from runtime.archive.huggingface import public_url
 
 
@@ -18,9 +19,9 @@ def normalize_delivery(value):
         if set(value) - {"provider"}:
             raise ValueError("Local delivery does not accept Hugging Face options")
         return {"provider": "local"}
-    bucket = value.get("bucket")
+    bucket = value.get("bucket", DEFAULT_ASSET_BUCKET)
     if not isinstance(bucket, str):
-        raise ValueError("delivery.bucket is required")
+        raise ValueError("delivery.bucket must be a string")
     public_url(bucket, "check")
     compression = value.get("compression", "adaptive_lossless")
     verify = value.get("verify", "sha256")

@@ -4,12 +4,14 @@ import json
 from pathlib import Path
 
 from runtime.archive import ArchivePipeline, ArchiveSettings
+from runtime.archive.config import DEFAULT_ASSET_BUCKET
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Opt-in HF archive; outputs stay unchanged")
     parser.add_argument("source", type=Path)
-    parser.add_argument("--bucket", required=True, help="Public bucket owner/name")
+    parser.add_argument("--bucket", default=DEFAULT_ASSET_BUCKET,
+                        help=f"Public bucket owner/name (default: {DEFAULT_ASSET_BUCKET})")
     parser.add_argument("--project", required=True)
     parser.add_argument("--compression", choices=["none", "adaptive_lossless"],
                         default="adaptive_lossless")

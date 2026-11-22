@@ -16,17 +16,17 @@ This CLI is **opt-in** and never modifies existing `outputs/` files. Task-level 
 ```powershell
 uv run --with pytest python -m pytest tests/test_archive_hf.py -q
 
-uv run python -m tools.archive_to_hf "outputs/<task-name>/001_image.png" --bucket owner/public-bucket --project demo
+uv run python -m tools.archive_to_hf "outputs/<task-name>/001_image.png" --project demo
 ```
 
-The second command is a **dry run** unless `--upload` is supplied. Use a real media path.
+The default Public Bucket is `seachen/modal-vllm-sglang-assets`; `--bucket owner/name` overrides it. The second command is a **dry run** unless `--upload` is supplied. Use a real media path.
 
 ## Upload explicitly
 
 Create a **Public** Storage Bucket and configure your HF write token through a process secret/environment variable. Do not commit it.
 
 ```powershell
-uv run python -m tools.archive_to_hf "outputs/<task-name>/001_image.png" --bucket owner/public-bucket --project demo --upload --verify sha256 --manifest archive-record.json
+uv run python -m tools.archive_to_hf "outputs/<task-name>/001_image.png" --project demo --upload --verify sha256 --manifest archive-record.json
 ```
 
 - `--compression none` disables recompression.

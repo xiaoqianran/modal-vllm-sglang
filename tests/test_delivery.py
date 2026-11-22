@@ -45,7 +45,7 @@ class DeliveryTests(unittest.TestCase):
     def test_policy_validation_and_frozen_plan(self):
         self.assertEqual(normalize_delivery(None), {"provider": "local"})
         for value in ({}, {"provider": "local", "bucket": "a/b"},
-                      {"provider": "huggingface"}, {"provider": "missing"},
+                      {"provider": "missing"},
                       {"provider": "both", "bucket": "../bad"},
                       {"provider": "both", "bucket": "a/b", "min_saving": True}):
             if value == {}:
@@ -53,6 +53,10 @@ class DeliveryTests(unittest.TestCase):
             else:
                 with self.subTest(value=value), self.assertRaises(ValueError):
                     normalize_delivery(value)
+        self.assertEqual(normalize_delivery({"provider": "huggingface"})["bucket"],
+                         "seachen/modal-vllm-sglang-assets")
+        self.assertEqual(normalize_delivery({"provider": "both"})["bucket"],
+                         "seachen/modal-vllm-sglang-assets")
         directory, plan = self.create(self.config("huggingface"))
         self.assertEqual(plan["delivery"]["provider"], "huggingface")
         saved = read_json(directory / "plan.json")

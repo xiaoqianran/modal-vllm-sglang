@@ -82,3 +82,10 @@ def test_invalid_inputs(tmp_path):
         public_url("example/art", "../escape.png")
     with pytest.raises(ValueError):
         ArchivePipeline(ArchiveSettings("example/art", "../bad"))
+
+
+def test_default_hf_bucket_cli_constant():
+    from runtime.archive.config import DEFAULT_ASSET_BUCKET
+    from runtime.delivery import normalize_delivery
+    assert DEFAULT_ASSET_BUCKET == "seachen/modal-vllm-sglang-assets"
+    assert normalize_delivery({"provider": "huggingface"})["bucket"] == DEFAULT_ASSET_BUCKET

@@ -18,7 +18,7 @@ Task 不写 `delivery` 时，与旧版完全相同：图片/视频仍写入 `out
 {
   "delivery": {
     "provider": "both",
-    "bucket": "owner/public-bucket",
+    "bucket": "seachen/modal-vllm-sglang-assets",
     "compression": "adaptive_lossless",
     "min_saving": 0.05,
     "verify": "sha256"
@@ -26,7 +26,7 @@ Task 不写 `delivery` 时，与旧版完全相同：图片/视频仍写入 `out
 }
 ```
 
-`provider` 支持 `local`、`huggingface`、`both`。当选择 HF/both 时，`bucket` 必填。默认压缩为 `adaptive_lossless`（无损 WebP，经像素比较且至少节省 5% 才采用），视频不压缩；`verify` 默认 `sha256`，可选 `size`。
+`provider` 支持 `local`、`huggingface`、`both`。选择 HF/both 时，`bucket` 默认使用 `seachen/modal-vllm-sglang-assets`，也可显式覆盖。默认压缩为 `adaptive_lossless`（无损 WebP，经像素比较且至少节省 5% 才采用），视频不压缩；`verify` 默认 `sha256`，可选 `size`。
 
 **重要安全/运行前提：** HF Bucket 必须由用户预先创建为 **Public**，且 PC2 Worker 运行环境中有 `HF_TOKEN`（具有 Bucket 写入权限）。不要把 Token 写进 Task JSON 或 Git。HF 失败不清除 Volume 原文件，用户排查后可运行：
 
