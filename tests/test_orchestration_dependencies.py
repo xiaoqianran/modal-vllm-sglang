@@ -53,6 +53,14 @@ class DependencyTests(unittest.TestCase):
             run_cli()
         worker.assert_called_once_with(ROOT / "outputs", poll=3)
 
+    def test_worker_cli_can_limit_a_single_task(self):
+        with patch("sys.argv", ["orchestration", "worker", "--poll", "3",
+                                "--task", "021-minimax-cinematic-atlas-12"]), \
+                patch("pipeline.s02_submit_shots.worker") as worker:
+            run_cli()
+        worker.assert_called_once_with(
+            ROOT / "outputs", poll=3, task_name="021-minimax-cinematic-atlas-12")
+
     def test_backend_reuses_model_handle_for_same_spec(self):
         from unittest.mock import Mock
 

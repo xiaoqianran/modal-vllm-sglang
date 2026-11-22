@@ -31,6 +31,7 @@ def main():
     worker = sub.add_parser("worker", help="Continuously schedule all registered SDK scenes")
     worker.add_argument("--output", default="outputs")
     worker.add_argument("--poll", type=float, default=2)
+    worker.add_argument("--task", help="Only schedule this registered Task; avoid touching unrelated tasks")
     telemetry = sub.add_parser("telemetry", help="Collect telemetry or report a task timeline")
     telemetry_sub = telemetry.add_subparsers(dest="telemetry_command", required=True)
     collect = telemetry_sub.add_parser("collect")
@@ -133,7 +134,8 @@ def main():
             stream = LogStream(sys.stdout, logs / "worker.log")
             try:
                 with redirect_stdout(stream), redirect_stderr(stream):
-                    run_worker(output, poll=args.poll)
+                    options = {"task_name": args.task} if args.task else {}
+                    run_worker(output, poll=args.poll, **options)
             finally:
                 stream.close()
             return

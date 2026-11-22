@@ -345,3 +345,24 @@ Modal 多云 Worker 模型准备入口见 [接入说明](docs/model-download.md)
 - SDK 直接访问 Volume 的原始路径时，统一通过 `runtime.config.storage.volume_key()` 补齐 `/inference` 前缀，避免误读 ComfyUI 数据。
 - `modal-benchmark==0.3.1` 已支持 `sub_path="/inference"`：下载 Worker、Coordinator 和业务发布容器均精确挂载该子树到 `/data`，不再由业务层转换下载路径。
 - 切换子树不是旧卷数据迁移，原 Volume 根目录下的旧数据不会自动移动；新配置要求在子树内重新下载/准备。
+
+
+### MiniMax H3 Image：12 个电影镜头与 HF 画廊
+
+`tasks/021-minimax-cinematic-atlas-12.json` 是独立的电影感 12 镜头生成任务，16:9、2K，
+每个镜头一个不同的原创 Prompt 和固定 Seed，HF-only 交付。
+`tasks/021-minimax-cinematic-atlas-12.titles.json` 记录画面标题。
+
+```powershell
+python run.py prepare minimax
+python run.py run tasks/021-minimax-cinematic-atlas-12.json
+python run.py worker --task 021-minimax-cinematic-atlas-12 --poll 5
+python -m tools.build_cinematic_gallery --strict
+```
+
+HF 图片从 Modal `model-store` 的 `/inference` 子目录经 CPU 归档直接上传
+`seachen/modal-vllm-sglang-assets`，**不经过 PC2 本地文件**。
+独立成品页面：`outputs/021-minimax-cinematic-atlas-12-gallery.html`。
+画廊仅从已成功归档的真实 HF URL 构建；未完成的画面明确显示占位，
+`--strict` 要求 12 张全部发布后才返回成功。
+`worker --task` 仅调度指定 Task，不恢复仓库历史任务。

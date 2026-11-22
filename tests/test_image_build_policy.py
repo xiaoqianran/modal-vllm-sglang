@@ -60,9 +60,10 @@ class ImageBuildPolicyTests(unittest.TestCase):
             image = factory.return_value.entrypoint.return_value
             runtime_image("example/image@sha256:" + "b" * 64, env={},
                           uv_packages=("sglang[diffusion]==0.5.23",))
-            image.uv_pip_install.assert_called_once_with(
-                "sglang[diffusion]==0.5.23")
-            image.uv_pip_install.return_value.env.assert_called_once()
+            image.env.assert_called_once_with({"SGLANG_BUILD_RUST_EXTS": "none"})
+            build_env = image.env.return_value
+            build_env.uv_pip_install.assert_called_once_with("sglang[diffusion]==0.5.23")
+            build_env.uv_pip_install.return_value.env.assert_called_once()
 
     def test_minimax_uses_native_uv_layer_and_others_do_not(self):
         with patch("runtime.serving.modal_setup.runtime_image") as factory:

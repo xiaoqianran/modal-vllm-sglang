@@ -167,7 +167,7 @@ def tick_shot(directory, item, backend, downloads, pool):
         return collect_outputs(directory, backend, downloads, pool, item=item)
 
 
-def worker(output, *, poll=2, backend=None, stop=None):
+def worker(output, *, poll=2, backend=None, stop=None, task_name=None):
     if not math.isfinite(poll) or poll <= 0:
         raise ValueError("poll must be positive")
     if backend is None:
@@ -203,6 +203,8 @@ def worker(output, *, poll=2, backend=None, stop=None):
                 try:
                     plan = read_json(path)
                     if plan.get("transport") != "sdk":
+                        continue
+                    if task_name is not None and plan.get("name") != task_name:
                         continue
                     for item in dict.fromkeys(job["item"] for job in plan["jobs"]):
                         key = (str(path.parent), item)

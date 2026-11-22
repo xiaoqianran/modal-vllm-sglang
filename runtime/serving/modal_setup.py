@@ -24,6 +24,11 @@ def runtime_image(registry, *, env, files=(), commands=(), uv_packages=()):
     environment["PYTHONPATH"] = ":".join(filter(None, (paths, "/opt")))
     image = modal.Image.from_registry(registry).entrypoint([])
     if uv_packages:
+        # SGLang's optional Rust extensions are not needed by the image
+        # diffusion runtime. The build flag must precede uv_pip_install:
+        # otherwise building the pinned Git source can require Cargo.
+        if any("sglang[diffusion]" in package for package in uv_packages):
+            image = image.env({"SGLANG_BUILD_RUST_EXTS": "none"})
         # Modal provides uv automatically and targets
         # the first Python on PATH (the existing SGLang image environment).
         image = image.uv_pip_install(*uv_packages)

@@ -1,0 +1,75 @@
+{
+  "version": 1,
+  "name": "021-minimax-cinematic-atlas-12",
+  "workflow": "minimax-t2i",
+  "render": {
+    "aspect_ratio": "16:9",
+    "resolution": "2k"
+  },
+  "delivery": {
+    "provider": "huggingface",
+    "bucket": "seachen/modal-vllm-sglang-assets"
+  },
+  "items": [
+    {
+      "id": "001",
+      "seed": 4412,
+      "prompt": "Neon rain, a lone woman in a translucent raincoat pauses at the mouth of a narrow futuristic Hong Kong alley, wet asphalt reflecting hand-painted amber and cyan signage without readable letters, a distant tram passing through low vapor, layered foreground umbrellas and deep street perspective, shot on a 40mm anamorphic lens, midnight sodium-vapor practical lights, rich cobalt shadows, restrained film grain, believable rain droplets and reflections, cinematic urban mystery. Original live-action cinema frame, visually cohesive production design, realistic atmospheric perspective, tactile surfaces, correct human anatomy, physically coherent light, composed in landscape 16:9, premium feature-film color grading. Not a collage, not an illustration, no watermark, no subtitles, no logos, no visible text."
+    },
+    {
+      "id": "002",
+      "seed": 4513,
+      "prompt": "A solitary vintage cream-colored sports car drives across a wide arid plateau at the last minute of sunset, a tiny dust trail curling into enormous negative space, distant red mesas and layered storm clouds, photographed from a high static roadside camera on a 65mm film lens, golden rim light and deep cool horizon, sophisticated modern road-movie cinematography, authentic tire tracks and atmospheric haze. Original live-action cinema frame, visually cohesive production design, realistic atmospheric perspective, tactile surfaces, correct human anatomy, physically coherent light, composed in landscape 16:9, premium feature-film color grading. Not a collage, not an illustration, no watermark, no subtitles, no logos, no visible text."
+    },
+    {
+      "id": "003",
+      "seed": 4614,
+      "prompt": "A tiny weather observatory cabin stands alone on a frozen fjord beneath a sweeping green aurora, one warmly lit window reflected in a strip of black open water, snow laden pine trees and mountains disappearing into velvet darkness, a red-coated scientist approaches along a narrow path, wide cinema establishing shot, restrained color separation, natural astrophotography realism and subtle volumetric snow. Original live-action cinema frame, visually cohesive production design, realistic atmospheric perspective, tactile surfaces, correct human anatomy, physically coherent light, composed in landscape 16:9, premium feature-film color grading. Not a collage, not an illustration, no watermark, no subtitles, no logos, no visible text."
+    },
+    {
+      "id": "004",
+      "seed": 4715,
+      "prompt": "Before sunrise in Tokyo, an almost empty elevated commuter platform above sleeping streets, one young commuter holds a folded paper umbrella at the edge of a cool blue fluorescent pool, distant train headlights approaching through delicate fog, old concrete, cables and accurate urban perspective, 50mm cinema still, quiet contemplative framing, soft dawn gradient, realistic film negative grain. Original live-action cinema frame, visually cohesive production design, realistic atmospheric perspective, tactile surfaces, correct human anatomy, physically coherent light, composed in landscape 16:9, premium feature-film color grading. Not a collage, not an illustration, no watermark, no subtitles, no logos, no visible text."
+    },
+    {
+      "id": "005",
+      "seed": 4816,
+      "prompt": "A weathered lighthouse on an immense basalt sea cliff during a North Atlantic storm, immense white surf exploding far below and one bright beam cutting a curtain of rain, a single yellow-coated keeper silhouetted on the narrow upper walkway, dramatic long-lens composition with ocean spray and turbulent clouds, cold desaturated slate palette with a focused warm light, epic yet photorealistic survival film. Original live-action cinema frame, visually cohesive production design, realistic atmospheric perspective, tactile surfaces, correct human anatomy, physically coherent light, composed in landscape 16:9, premium feature-film color grading. Not a collage, not an illustration, no watermark, no subtitles, no logos, no visible text."
+    },
+    {
+      "id": "006",
+      "seed": 4917,
+      "prompt": "A 1940s European train platform at blue hour, a young woman in a burgundy wool coat quietly says goodbye to a man in a charcoal overcoat, two separate figures framed by enormous curls of steam from a stationary black locomotive, distant warm station lamps and no visible signage, precise period styling, deep perspective and grounded anatomy, filmed on vintage 35mm with subdued emotional intimacy. Original live-action cinema frame, visually cohesive production design, realistic atmospheric perspective, tactile surfaces, correct human anatomy, physically coherent light, composed in landscape 16:9, premium feature-film color grading. Not a collage, not an illustration, no watermark, no subtitles, no logos, no visible text."
+    },
+    {
+      "id": "007",
+      "seed": 5018,
+      "prompt": "An archaeologist with a canvas satchel stands small before monumental vine-covered sandstone temple gates in a dense tropical rainforest, ancient tree roots wrapping carved pillars, morning sun shafts cutting wet mist, birds crossing at a distance, moss, chipped stone and real jungle vegetation, slow-adventure cinema wide shot with layered foreground foliage, earthy greens and warm highlights. Original live-action cinema frame, visually cohesive production design, realistic atmospheric perspective, tactile surfaces, correct human anatomy, physically coherent light, composed in landscape 16:9, premium feature-film color grading. Not a collage, not an illustration, no watermark, no subtitles, no logos, no visible text."
+    },
+    {
+      "id": "008",
+      "seed": 5119,
+      "prompt": "Inside a believable lunar research outpost observatory, a single astronaut seen from behind leans lightly on a metal handrail, panoramic reinforced window revealing gray lunar regolith and the small blue Earth floating over the horizon, soft utilitarian amber instrument lights reflected sparingly in glass, accurate scale and quiet science-fiction realism, symmetrical wide-frame cinematography. Original live-action cinema frame, visually cohesive production design, realistic atmospheric perspective, tactile surfaces, correct human anatomy, physically coherent light, composed in landscape 16:9, premium feature-film color grading. Not a collage, not an illustration, no watermark, no subtitles, no logos, no visible text."
+    },
+    {
+      "id": "009",
+      "seed": 5220,
+      "prompt": "A rainwashed old Prague courtyard at the transition from sunset to blue hour, a musician carrying a violin case crosses worn cobblestones under a single brass lantern, cafe windows glow amber, delicate reflections reveal sandstone textures and a distant gothic arch, 35mm cinema street photography, subtle depth, atmospheric yet natural, no text or labels. Original live-action cinema frame, visually cohesive production design, realistic atmospheric perspective, tactile surfaces, correct human anatomy, physically coherent light, composed in landscape 16:9, premium feature-film color grading. Not a collage, not an illustration, no watermark, no subtitles, no logos, no visible text."
+    },
+    {
+      "id": "010",
+      "seed": 5321,
+      "prompt": "An old midnight express emerges from a deep mountain tunnel into a violent alpine blizzard, headlights reveal whorls of sideways snow, red passenger windows glow against an indigo snowfield, low three-quarter trackside angle communicates enormous speed while rails and wheels remain physically plausible, restrained action thriller contrast and tactile ice details. Original live-action cinema frame, visually cohesive production design, realistic atmospheric perspective, tactile surfaces, correct human anatomy, physically coherent light, composed in landscape 16:9, premium feature-film color grading. Not a collage, not an illustration, no watermark, no subtitles, no logos, no visible text."
+    },
+    {
+      "id": "011",
+      "seed": 5422,
+      "prompt": "Inside an underwater oceanographic station, a solitary marine biologist at a curved panoramic viewport watches a gigantic manta ray glide past bioluminescent plankton in the deep indigo sea, brushed steel instrumentation and warm desk lamp inside, scientifically believable pressure glass, minimalist intimate science-fiction film still, luminous blue gradients and detailed particulate water. Original live-action cinema frame, visually cohesive production design, realistic atmospheric perspective, tactile surfaces, correct human anatomy, physically coherent light, composed in landscape 16:9, premium feature-film color grading. Not a collage, not an illustration, no watermark, no subtitles, no logos, no visible text."
+    },
+    {
+      "id": "012",
+      "seed": 5523,
+      "prompt": "An abandoned limestone royal throne hall after the collapse of an empire, one weathered ruler in a plain black cloak sits far away under an enormous circular skylight, a beam of dusty white morning light crosses broken mosaic flooring and endless tall columns, tiny fallen leaves move through the hall, perfectly composed epic symmetrical 24mm film still, monumental scale, muted silver and amber color grade. Original live-action cinema frame, visually cohesive production design, realistic atmospheric perspective, tactile surfaces, correct human anatomy, physically coherent light, composed in landscape 16:9, premium feature-film color grading. Not a collage, not an illustration, no watermark, no subtitles, no logos, no visible text."
+    }
+  ]
+}
