@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def model_volume():
     """Project storage shared by model workers and SDK clients."""
-    return modal.Volume.from_name(runtime_volume_name(), create_if_missing=True)
+    return modal.Volume.from_name(runtime_volume_name(), create_if_missing=True, version=2)
 
 
 def model_mounts(spec):

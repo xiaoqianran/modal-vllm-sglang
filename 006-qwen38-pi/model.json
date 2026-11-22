@@ -1,5 +1,6 @@
 {
   "service": "qwen38-pi",
+  "download_workers": 2,
   "kind": "llm",
   "operation": "chat",
   "model": "Qwen/Qwen3.8-27B",

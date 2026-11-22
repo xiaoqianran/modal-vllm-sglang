@@ -90,6 +90,7 @@ class DownloadCliTests(TestCase):
                   return_value=({"model": Path("/mnt/modal/model")}, "cache")) as verify,
         ):
             result = run(spec, workers=2)
+        self.assertEqual(create.call_args.kwargs["volume_version"], 2)
         self.assertEqual(result["download"]["status"], "VERIFIED")
         self.assertEqual(app.runs, 1)
         self.assertEqual(len(app.registered), 1)

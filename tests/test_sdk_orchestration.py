@@ -333,7 +333,7 @@ class CloudImageTests(unittest.TestCase):
         self.assertEqual(VOLUME_NAME, "modal-vllm-sglang")
         with patch("modal.Volume.from_name") as factory:
             model_volume()
-        factory.assert_called_once_with(VOLUME_NAME, create_if_missing=True)
+        factory.assert_called_once_with(VOLUME_NAME, create_if_missing=True, version=2)
 
     def test_cloud_worker_resolves_frames_and_commits_result_before_return(self):
         from shared.serving.inference_execution import execute

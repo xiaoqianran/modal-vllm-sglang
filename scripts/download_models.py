@@ -45,7 +45,7 @@ def run(spec: dict, *, workers: int | None = None) -> dict:
     shared = shared_storage(spec)
     downloader = create_downloader(
         volume_name=task["volume"], mount_path=SHARED_MOUNT if shared else "/mnt/modal",
-        volume_version=2 if shared else None, max_workers=workers, verification_mode="xet",
+        volume_version=2, max_workers=workers, verification_mode="xet",
     )
     volume = downloader.volume
     if shared:
