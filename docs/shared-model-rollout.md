@@ -36,7 +36,7 @@ uv run python scripts/download_models.py 005-minimax-h3-image/model.json --worke
 uv run python scripts/check_shared_cache.py 005-minimax-h3-image/model.json
 ```
 
-`modal-benchmark==0.2.2` 在 V2 卷的独立下载目录中按清单发布固定版本权重；专用 CPU 发布容器只读挂载模型卷并写入旧服务卷上的 `model-ready.json`，最后另一个 CPU 容器再次完整核对。已有业务输出、遥测和 Pika 派生文件位置不变。**此路径当前按完整下载清单生成身份**：不同文件筛选组合可能重复占空间；对已有 HF 原生快照优先使用 A，不能宣称跨所有清单自动按文件去重。
+`modal-benchmark==0.3.0` 在 V2 卷的独立下载目录中按清单发布固定版本权重；专用 CPU 发布容器只读挂载模型卷并写入旧服务卷上的 `model-ready.json`，最后另一个 CPU 容器再次完整核对。已有业务输出、遥测和 Pika 派生文件位置不变。**此路径当前按完整下载清单生成身份**：不同文件筛选组合可能重复占空间；对已有 HF 原生快照优先使用 A，不能宣称跨所有清单自动按文件去重。
 
 以上示例里的 MiniMax 只表示实际服务配置的命令写法；**尚未把 MiniMax 的全部大权重迁移**，不要在生产模型尚未准备完毕时部署。待清单与引擎启动均验收后，才将对应服务配置正式切为共享模式并滚动部署。
 
