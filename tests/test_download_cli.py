@@ -1,6 +1,7 @@
 """Offline contracts for modal-benchmark v0.2.2 CLI."""
 from __future__ import annotations
 from contextlib import nullcontext
+from importlib.metadata import version
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import TestCase
@@ -112,7 +113,9 @@ class DownloadCliTests(TestCase):
         ):
             out = run(spec, workers=2)
         self.assertEqual(out["cache"]["fingerprint"], "pika")
-        image.assert_called_once_with(spec, offline=True)
+        image.assert_called_once_with(
+            {**spec, "uv_packages": (f"modal=={version('modal')}",)}, offline=True,
+        )
         materialize.assert_called_once()
         self.assertEqual(app.runs, 1)
         self.assertEqual(len(app.registered), 1)

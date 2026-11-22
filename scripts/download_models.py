@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from importlib.metadata import version
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -47,7 +48,12 @@ def run(spec: dict, *, workers: int | None = None) -> dict:
 
     if task["strategy"] == "sglang_overlay":
         from shared.serving.model_runtime import build_image
-        publisher_image = build_image(spec, offline=True)
+        # The registry image needs the Modal runner dependencies in its Python environment.
+        publisher_spec = {
+            **spec,
+            "uv_packages": (*spec.get("uv_packages", ()), f"modal=={version('modal')}"),
+        }
+        publisher_image = build_image(publisher_spec, offline=True)
 
     # Business publication is deliberately separate: generic HF Coordinator
     # cannot know the inference-specific SGLang Overlay/cache contract.
