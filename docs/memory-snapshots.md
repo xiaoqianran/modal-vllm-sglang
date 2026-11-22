@@ -1,6 +1,6 @@
 # 通用 GPU 内存快照
 
-媒体服务的公共 `shared/serving/model_runtime.py` 提供统一快照生命周期，无模型名称分支。
+媒体服务的公共 `runtime/serving/model_runtime.py` 提供统一快照生命周期，无模型名称分支。
 MOSS、Pika、MiniMax 及新模型模板使用 `"memory_snapshot": "gpu"`；
 设为 `"off"` 可回退到普通初始化。旧配置省略此项时仍为 off。
 三个模型的 `scaledown_window` 保留 30 秒，`min_containers` 保留 0。
@@ -76,6 +76,6 @@ vLLM 唤醒步骤约 1.4 秒，29.8 秒是客户端端到端时间。恢复后�
 GPU Snapshot 的收益主要体现在首次可用时间，几个方案的热态单请求生成速度接近。
 
 临时测试 App 已停止，正式端点仍以 `memory_snapshot: off` 运行。后续可在独立的
-[`llm_runtime.py`](../shared/serving/llm_runtime.py) 里加入可选的 Snapshot + Sleep Mode 生命周期，
+[`llm_runtime.py`](../runtime/serving/llm_runtime.py) 里加入可选的 Snapshot + Sleep Mode 生命周期，
 多次缩到零后复测恢复时间、LoRA、SSE、Pi 工具调用及长上下文，再考虑启用。
 参考：[Modal 官方 vLLM 快照实现](https://github.com/modal-labs/modal-examples/blob/main/06_gpu_and_ml/llm-serving/ministral3_inference.py)。

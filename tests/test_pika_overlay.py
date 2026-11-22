@@ -1,26 +1,32 @@
 """Synthetic Pika bridge tests: no Modal containers or model downloads."""
 import json
 import sys
+from importlib import import_module
 import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-from shared.config.model_spec import validate
-from shared.config.model_cache import command_argv, verify_cache
-from shared.config.pika_overlay import (
-    BASE_REPO, BASE_REV, BASE_PATTERNS, OVERLAY_REPO, OVERLAY_REV,
-    SOURCE_REPO, SOURCE_REV, download_sources, materialize_with_sglang,
-    publish_pika_cache,
-)
-from shared.utils.files import read_json
+from runtime.config.model_spec import validate
+from runtime.config.model_cache import command_argv, verify_cache
+_overlay = import_module("models.002-pika-h3-flex.model_impl.overlay")
+(BASE_REPO, BASE_REV, BASE_PATTERNS, OVERLAY_REPO, OVERLAY_REV,
+ SOURCE_REPO, SOURCE_REV, download_sources, materialize_with_sglang,
+ publish_pika_cache) = (
+     getattr(_overlay, name) for name in (
+         "BASE_REPO", "BASE_REV", "BASE_PATTERNS", "OVERLAY_REPO", "OVERLAY_REV",
+         "SOURCE_REPO", "SOURCE_REV", "download_sources", "materialize_with_sglang",
+         "publish_pika_cache"
+     )
+ )
+from runtime.utils.files import read_json
 
 
 class PikaOverlayTests(unittest.TestCase):
     def setUp(self):
         root = Path(__file__).resolve().parents[1]
-        self.spec = validate(read_json(root / "002-pika-h3-flex/model.json"))
+        self.spec = validate(read_json(root / "models/002-pika-h3-flex/model.json"))
 
     def fixture(self, root):
         base = root / "azure" / "run"

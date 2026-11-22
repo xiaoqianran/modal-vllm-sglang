@@ -7,11 +7,11 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from shared.config.azure_cache import attach_shared_hf_snapshots
-from shared.config.model_cache import verify_cache, command_argv, prepare_cache
-from shared.config.model_spec import validate
-from shared.config.storage import shared_storage
-from shared.serving.modal_setup import model_mounts
+from runtime.config.cache_publication import attach_shared_hf_snapshots
+from runtime.config.model_cache import verify_cache, command_argv, prepare_cache
+from runtime.config.model_spec import validate
+from runtime.config.storage import shared_storage
+from runtime.serving.modal_setup import model_mounts
 
 
 FIXTURE = Path(__file__).parent / "fixtures" / "shared-tiny-pilot.model.json"
@@ -33,8 +33,8 @@ class SharedModelStorageTests(unittest.TestCase):
         (self.snapshot / "pytorch_model.bin").write_bytes(b"immutable weights")
         (self.snapshot / "config.json").write_bytes(b'{"type":"tiny"}')
         self.volume = Mock()
-        self.mock_shared = patch("shared.config.azure_cache.SHARED_MOUNT", str(self.shared))
-        self.mock_verify = patch("shared.config.model_cache.SHARED_MOUNT", str(self.shared))
+        self.mock_shared = patch("runtime.config.cache_publication.SHARED_MOUNT", str(self.shared))
+        self.mock_verify = patch("runtime.config.model_cache.SHARED_MOUNT", str(self.shared))
         self.mock_shared.start()
         self.mock_verify.start()
         self.addCleanup(self.mock_shared.stop)
@@ -89,7 +89,7 @@ class SharedModelStorageTests(unittest.TestCase):
     def test_shared_prepare_does_not_fallback_to_snapshot_download(self):
         with self.assertRaisesRegex(RuntimeError, "CPU cache missing"):
             prepare_cache(self.spec, self.volume, self.meta)
-        with self.assertRaisesRegex(RuntimeError, "scripts/download_models.py"):
+        with self.assertRaisesRegex(RuntimeError, "tools/download_models.py"):
             prepare_cache(self.spec, self.volume, self.meta, refresh=True)
 
     def test_legacy_and_overlay_validation(self):
@@ -102,7 +102,7 @@ class SharedModelStorageTests(unittest.TestCase):
         self.assertFalse(shared_storage(validate(legacy)))
 
     def test_gpu_mounts_keep_weights_readonly_and_service_writable(self):
-        with patch("shared.serving.modal_setup.modal.Volume.from_name") as lookup:
+        with patch("runtime.serving.modal_setup.modal.Volume.from_name") as lookup:
             legacy_volume = Mock(name="writable")
             shared_volume = Mock(name="shared")
             lookup.side_effect = [legacy_volume, shared_volume]
@@ -113,7 +113,7 @@ class SharedModelStorageTests(unittest.TestCase):
             self.assertIs(mounts["/mnt/models"], readonly)
             shared_volume.with_mount_options.assert_called_once_with(read_only=True)
 
-        with patch("shared.serving.modal_setup.modal.Volume.from_name") as lookup:
+        with patch("runtime.serving.modal_setup.modal.Volume.from_name") as lookup:
             legacy = dict(self.spec, model_storage="legacy")
             self.assertEqual(list(model_mounts(legacy)), ["/mnt/modal"])
             lookup.assert_called_once()

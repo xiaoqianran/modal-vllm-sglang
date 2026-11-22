@@ -153,6 +153,6 @@
 
 ## 执行（仅示例，真实运行会启动付费 GPU）
 ```powershell
-uv run python -m orchestration plan tasks/003-stop-rain-001-rain-bus-stop.json tasks/003-stop-rain-002-bridge-underpass.json tasks/003-stop-rain-003-glass-greenhouse.json tasks/003-stop-rain-004-after-rain.json
+uv run python run.py plan tasks/003-stop-rain-001-rain-bus-stop.json tasks/003-stop-rain-002-bridge-underpass.json tasks/003-stop-rain-003-glass-greenhouse.json tasks/003-stop-rain-004-after-rain.json
 ```
 去掉 `--dry-run` 才会真实调用 GPU。

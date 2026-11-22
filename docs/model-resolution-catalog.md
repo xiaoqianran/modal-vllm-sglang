@@ -9,12 +9,12 @@ This catalog separates upstream published capabilities from settings and validat
 | Model | Upstream information | Repository default and accepted dimensions | Validation status |
 | --- | --- | --- | --- |
 | MOSS-Image-SFT | Model card describes image generation but does not establish definitive hard canvas bounds for this checkpoint. | Default `1024x1024`; positive width and height divisible by 16. Shared presets cover long edges 256, 512, 768, 1024, 2048, 4096 at five aspect ratios. | 2K/4K parameter-validated offline only; no GPU quality or memory acceptance. |
-| Pika H3 Flex | Upstream material references 480p and 768p modes. Published bucket dimensions may differ from repository mapping. | Only configured profile is 480p: 864x480 (16:9), 480x864 (9:16), 640x480 (4:3), 480x640 (3:4), 480x480 (1:1). | Mapping declared by `002-pika-h3-flex/model.json`; verify actual output. 768p is not enabled locally. |
+| Pika H3 Flex | Upstream material references 480p and 768p modes. Published bucket dimensions may differ from repository mapping. | Only configured profile is 480p: 864x480 (16:9), 480x864 (9:16), 640x480 (4:3), 480x640 (3:4), 480x480 (1:1). | Mapping declared by `models/002-pika-h3-flex/model.json`; verify actual output. 768p is not enabled locally. |
 | MiniMax H3 Image | Official materials describe a typical 4-20 MP range and common aspect ratios; guidance, not the repository validator lower bound. | Default `2048x2048`. Validator accepts 32-aligned dimensions with area 1-20 MP. | Request validation only; not proof of native generation or quality. |
 
 ## Shared Image Presets
 
-`shared/config/resolution.py` defines project presets. Dimensions are calculated from long edge and aspect ratio:
+`runtime/config/resolution.py` defines project presets. Dimensions are calculated from long edge and aspect ratio:
 
 | Long edge | 16:9 | 9:16 | 4:3 | 3:4 | 1:1 |
 | --- | --- | --- | --- | --- | --- |
@@ -35,4 +35,4 @@ Shared presets do not mean every model accepts every entry. MOSS applies 16-pixe
 - MiniMax H3 Image model card: https://huggingface.co/MiniMaxAI/MiniMax-H3-Image
 - MiniMax H3 Image project: https://github.com/MiniMax-AI/MiniMax-H3
 
-Repository facts were checked against each model's `model.json`, `shared/config/params_*.py`, and `shared/config/resolution.py` on the research date. The upstream Pika and repository 16:9 canvases are not assumed equivalent; local 864x480 is a configuration choice until confirmed by a real generation run.
+Repository facts were checked against each model's `model.json`, model-owned `model_impl/params.py` or `model_impl/params.py`, and `runtime/config/resolution.py` on the research date. The upstream Pika and repository 16:9 canvases are not assumed equivalent; local 864x480 is a configuration choice until confirmed by a real generation run.

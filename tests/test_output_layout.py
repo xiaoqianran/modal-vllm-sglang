@@ -4,10 +4,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from orchestration import runner, sdk, state
+from pipeline import s01_build_plan as runner
+from orchestration import sdk, state
 from orchestration.monitor import render
-from shared.telemetry.recorder import close_local
-from shared.utils.files import read_json
+from runtime.telemetry.recorder import close_local
+from runtime.utils.files import read_json
 from tests.test_sdk_orchestration import FakeBackend
 
 

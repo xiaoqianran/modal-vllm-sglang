@@ -4,12 +4,13 @@ import unittest
 from pathlib import Path
 import copy
 
-from orchestration import runner, state
+from pipeline import s01_build_plan as runner
+from orchestration import state
 from orchestration.monitor import render
 from orchestration.monitor_data import build_snapshot
-from shared.tasks.batch import intent_digest
-from shared.telemetry.recorder import close_local
-from shared.utils.files import read_json
+from runtime.tasks.task_identity import intent_digest
+from runtime.telemetry.recorder import close_local
+from runtime.utils.files import read_json
 
 
 class MonitorDashboardTests(unittest.TestCase):

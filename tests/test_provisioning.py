@@ -8,8 +8,8 @@ from unittest.mock import Mock, patch
 from orchestration.provisioning import Provisioner, key_for, model_paths, model_source_version, source_version
 from orchestration.deployment_state import classify_error
 from orchestration.leases import Lease
-from shared.config.model_spec import validate
-from shared.utils.files import atomic_json
+from runtime.config.model_spec import validate
+from runtime.utils.files import atomic_json
 from tests.test_model_service import SPEC
 
 
@@ -25,12 +25,12 @@ class ProvisioningTests(unittest.TestCase):
     def test_configuration_only_discovery_and_duplicates(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            atomic_json(root / "new/model.json", SPEC)
+            atomic_json(root / "models/new/model.json", SPEC)
             self.assertEqual(list(model_paths(root)), ["example"])
             before = source_version(root)
-            atomic_json(root / "new/model.json", {**SPEC, "revision": "b" * 40})
+            atomic_json(root / "models/new/model.json", {**SPEC, "revision": "b" * 40})
             self.assertNotEqual(before, source_version(root))
-            atomic_json(root / "duplicate/model.json", SPEC)
+            atomic_json(root / "models/duplicate/model.json", SPEC)
             with self.assertRaises(ValueError):
                 model_paths(root)
 
@@ -317,22 +317,27 @@ class ProvisioningTests(unittest.TestCase):
     def test_model_source_versions_do_not_cross_redeploy(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            moss, pika = {**SPEC, "service": "moss", "validator": "moss"}, {
-                **SPEC, "service": "pika", "validator": "pika"}
-            atomic_json(root / "001-moss/model.json", moss)
-            atomic_json(root / "002-pika/model.json", pika)
-            for name in ("shared/serving/model_service.py", "shared/config/params_moss.py",
-                         "shared/config/params_pika.py", "orchestration/runner.py"):
+            moss, pika = {
+                **SPEC, "service": "moss", "validator": "moss",
+                "validator_module": "models.001-moss.model_impl.params",
+            }, {
+                **SPEC, "service": "pika", "validator": "pika",
+                "validator_module": "models.002-pika.model_impl.params",
+            }
+            atomic_json(root / "models/001-moss/model.json", moss)
+            atomic_json(root / "models/002-pika/model.json", pika)
+            for name in ("runtime/serving/legacy_cache_preparer.py", "models/001-moss/model_impl/params.py",
+                         "models/002-pika/model_impl/params.py", "pipeline/s01_build_plan.py"):
                 path = root / name
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text("a", encoding="utf-8")
             moss_before, pika_before = model_source_version(moss, root), model_source_version(pika, root)
-            (root / "shared/config/params_moss.py").write_text("b", encoding="utf-8")
+            (root / "models/001-moss/model_impl/params.py").write_text("b", encoding="utf-8")
             self.assertNotEqual(moss_before, model_source_version(moss, root))
             self.assertEqual(pika_before, model_source_version(pika, root))
-            (root / "orchestration/runner.py").write_text("b", encoding="utf-8")
+            (root / "pipeline/s01_build_plan.py").write_text("b", encoding="utf-8")
             self.assertEqual(pika_before, model_source_version(pika, root))
-            atomic_json(root / "002-pika/model.json", {**pika, "revision": "b" * 40})
+            atomic_json(root / "models/002-pika/model.json", {**pika, "revision": "b" * 40})
             self.assertNotEqual(pika_before, model_source_version(pika, root))
 
     def test_new_rollout_waits_for_all_six_shots_including_unsubmitted(self):

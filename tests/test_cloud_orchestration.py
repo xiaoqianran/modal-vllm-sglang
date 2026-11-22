@@ -9,12 +9,14 @@ import time
 import unittest
 from unittest.mock import Mock, patch
 
-from orchestration import cloud, cloud_client, protocol, runner, sdk, state
-from shared.tasks.batch import intent_digest
-from shared.telemetry.collector import Collector, collect_cloud
-from shared.telemetry.recorder import Recorder, close_local
-from shared.telemetry.storage import Writer
-from shared.utils.files import read_json
+from pipeline import s03_run_shot as cloud, s02_submit_shots as cloud_client
+from pipeline import s01_build_plan as runner
+from orchestration import protocol, sdk, state
+from runtime.tasks.task_identity import intent_digest
+from runtime.telemetry.collector import Collector, collect_cloud
+from runtime.telemetry.recorder import Recorder, close_local
+from runtime.telemetry.storage import Writer
+from runtime.utils.files import read_json
 from tests.test_sdk_orchestration import FakeBackend
 
 
@@ -67,7 +69,7 @@ class CloudTests(unittest.TestCase):
         self.assertIn("last_frame_artifact", video)
         self.assertFalse(list(self.directory.glob("*.png")))
         downloads = {}
-        with patch("orchestration.cloud_client.enqueue"), ThreadPoolExecutor(max_workers=2) as pool:
+        with patch("pipeline.s02_submit_shots.enqueue"), ThreadPoolExecutor(max_workers=2) as pool:
             cloud_client.tick_shot(self.directory, "001", local, downloads, pool)
             for entry in downloads.values():
                 entry["future"].result(timeout=2)
@@ -91,7 +93,7 @@ class CloudTests(unittest.TestCase):
         self.assertEqual(len(local.accepted), 1)
         payload, identity = local.accepted[0]
         cloud.run(payload, identity, backend=model, root=self.remote, poll=0.001)
-        with patch("orchestration.cloud_client.enqueue"), ThreadPoolExecutor(max_workers=2) as pool:
+        with patch("pipeline.s02_submit_shots.enqueue"), ThreadPoolExecutor(max_workers=2) as pool:
             cloud_client.tick_shot(self.directory, "001", local, {}, pool)
         self.assertEqual(sdk.snapshot(self.directory)[1]["cloud_runs"]["001"]["status"], "completed")
 
@@ -117,7 +119,7 @@ class CloudTests(unittest.TestCase):
         def unchanged(directory, backend, *_):
             for _ in range(5):
                 backend.checkpoint(directory)
-        with patch("orchestration.cloud.sdk.tick", side_effect=unchanged):
+        with patch("pipeline.s03_run_shot.tick", side_effect=unchanged):
             result = cloud.run(payload, identity, backend=backend, root=self.remote, timeout=0)
         self.assertEqual(result["status"], "uncertain")
         self.assertEqual(backend.volume.commit.call_count, 2)
@@ -141,8 +143,8 @@ class CloudTests(unittest.TestCase):
                         raise OSError("commit unavailable")
 
                 backend.volume.commit.side_effect = commit
-                with patch("orchestration.cloud.cloud_recorder", return_value=Recorder(writer)), \
-                        patch("orchestration.cloud.sdk.tick", side_effect=RuntimeError("scheduler failed")):
+                with patch("pipeline.s03_run_shot.cloud_recorder", return_value=Recorder(writer)), \
+                        patch("pipeline.s03_run_shot.tick", side_effect=RuntimeError("scheduler failed")):
                     with self.assertRaises((OSError, RuntimeError)):
                         cloud.run(payload, identity, backend=backend, root=remote, poll=0.001)
                 self.assertTrue(writer.closed)
@@ -236,7 +238,7 @@ class CloudTests(unittest.TestCase):
         self.assertTrue({p["path"] for p in a["paths"]}.isdisjoint(p["path"] for p in b["paths"]))
 
     def test_cloud_deployment_has_no_gpu_and_duplicate_claim_cannot_run(self):
-        from orchestration import cloud_app
+        from pipeline import deploy_shot as cloud_app
         payload = {"example": "unused"}
         with patch.object(cloud_app, "volume") as volume, patch.object(cloud_app, "claims") as claims, \
                 patch.object(cloud_app, "run") as run:

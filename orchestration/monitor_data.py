@@ -6,8 +6,8 @@ from pathlib import Path
 from urllib.parse import quote
 
 from orchestration import state
-from shared.tasks.batch import intent_digest
-from shared.utils.files import read_json
+from runtime.tasks.task_identity import intent_digest
+from runtime.utils.files import read_json
 
 STAGES = {"register": "登记", "submit": "提交", "wait": "等待", "startup": "启动",
           "generate": "生成", "save": "云端保存", "transfer": "素材交接", "download": "下载到本地"}

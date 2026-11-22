@@ -1,7 +1,7 @@
 """共享模型 Volume 只读检查入口的离线路径校验。"""
 import unittest
 
-from scripts.probe_shared_model import validate_relative_path
+from tools.probe_shared_model import validate_relative_path
 
 
 class SharedVolumeProbeTests(unittest.TestCase):

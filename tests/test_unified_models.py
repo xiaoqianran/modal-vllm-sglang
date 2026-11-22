@@ -10,16 +10,16 @@ from types import SimpleNamespace
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from shared.tasks.batch import intent_digest
-from shared.utils.files import atomic_json, read_json
-from shared.config.model_cache import component_specs, verify_cache, checked_inventory, command_argv, prepare_cache
-from shared.serving.inference_execution import execute
-from shared.serving.model_runtime import build_image
-from shared.tasks.task_spec import prepare
-from orchestration.runner import build_plan
+from runtime.tasks.task_identity import intent_digest
+from runtime.utils.files import atomic_json, read_json
+from runtime.config.model_cache import component_specs, verify_cache, checked_inventory, command_argv, prepare_cache
+from runtime.serving.inference_execution import execute
+from runtime.serving.model_runtime import build_image
+from runtime.tasks.task_spec import prepare
+from pipeline.s01_build_plan import build_plan
 import shutil
-from shared.config.model_spec import discover, parameters
-from shared.serving.inference_gateway import prepare_request
+from runtime.config.model_spec import discover, parameters
+from runtime.serving.inference_gateway import prepare_request
 
 ROOT = Path(__file__).resolve().parents[1]
 SPECS = discover()
@@ -41,7 +41,7 @@ class UnifiedModelsTests(unittest.TestCase):
             self.assertEqual(payload["guidance_scale"], 5)
 
     def test_container_cache_environment_uses_linux_paths_on_windows_hosts(self):
-        with patch("shared.serving.modal_setup.runtime_image") as factory:
+        with patch("runtime.serving.modal_setup.runtime_image") as factory:
             build_image(SPECS["pika.t2va"], offline=True)
             env = factory.call_args.kwargs["env"]
             self.assertEqual(env["HF_HOME"], "/mnt/modal/009-pika-h3-flex")
@@ -185,7 +185,7 @@ class UnifiedModelsTests(unittest.TestCase):
                     "first_frame_base64": base64.b64encode(PNG).decode(),
                     "last_frame_base64": base64.b64encode(PNG + b"last").decode()}
             payload, signature = prepare(spec, item)
-            with patch("shared.serving.inference_gateway.FRAME_DIR", root / "staged"):
+            with patch("runtime.serving.inference_gateway.FRAME_DIR", root / "staged"):
                 staged = prepare_request(payload, spec)
             self.assertEqual([c["frame_index"] for c in staged["conditions"]], [0, -1])
             self.assertEqual(staged["conditions"][0]["role"], "keyframe")
@@ -229,16 +229,16 @@ class UnifiedModelsTests(unittest.TestCase):
     def test_remote_image_publish_crash_can_finish_without_regeneration(self):
         spec = SPECS["moss.t2i"]
         item = {"id": "001", "prompt": "boat", "seed": 42}
-        with tempfile.TemporaryDirectory() as directory, patch("shared.serving.inference_execution.Path", wraps=Path) as paths:
+        with tempfile.TemporaryDirectory() as directory, patch("runtime.serving.inference_execution.Path", wraps=Path) as paths:
             paths.side_effect = lambda value: Path(directory) if value == "/mnt/modal" else Path(value)
-            with patch("shared.serving.inference_api.VLLMImageClient") as factory:
+            with patch("runtime.serving.inference_api.ImageGenerationClient") as factory:
                 factory.return_value.generate.return_value = (PNG, ".png")
                 original = atomic_json
                 def crash(path, record):
                     if record.get("status") == "completed":
                         raise OSError("client died after file publish")
                     original(path, record)
-                with patch("shared.serving.inference_execution.atomic_json", side_effect=crash), self.assertRaises(OSError):
+                with patch("runtime.serving.inference_execution.atomic_json", side_effect=crash), self.assertRaises(OSError):
                     list(execute(spec, [item], "batch", Mock()))
                 result = list(execute(spec, [item], "batch", Mock()))
                 self.assertEqual(result[0]["status"], "completed")

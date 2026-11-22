@@ -8,7 +8,7 @@
 从仓库根目录执行，将仓库、版本和镜像替换为真实值：
 
 ```powershell
-uv run python scripts/new_model.py --directory 006-example-image --service example --engine sglang --kind image --model org/model --revision <模型commit> --image <镜像地址及digest>
+uv run python tools/new_model.py --directory 006-example-image --service example --engine sglang --kind image --model org/model --revision <模型commit> --image <镜像地址及digest>
 ```
 
 生成 model.json、app.py、download_model.py、006-example-image.json、pyproject.toml 和 README.md，
@@ -29,7 +29,7 @@ uv run python scripts/new_model.py --directory 006-example-image --service examp
 | components | 额外权重组件；参考 MiniMax encoder |
 | cache | hf 或 sglang_overlay；可设置下载模式与必需文件 |
 | proxy_port / frame_transport | 可选：公共网关端口（默认 port + 1）；keyframes 用于视频首尾帧传输 |
-| validator | 可选跨字段校验器 shared/params_<名称>.py |
+| validator | 可选跨字段校验器 runtime/params_<名称>.py |
 | gpu / cpu / memory | Modal 资源配置 |
 
 未知生成参数拒绝。普通参数的 type、minimum、maximum、enum、pattern 使用配置表达；
@@ -50,12 +50,12 @@ port 和 gpu 也可省略，默认分别为 8000 和 RTX-PRO-6000。
 
 ```powershell
 uv sync
-uv run python -m orchestration plan 006-example-image/006-example-image.json
-uv run python -m modal run 006-example-image/download_model.py
+uv run python run.py plan 006-example-image/006-example-image.json
+uv run python 006-example-image/download_model.py --execute
 uv run python -m modal deploy 006-example-image/app.py
-uv run python -m orchestration worker
+uv run python run.py worker
 # 另一个终端登记任务
-uv run python -m orchestration run 006-example-image/006-example-image.json
+uv run python run.py run 006-example-image/006-example-image.json
 ```
 
 日常业务 task 保存到根目录 tasks/，素材放 inputs/，输出放 outputs/。

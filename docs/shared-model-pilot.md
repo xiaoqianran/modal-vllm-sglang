@@ -29,7 +29,7 @@
 在本仓库根目录执行：
 
 ```powershell
-uv run python scripts/probe_shared_model.py `
+uv run python tools/probe_shared_model.py `
   --volume modal-models-pilot-v2-20261122 `
   --path models--sshleifer--tiny-gpt2/snapshots/5f91d94bd9cd7190a9f3216ff93cd1dd95f2c7be/pytorch_model.bin
 ```

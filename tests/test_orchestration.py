@@ -6,8 +6,9 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
-from orchestration import runner, state
-from shared.utils.files import read_json
+from pipeline import s01_build_plan as runner
+from orchestration import state
+from runtime.utils.files import read_json
 
 
 class WorkflowTests(unittest.TestCase):

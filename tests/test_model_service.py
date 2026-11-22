@@ -5,13 +5,13 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from shared.utils.files import atomic_json, download_volume_file, read_json
-from shared.serving.model_runtime import create_app
-from shared.serving.model_service import create_download_app, optional_hf_download_secrets
-from shared.serving.inference_execution import execute
-from shared.tasks.task_spec import prepare
-from shared.config.model_spec import discover, parameters, validate
-from shared.tasks.task_lifecycle import SubmissionRejected
+from runtime.utils.files import atomic_json, download_volume_file, read_json
+from runtime.serving.model_runtime import create_app
+from runtime.serving.legacy_cache_preparer import create_download_app, optional_hf_download_secrets
+from runtime.serving.inference_execution import execute
+from runtime.tasks.task_spec import prepare
+from runtime.config.model_spec import discover, parameters, validate
+from runtime.tasks.task_lifecycle import SubmissionRejected
 
 
 SPEC = {"service": "example", "operation": "t2i", "kind": "image", "model": "org/model",
@@ -22,16 +22,16 @@ SPEC = {"service": "example", "operation": "t2i", "kind": "image", "model": "org
 
 class ModelServiceTests(unittest.TestCase):
     def test_pika_gateway_does_not_share_sglang_broker_port(self):
-        from shared.serving.inference_gateway import PROXY_PORT
-        from shared.config.model_spec import validate
-        config = validate(read_json(Path(__file__).resolve().parents[1] / "002-pika-h3-flex" / "model.json"))
+        from runtime.serving.inference_gateway import PROXY_PORT
+        from runtime.config.model_spec import validate
+        config = validate(read_json(Path(__file__).resolve().parents[1] / "models/002-pika-h3-flex" / "model.json"))
         self.assertEqual(config["port"], 30010)
         self.assertEqual(config["proxy_port"], 30020)
         self.assertEqual(PROXY_PORT, 30020)
         self.assertNotEqual(config["proxy_port"], config["port"] + 1)
 
     def test_minimax_http_gateway_uses_dedicated_port(self):
-        config = validate(read_json(Path(__file__).resolve().parents[1] / "005-minimax-h3-image" / "model.json"))
+        config = validate(read_json(Path(__file__).resolve().parents[1] / "models/005-minimax-h3-image" / "model.json"))
         self.assertEqual(config["port"], 30000)
         self.assertEqual(config["proxy_port"], 30020)
         self.assertNotEqual(config["proxy_port"], config["port"] + 1)
@@ -49,6 +49,15 @@ class ModelServiceTests(unittest.TestCase):
         import modal
         with patch("modal.Secret.from_name", side_effect=modal.exception.NotFoundError("missing")):
             self.assertEqual(optional_hf_download_secrets(), [])
+
+    def test_legacy_overlay_preparer_rejects_gpu_image_build(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "model.json"
+            atomic_json(path, {**SPEC, "cache": {"mode": "sglang_overlay"}})
+            with patch("runtime.serving.model_runtime.build_image") as expensive:
+                with self.assertRaisesRegex(ValueError, "legacy single-container"):
+                    create_download_app(path)
+            expensive.assert_not_called()
 
     def test_optional_parameter_maps_are_normalized_without_mutating_input(self):
         minimal = {key: value for key, value in SPEC.items() if key not in {"defaults", "options"}}
@@ -80,20 +89,21 @@ class ModelServiceTests(unittest.TestCase):
 
     def test_generated_entrypoints_and_discovery(self):
         import runpy
-        from scripts import new_model
+        from tools import new_model
         with tempfile.TemporaryDirectory() as directory, patch.object(new_model, "ROOT", Path(directory)):
             target = new_model.scaffold("006-example", "example", "sglang", "image",
                                         "org/model", "a" * 40, "example/image:tag")
             self.assertIn("example.t2i", discover(directory))
             self.assertIn("Model", runpy.run_path(str(target / "app.py")))
-            self.assertIn("download", runpy.run_path(str(target / "download_model.py")))
+            self.assertIn("download_main", runpy.run_path(str(target / "download_model.py")))
             self.assertFalse((target / "run.py").exists())
             self.assertTrue((Path(directory) / "workflows/example-t2i.json").is_file())
-            from orchestration import runner, adapters
+            from pipeline import s01_build_plan as runner
+            from orchestration import model_capabilities as adapters
             specs = discover(directory)
             capabilities = {key: {"service": spec["service"], "required": spec["inputs"], "output": spec["kind"]}
                             for key, spec in specs.items()}
-            with patch.object(runner, "ROOT", Path(directory)), patch.dict(adapters.MODEL_SPECS, specs, clear=True), patch.dict(adapters.CAPABILITIES, capabilities, clear=True):
+            with patch("pipeline.s01_build_plan.ROOT", Path(directory)), patch.dict(adapters.MODEL_SPECS, specs, clear=True), patch.dict(adapters.CAPABILITIES, capabilities, clear=True):
                 plan = runner.build_plan(target / "006-example.json", root=Path(directory))
             self.assertEqual(plan["jobs"][0]["uses"], "example.t2i")
             with self.assertRaises(FileExistsError):
@@ -102,7 +112,7 @@ class ModelServiceTests(unittest.TestCase):
 
     def test_discovery_validation_and_signature(self):
         with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "model" / "model.json"
+            path = Path(directory) / "models/model/model.json"
             atomic_json(path, SPEC)
             self.assertEqual(discover(directory)["example.t2i"], {**SPEC, "inputs": {"prompt": "string"}})
         for supplied in ({"unknown": 1}, {"num_inference_steps": True}, {"num_inference_steps": 5}):
@@ -119,17 +129,17 @@ class ModelServiceTests(unittest.TestCase):
             atomic_json(path, SPEC)
             app, model = create_app(path)
             self.assertIn("Model", app.registered_classes)
-            with patch("shared.serving.model_service.optional_hf_download_secrets", return_value=[]):
+            with patch("runtime.serving.legacy_cache_preparer.optional_hf_download_secrets", return_value=[]):
                 download_app, download, check_cache = create_download_app(path)
             self.assertIn("download", download_app.registered_functions)
 
     def test_lost_image_response_is_not_resubmitted(self):
         volume = Mock()
         item = {"id": "001", "prompt": "boat", "seed": 42}
-        with tempfile.TemporaryDirectory() as directory, patch("shared.serving.inference_execution.Path", wraps=Path) as paths:
+        with tempfile.TemporaryDirectory() as directory, patch("runtime.serving.inference_execution.Path", wraps=Path) as paths:
             # Redirect only the remote mount, leaving all other Path behavior intact.
             paths.side_effect = lambda value: Path(directory) if value == "/mnt/modal" else Path(value)
-            with patch("shared.serving.inference_api.VLLMImageClient") as factory:
+            with patch("runtime.serving.inference_api.ImageGenerationClient") as factory:
                 factory.return_value.generate.side_effect = TimeoutError("lost response")
                 with self.assertRaises(TimeoutError):
                     list(execute(SPEC, [item], "batch", volume))
@@ -140,9 +150,9 @@ class ModelServiceTests(unittest.TestCase):
     def test_video_resumes_same_job_after_download_failure(self):
         spec = {**SPEC, "kind": "video", "operation": "t2v"}
         item = {"id": "001", "prompt": "boat", "seed": 42}
-        with tempfile.TemporaryDirectory() as directory, patch("shared.serving.inference_execution.Path", wraps=Path) as paths:
+        with tempfile.TemporaryDirectory() as directory, patch("runtime.serving.inference_execution.Path", wraps=Path) as paths:
             paths.side_effect = lambda value: Path(directory) if value == "/mnt/modal" else Path(value)
-            with patch("shared.serving.inference_api.SGLangVideoClient") as factory:
+            with patch("runtime.serving.inference_api.SGLangVideoClient") as factory:
                 client = factory.return_value
                 client.submit.return_value = "job-1"
                 client.content.side_effect = [OSError("disconnect"), b"\0\0\0\x20ftyp" + b"x" * 32]
@@ -165,9 +175,9 @@ class ModelServiceTests(unittest.TestCase):
 
     def test_busy_sdk_task_can_retry_without_changing_identity(self):
         item = {"id": "001", "prompt": "boat", "seed": 42}
-        with tempfile.TemporaryDirectory() as directory, patch("shared.serving.inference_execution.Path", wraps=Path) as paths:
+        with tempfile.TemporaryDirectory() as directory, patch("runtime.serving.inference_execution.Path", wraps=Path) as paths:
             paths.side_effect = lambda value: Path(directory) if value == "/mnt/modal" else Path(value)
-            with patch("shared.serving.inference_api.VLLMImageClient") as factory:
+            with patch("runtime.serving.inference_api.ImageGenerationClient") as factory:
                 factory.return_value.generate.side_effect = [SubmissionRejected(), (b"\x89PNG\r\n\x1a\n" + b"x" * 32, ".png")]
                 with self.assertRaises(SubmissionRejected):
                     list(execute(SPEC, [item], "batch", Mock()))
@@ -178,9 +188,9 @@ class ModelServiceTests(unittest.TestCase):
     def test_sdk_records_terminal_failure_and_does_not_resume_it(self):
         spec = {**SPEC, "kind": "video", "operation": "t2v"}
         item = {"id": "001", "prompt": "boat", "seed": 42}
-        with tempfile.TemporaryDirectory() as directory, patch("shared.serving.inference_execution.Path", wraps=Path) as paths:
+        with tempfile.TemporaryDirectory() as directory, patch("runtime.serving.inference_execution.Path", wraps=Path) as paths:
             paths.side_effect = lambda value: Path(directory) if value == "/mnt/modal" else Path(value)
-            with patch("shared.serving.inference_api.SGLangVideoClient") as factory:
+            with patch("runtime.serving.inference_api.SGLangVideoClient") as factory:
                 client = factory.return_value
                 client.submit.return_value = "job-1"
                 def failed(job, *, timeout, on_status):

@@ -3,8 +3,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from orchestration import runner
-from shared.utils.files import read_json, atomic_json
+from pipeline import s01_build_plan as runner
+from runtime.utils.files import read_json, atomic_json
 
 
 class FrameDimensionsTests(unittest.TestCase):

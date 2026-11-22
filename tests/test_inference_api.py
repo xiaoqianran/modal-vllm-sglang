@@ -3,7 +3,7 @@ import base64
 import unittest
 from unittest.mock import patch
 
-from shared.serving.inference_api import SGLangVideoClient, VLLMImageClient
+from runtime.serving.inference_api import SGLangVideoClient, ImageGenerationClient
 
 
 PNG = b"\x89PNG\r\n\x1a\n" + b"minimal-test-image"
@@ -15,25 +15,25 @@ class ImageClientTests(unittest.TestCase):
     def test_optional_auth_headers_forwarded(self):
         headers = {"Modal-Key": "test-key", "Modal-Secret": "test-secret"}
         body = {"data": [{"b64_json": base64.b64encode(PNG).decode()}]}
-        with patch("shared.serving.inference_api.request_json", return_value=body) as call:
-            VLLMImageClient("http://localhost", headers=headers).generate({"prompt": "Test"})
+        with patch("runtime.serving.inference_api.request_json", return_value=body) as call:
+            ImageGenerationClient("http://localhost", headers=headers).generate({"prompt": "Test"})
             self.assertEqual(call.call_args.kwargs["headers"], headers)
         video = SGLangVideoClient("http://localhost", headers=headers)
-        with patch("shared.serving.inference_api.request_json", return_value={"id": "job"}) as call:
+        with patch("runtime.serving.inference_api.request_json", return_value={"id": "job"}) as call:
             video.submit({"prompt": "Test"})
             self.assertEqual(call.call_args.kwargs["headers"], headers)
             video.status("job")
             self.assertEqual(call.call_args.kwargs["headers"], headers)
-        with patch("shared.serving.inference_api.request_bytes", return_value=MP4) as call:
+        with patch("runtime.serving.inference_api.request_bytes", return_value=MP4) as call:
             video.content("job")
             self.assertEqual(call.call_args.kwargs["headers"], headers)
 
     def test_png_and_jpeg(self):
-        client = VLLMImageClient("http://localhost:8000/")
+        client = ImageGenerationClient("http://localhost:8000/")
         for raw, extension in ((PNG, ".png"), (JPEG, ".jpg")):
             body = {"data": [{"b64_json": base64.b64encode(raw).decode()}]}
             with self.subTest(extension=extension), \
-                 patch("shared.serving.inference_api.request_json", return_value=body) as call:
+                 patch("runtime.serving.inference_api.request_json", return_value=body) as call:
                 result = client.generate({"prompt": "Example", "size": "1024x1024"},
                                          timeout=60)
                 self.assertEqual(result, (raw, extension))
@@ -42,12 +42,12 @@ class ImageClientTests(unittest.TestCase):
                     {"prompt": "Example", "size": "1024x1024"}, timeout=60)
 
     def test_invalid_responses_rejected(self):
-        client = VLLMImageClient("http://localhost")
+        client = ImageGenerationClient("http://localhost")
         for body in ({"data": []}, {"data": [{}]},
                      {"data": [{"b64_json": "not valid==="}]},
                      {"data": [{"b64_json": base64.b64encode(b"bad").decode()}]}):
             with self.subTest(body=body), \
-                 patch("shared.serving.inference_api.request_json", return_value=body):
+                 patch("runtime.serving.inference_api.request_json", return_value=body):
                 with self.assertRaises(ValueError):
                     client.generate({"prompt": "Test"})
 
@@ -65,9 +65,9 @@ class VideoClientTests(unittest.TestCase):
                 return {"id": "job-01"}
             return next(responses)
 
-        with patch("shared.serving.inference_api.request_json", side_effect=fake_json), \
-             patch("shared.serving.inference_api.request_bytes", return_value=MP4) as content, \
-             patch("shared.utils.http.time.sleep"):
+        with patch("runtime.serving.inference_api.request_json", side_effect=fake_json), \
+             patch("runtime.serving.inference_api.request_bytes", return_value=MP4) as content, \
+             patch("runtime.utils.http.time.sleep"):
             video_id = client.submit({"prompt": "Rain"}, timeout=300)
             state = client.wait(video_id, timeout=10, poll=1,
                                 on_status=lambda item: polls.append(item["status"]))
@@ -84,14 +84,14 @@ class VideoClientTests(unittest.TestCase):
 
     def test_failed_job_and_invalid_video(self):
         client = SGLangVideoClient("http://localhost")
-        with patch("shared.serving.inference_api.request_json",
+        with patch("runtime.serving.inference_api.request_json",
                    return_value={"status": "failed", "error": "OOM"}):
             with self.assertRaisesRegex(RuntimeError, "failed"):
                 client.wait("job", timeout=10)
-        with patch("shared.serving.inference_api.request_bytes", return_value=b"bad"):
+        with patch("runtime.serving.inference_api.request_bytes", return_value=b"bad"):
             with self.assertRaisesRegex(ValueError, "Invalid MP4"):
                 client.content("job")
-        with patch("shared.serving.inference_api.request_json", return_value={}):
+        with patch("runtime.serving.inference_api.request_json", return_value={}):
             with self.assertRaisesRegex(ValueError, "no id"):
                 client.submit({"prompt": "Test"})
 
@@ -105,7 +105,7 @@ class VideoClientTests(unittest.TestCase):
             wait.assert_called_once_with(
                 "job", timeout=20, poll=1, status_timeout=180)
             content.assert_called_once_with("job", timeout=600)
-        with patch("shared.serving.inference_api.request_json",
+        with patch("runtime.serving.inference_api.request_json",
                    return_value={"status": "completed"}) as fetch:
             client.status("a/b?c")
             self.assertEqual(

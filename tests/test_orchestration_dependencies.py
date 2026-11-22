@@ -6,7 +6,9 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from orchestration import runner, sdk
+from run import main as run_cli
+from pipeline import s01_build_plan as runner
+from orchestration import sdk
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -15,13 +17,13 @@ class DependencyTests(unittest.TestCase):
     def test_lower_layers_do_not_import_upper_layers(self):
         allowed = {
             "protocol": set(),
-            "sdk": {"adapters", "state", "protocol", "submissions"},
-            "cloud": {"sdk", "state", "protocol"},
-            "cloud_client": {"sdk", "state", "protocol", "provisioning", "monitor"},
+            "sdk": {"model_capabilities", "state", "protocol", "submissions"},
+            "s03_run_shot": {"sdk", "state", "protocol", "model_capabilities"},
+            "s02_submit_shots": {"sdk", "state", "protocol", "provisioning", "monitor"},
             "provisioning": {"protocol", "state", "deployment_state", "leases"},
         }
         for module, dependencies in allowed.items():
-            tree = ast.parse((ROOT / "orchestration" / (module + ".py")).read_text())
+            tree = ast.parse((ROOT / ("pipeline" if module.startswith("s0") else "orchestration") / (module + ".py")).read_text())
             imports = set()
             for node in ast.walk(tree):
                 if isinstance(node, ast.ImportFrom):
@@ -37,18 +39,18 @@ class DependencyTests(unittest.TestCase):
                 self.assertLessEqual(imports, dependencies)
 
     def test_imports_in_fresh_processes(self):
-        for order in (("sdk", "cloud_client", "cloud", "cloud_app", "runner"),
-                      ("cloud_app", "cloud", "cloud_client", "sdk", "runner")):
+        modules = ("orchestration.sdk", "pipeline.s02_submit_shots", "pipeline.s03_run_shot", "pipeline.deploy_shot", "run")
+        for order in (modules, reversed(modules)):
             code = "import importlib; " + "; ".join(
-                f"importlib.import_module('orchestration.{name}')" for name in order)
+                f"importlib.import_module('{name}')" for name in order)
             result = subprocess.run([sys.executable, "-c", code], cwd=ROOT,
                                     capture_output=True, text=True, timeout=30)
             self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_worker_cli_routes_to_cloud_client(self):
         with patch("sys.argv", ["orchestration", "worker", "--poll", "3"]), \
-                patch("orchestration.cloud_client.worker") as worker:
-            runner.main()
+                patch("pipeline.s02_submit_shots.worker") as worker:
+            run_cli()
         worker.assert_called_once_with(ROOT / "outputs", poll=3)
 
     def test_backend_reuses_model_handle_for_same_spec(self):

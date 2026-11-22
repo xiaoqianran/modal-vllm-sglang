@@ -1,10 +1,10 @@
 # Pika H3 Flex｜Modal Run 真实验证与故障记录（2026-11-08）
 
-> 历史实验记录：下文所有 `run_batch.py`、临时 `modal run` 命令仅说明当时的实验过程，旧入口已经删除。新的唯一 GPU 入口是先 `python -m modal deploy app.py`，再使用 `python -m orchestration run <Task>` 配合 worker 调用部署的 `Pika` Class；下文不再作为当前操作教程。
+> 历史实验记录：下文所有 `run_batch.py`、临时 `modal run` 命令仅说明当时的实验过程，旧入口已经删除。新的唯一 GPU 入口是先 `python -m modal deploy app.py`，再使用 `python run.py run <Task>` 配合 worker 调用部署的 `Pika` Class；下文不再作为当前操作教程。
 
 ## 一、当前结论
 
-截至本次检查，`002-pika-h3-flex/run_batch.py` 的 Modal Run 入口已修复并通过 SGLang Diffusion CLI 预检查；**尚未成功生成 MP4**。
+截至本次检查，`models/002-pika-h3-flex/run_batch.py` 的 Modal Run 入口已修复并通过 SGLang Diffusion CLI 预检查；**尚未成功生成 MP4**。
 
 **实际阻塞：RTX PRO 6000（96GB）在 `--performance-mode speed`、不量化、不 CPU Offload 的条件下，加载 FL2VA Transformer 时 CUDA OOM。** 这不是图片/提示词错误，也不是最早那次的 CLI 参数解析错误。
 
@@ -16,9 +16,9 @@
 | --- | --- |
 | 输入目录（PC2） | `D:\a_programming_list\Ai-application\A-modal\modal-vllm-sglang\001-moss-image\results\storyboard\episode09\20261108T094144Z` |
 | 图片 | `09-01.png`，3,147,861 字节 |
-| Prompt 来源 | `001-moss-image/storyboard/episode09/prompts/09-01.txt`，并改写为镜头运动提示词 |
-| 运行任务 | `002-pika-h3-flex/tasks/episode09_single_test.json`（本地测试文件，不作为通用样例提交） |
-| 运行入口 | `002-pika-h3-flex/run_batch.py` |
+| Prompt 来源 | `models/001-moss-image/storyboard/episode09/prompts/09-01.txt`，并改写为镜头运动提示词 |
+| 运行任务 | `models/002-pika-h3-flex/tasks/episode09_single_test.json`（本地测试文件，不作为通用样例提交） |
+| 运行入口 | `models/002-pika-h3-flex/run_batch.py` |
 | 模型 | `Pika-Labs/Pika-H3-Flex` |
 | 模式 | FL2VA，首帧与尾帧都使用 `09-01.png` |
 | 推理配置 | 480p、5 秒、6 步、`performance-mode=speed` |

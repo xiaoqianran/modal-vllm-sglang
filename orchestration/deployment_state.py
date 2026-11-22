@@ -4,9 +4,9 @@ from contextlib import contextmanager
 from pathlib import Path
 import time
 
-from shared.config.model_spec import ROOT
-from shared.tasks.batch import intent_digest
-from shared.utils.files import atomic_json, read_json, sha256_file
+from runtime.config.model_spec import ROOT
+from runtime.tasks.task_identity import intent_digest
+from runtime.utils.files import atomic_json, read_json, sha256_file
 
 
 def dependency_files(root, modules):
@@ -24,13 +24,13 @@ def dependency_files(root, modules):
         tree = ast.parse(path.read_text(encoding="utf-8-sig"))
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
-                pending.extend(alias.name for alias in node.names if alias.name.startswith(("shared.", "orchestration.")))
+                pending.extend(alias.name for alias in node.names if alias.name.startswith(("runtime.", "orchestration.", "pipeline.")))
             elif isinstance(node, ast.ImportFrom):
                 base = node.module or ""
                 if node.level:
                     package = module.split(".")[:-node.level]
                     base = ".".join(package + ([base] if base else []))
-                if base.startswith(("shared", "orchestration")):
+                if base.startswith(("runtime", "orchestration", "pipeline")):
                     pending.append(base)
                     pending.extend(base + "." + alias.name for alias in node.names if alias.name != "*")
     return found
@@ -42,17 +42,24 @@ def digest_files(root, paths):
 
 def source_version(root=ROOT):
     root = Path(root)
-    paths = dependency_files(root, ["orchestration.cloud_app", "orchestration.cloud", "orchestration.sdk", "orchestration.protocol", "orchestration.state"])
-    return digest_files(root, paths | set(root.glob("*/model.json")))
+    paths = dependency_files(root, ["pipeline.deploy_shot", "pipeline.s03_run_shot", "orchestration.sdk", "orchestration.protocol", "orchestration.state"])
+    for config in root.glob("models/*/model.json"):
+        paths.add(config)
+        validator = read_json(config).get("validator_module")
+        if validator:
+            paths.update(dependency_files(root, [validator]))
+    return digest_files(root, paths)
 
 
 def model_source_version(spec, root=ROOT):
     root = Path(root)
-    matches = [path for path in root.glob("*/model.json") if read_json(path).get("service") == spec["service"]]
+    matches = [path for path in root.glob("models/*/model.json") if read_json(path).get("service") == spec["service"]]
     if len(matches) != 1:
         raise ValueError("Expected one model.json for " + spec["service"])
-    runtime = "shared.serving.model_runtime" if (root / "shared/serving/model_runtime.py").exists() else "shared.serving.model_service"
-    paths = dependency_files(root, [runtime, "shared.serving.inference_gateway", "shared.config.params_" + spec.get("validator", "")])
+    runtime = "runtime.serving.model_runtime" if (root / "runtime/serving/model_runtime.py").exists() else "runtime.serving.legacy_cache_preparer"
+    validator = spec.get("validator_module")
+    paths = dependency_files(root, [runtime, "runtime.serving.inference_gateway",
+                                     *([validator] if validator else [])])
     entry = root / "orchestration/provision_entry.py"
     if entry.is_file():
         paths.add(entry)

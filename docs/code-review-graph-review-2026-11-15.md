@@ -54,7 +54,7 @@ try/finally；在最外层 finally 清除回调并关闭 writer。
 
 ### P2：损坏的本地 telemetry 缓存无法恢复
 
-位置：`shared/telemetry/collector.py::collect_cloud`。
+位置：`runtime/telemetry/collector.py::collect_cloud`。
 旧实现仅在缓存不存在时下载。缓存截断或内容损坏后，每次收集只会再次
 报告校验失败，后台重试和显式 collect 都无法恢复。
 

@@ -12,14 +12,16 @@ import time
 import unittest
 from unittest.mock import Mock, patch
 
-from orchestration import runner, sdk, state
-from shared.telemetry import schema
-from shared.telemetry.collector import collect, collect_cloud, collect_local, ingest
-from shared.telemetry.recorder import Recorder, close_local, flush_local
-from shared.telemetry.report import task_report
-from shared.telemetry.storage import Writer
-from shared.serving.inference_execution import execute
-from shared.utils.files import atomic_json, read_json
+from run import main as run_cli
+from pipeline import s01_build_plan as runner
+from orchestration import sdk, state
+from runtime.telemetry import schema
+from runtime.telemetry.collector import collect, collect_cloud, collect_local, ingest
+from runtime.telemetry.recorder import Recorder, close_local, flush_local
+from runtime.telemetry.report import task_report
+from runtime.telemetry.storage import Writer
+from runtime.serving.inference_execution import execute
+from runtime.utils.files import atomic_json, read_json
 from tests.test_sdk_orchestration import PNG, MP4
 
 
@@ -97,7 +99,7 @@ class TelemetryTests(unittest.TestCase):
     def test_writer_failure_and_backpressure_do_not_fail_business_operation(self):
         writer = self.writer()
         recorder = Recorder(writer)
-        with patch("shared.telemetry.storage.atomic_write", side_effect=OSError("disk full")):
+        with patch("runtime.telemetry.storage.atomic_write", side_effect=OSError("disk full")):
             with recorder.span("save"):
                 value = "business succeeded"
             manifest = writer.flush()
@@ -111,13 +113,13 @@ class TelemetryTests(unittest.TestCase):
     def test_blocked_writer_does_not_block_emit_and_flush_reports_incomplete(self):
         writer = self.writer()
         entered, release = threading.Event(), threading.Event()
-        from shared.telemetry.storage import atomic_write
+        from runtime.telemetry.storage import atomic_write
         def slow(*args):
             entered.set()
             if not release.wait(3):
                 raise TimeoutError("test did not release writer")
             return atomic_write(*args)
-        with patch("shared.telemetry.storage.atomic_write", side_effect=slow):
+        with patch("runtime.telemetry.storage.atomic_write", side_effect=slow):
             try:
                 with Recorder(writer).span("register"):
                     pass
@@ -170,14 +172,14 @@ class TelemetryTests(unittest.TestCase):
         self.assertEqual(collected["events"], 2)
 
     def test_boundary_sample_request_does_not_wait_for_resource_probe(self):
-        from shared.telemetry.sampler import ResourceMonitor
+        from runtime.telemetry.sampler import ResourceMonitor
         entered, release = threading.Event(), threading.Event()
         def probe():
             entered.set()
             release.wait(2)
             return {}
         monitor = ResourceMonitor()
-        with patch("shared.telemetry.sampler.resource_sample", side_effect=probe):
+        with patch("runtime.telemetry.sampler.resource_sample", side_effect=probe):
             monitor.start()
             try:
                 self.assertTrue(entered.wait(1))
@@ -197,25 +199,25 @@ class TelemetryTests(unittest.TestCase):
         self.assertEqual(task_report(self.output, "006-demo/001-main")["unclosed_spans"], 1)
 
     def test_telemetry_context_does_not_change_inference_signature(self):
-        from shared.tasks.task_spec import prepare
+        from runtime.tasks.task_spec import prepare
         from tests.test_model_service import SPEC
         item = {"id": "001", "prompt": "boat", "seed": 1}
         self.assertEqual(prepare(SPEC, item), prepare(SPEC, {**item, "_telemetry": {
             "task_id": "006-demo/001-main", "job_key": "image/001"}}))
 
     def test_local_collection_cli_never_contacts_modal(self):
-        with patch.object(runner, "ROOT", self.root), \
+        with patch("run.ROOT", self.root), \
                 patch("sys.argv", ["orchestration", "telemetry", "collect", "--local"]), \
-                patch("shared.serving.modal_setup.model_volume") as volume, \
+                patch("runtime.serving.modal_setup.model_volume") as volume, \
                 patch("modal.Cls.from_name") as model, patch("sys.stdout", new=io.StringIO()) as output:
-            runner.main()
+            run_cli()
         volume.assert_not_called()
         model.assert_not_called()
         self.assertEqual(json.loads(output.getvalue())["errors"], 0)
 
     def test_background_collector_publishes_report(self):
-        from shared.telemetry.collector import Collector
-        from shared.tasks.batch import intent_digest
+        from runtime.telemetry.collector import Collector
+        from runtime.tasks.task_identity import intent_digest
         writer = self.writer(cloud=True)
         with Recorder(writer, task_id="006-demo/001-main", job_key="image/001").span("generate"):
             pass
@@ -268,9 +270,9 @@ class TelemetryTests(unittest.TestCase):
                 call = record["call_id"]
                 if call not in self.results:
                     spec, item, prefix = self.calls[call]
-                    with patch("shared.serving.inference_execution.Path", wraps=Path) as paths, \
-                            patch("shared.serving.inference_api.VLLMImageClient") as images, \
-                            patch("shared.serving.inference_api.SGLangVideoClient") as videos:
+                    with patch("runtime.serving.inference_execution.Path", wraps=Path) as paths, \
+                            patch("runtime.serving.inference_api.ImageGenerationClient") as images, \
+                            patch("runtime.serving.inference_api.SGLangVideoClient") as videos:
                         paths.side_effect = lambda value: cloud_root if value == "/mnt/modal" else Path(value)
                         images.return_value.generate.return_value = (PNG, ".png")
                         videos.return_value.submit.return_value = "engine-video-1"
@@ -279,7 +281,7 @@ class TelemetryTests(unittest.TestCase):
                                                         recorder=recorders[spec["service"]]))
                 return self.results[call]
         backend = Backend()
-        with patch("shared.telemetry.collector.enqueue"):
+        with patch("runtime.telemetry.collector.enqueue"):
             result = drain(directory, backend=backend, timeout=3, poll=0.001)
         self.assertEqual(result["counts"], {"completed": 3})
         flush_local(self.output)
@@ -305,8 +307,8 @@ class TelemetryTests(unittest.TestCase):
         recorder = Recorder(self.writer(cloud=True), task_id="006-demo/001-main")
         volume = Mock()
         volume.commit.side_effect = [None, None, None, OSError("telemetry commit failed")]
-        with patch("shared.serving.inference_execution.Path", wraps=Path) as paths, \
-                patch("shared.serving.inference_api.VLLMImageClient") as images:
+        with patch("runtime.serving.inference_execution.Path", wraps=Path) as paths, \
+                patch("runtime.serving.inference_api.ImageGenerationClient") as images:
             paths.side_effect = lambda value: self.root / "cloud" if value == "/mnt/modal" else Path(value)
             images.return_value.generate.return_value = (PNG, ".png")
             result = next(execute(SPEC, [{"id": "001", "prompt": "boat", "seed": 1}],

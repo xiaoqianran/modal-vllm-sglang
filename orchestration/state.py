@@ -1,14 +1,14 @@
 """Single-writer state and verified, atomically published artifacts."""
 from pathlib import Path
 
-from shared.utils.files import sha256_file
+from runtime.utils.files import sha256_file
 
 
-from shared.utils.files import atomic_json as save, atomic_write as write, file_lock as lock
+from runtime.utils.files import atomic_json as save, atomic_write as write, file_lock as lock
 
 
-from shared.utils.files import local_path
-from shared.utils.files import read_json
+from runtime.utils.files import local_path
+from runtime.utils.files import read_json
 
 
 def layout(directory):

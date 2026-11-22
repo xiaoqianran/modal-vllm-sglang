@@ -9,18 +9,18 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 from http.client import IncompleteRead
 
-from shared.config.cache import file_inventory
-from shared.utils.files import atomic_json, download_volume_file, read_json, sha256_file
-from shared.serving.runtime import monitor_processes, stop_process, wait_for_health
-from shared.utils.http import request_bytes
+from runtime.config.cache_inventory import file_inventory
+from runtime.utils.files import atomic_json, download_volume_file, read_json, sha256_file
+from runtime.serving.process_lifecycle import monitor_processes, stop_process, wait_for_health
+from runtime.utils.http import request_bytes
 
 class SharedTests(unittest.TestCase):
     def test_truncated_get_retries_but_post_never_retries(self):
         response = Mock()
         response.__enter__ = Mock(return_value=response)
         response.__exit__ = Mock(return_value=False)
-        with patch("shared.utils.http.urllib.request.urlopen", return_value=response) as call, \
-                patch("shared.utils.http.time.sleep"):
+        with patch("runtime.utils.http.urllib.request.urlopen", return_value=response) as call, \
+                patch("runtime.utils.http.time.sleep"):
             response.read.side_effect = [IncompleteRead(b"part"), b"complete"]
             self.assertEqual(request_bytes("http://localhost/content", attempts=2), b"complete")
             self.assertEqual(call.call_count, 2)
@@ -60,7 +60,7 @@ class SharedTests(unittest.TestCase):
         resp = Mock()
         resp.__enter__ = Mock(return_value=Mock(status=200))
         resp.__exit__ = Mock(return_value=None)
-        with patch("shared.serving.runtime.urllib.request.urlopen", return_value=resp):
+        with patch("runtime.serving.process_lifecycle.urllib.request.urlopen", return_value=resp):
             wait_for_health(p, "http://127.0.0.1:8000/health", timeout=1)
         p.poll.return_value = 1
         p.returncode = 1

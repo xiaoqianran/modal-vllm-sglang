@@ -2,7 +2,7 @@
 
 此升级保留三个 App 名称、原 HTTP endpoint 标签与 Moss / Pika / H3 部署类名。
 当前 SDK 使用单任务方法 `generate_one(item, prefix, expected_cache_fingerprint, expected_spec_hash)`；旧 `generate_batch_stream` 批处理入口已移除。
-旧 Pika / H3 的 `generate_batch` 及旧 Moss 的两参数调用不能直接继续使用；请统一使用 `python -m orchestration run tasks/<任务>.json`，由 worker 调度。
+旧 Pika / H3 的 `generate_batch` 及旧 Moss 的两参数调用不能直接继续使用；请统一使用 `python run.py run tasks/<任务>.json`，由 worker 调度。
 Python 薄入口导出 `Model`，Modal 注册名由 `model.json` 的 `modal_class` 决定。
 旧输出日志不迁移；新任务写入独立的 `model-results/`，不要用旧任务名重新生成未知状态的旧任务。
 
@@ -14,21 +14,24 @@ Python 薄入口导出 `Model`，Modal 注册名由 `model.json` 的 `modal_clas
 2. 对三个模型分别执行 CPU 准备及检查：
 
 ```powershell
-uv run python -m modal run 001-moss-image/download_model.py --migrate-only
-uv run python -m modal run 001-moss-image/download_model.py --check-only
-uv run python -m modal run 002-pika-h3-flex/download_model.py --migrate-only
-uv run python -m modal run 002-pika-h3-flex/download_model.py --check-only
-uv run python -m modal run 005-minimax-h3-image/download_model.py --migrate-only
-uv run python -m modal run 005-minimax-h3-image/download_model.py --check-only
+uv run python models/001-moss-image/download_model.py --execute --migrate-only
+uv run python models/001-moss-image/download_model.py --execute --check-only
+uv run python models/002-pika-h3-flex/download_model.py --execute --migrate-only
+uv run python models/002-pika-h3-flex/download_model.py --execute --check-only
+uv run python models/005-minimax-h3-image/download_model.py --execute --migrate-only
+uv run python models/005-minimax-h3-image/download_model.py --execute --check-only
 ```
 
-存在旧清单时原地校验并转换，权重路径不变；所有组件通过校验才发布新清单。
-`--migrate-only` 在清单缺失或已有缓存损坏时停止，绝不调用下载器。新环境需要下载时，使用不带该选项的普通准备入口。`--refresh` 明确允许重新准备权重，不应用于普通格式迁移。
+MOSS、Pika、MiniMax 均使用同一个轻量 CPU 缓存检查/迁移实现；
+存在旧清单时可原地校验并转换，权重路径不变；所有组件通过校验才发布新清单。
+`--migrate-only` 在清单缺失或已有缓存损坏时停止，绝不调用下载器。
+新环境需要下载时，明确使用 `--execute`，但不带这两个缓存模式开关。
+统一 benchmark 入口已不再提供旧版 `--refresh`，不能将免费预览误当成实际迁移。
 转换前的清单保存在同目录 `model-ready.legacy.json`。GPU 启动不执行迁移或下载。
 校验是文件列表和大小校验，不能检测同长度的内容损坏。
 
 3. CPU 检查成功后，分别 `uv run python -m modal deploy <模型目录>/app.py`。
-4. 用 `python -m orchestration check-deployment moss pika minimax` 核对新版接口、配置签名和缓存指纹（会启动 GPU，但不生成媒体）。
+4. 用 `python run.py check-deployment moss pika minimax` 核对新版接口、配置签名和缓存指纹（会启动 GPU，但不生成媒体）。
 5. 再用 orchestration run 配合 worker 做每模型单任务生成、客户端断线恢复与收集验收，再恢复正常使用。
 
 HTTP endpoint 标签保留旧值；部署后仍需从 Modal 输出核实实际 URL，核对环境变量 MOSS_ENDPOINT、PIKA_ENDPOINT、MINIMAX_ENDPOINT。

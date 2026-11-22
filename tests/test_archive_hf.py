@@ -5,9 +5,9 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from shared.archive import ArchivePipeline, ArchiveSettings
-from shared.archive.huggingface import public_url
-from shared.archive.operations import prepare_media
+from runtime.archive import ArchivePipeline, ArchiveSettings
+from runtime.archive.huggingface import public_url
+from runtime.archive.operations import prepare_media
 
 
 def fixture_png(path: Path):

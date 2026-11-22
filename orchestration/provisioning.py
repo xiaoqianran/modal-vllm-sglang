@@ -9,10 +9,10 @@ import threading
 import time
 from pathlib import Path
 
-from shared.config.model_spec import ROOT, validate
-from shared.tasks.batch import intent_digest
-from shared.tasks.job_client import remote_cache_fingerprint
-from shared.utils.files import read_json
+from runtime.config.model_spec import ROOT, validate
+from runtime.tasks.task_identity import intent_digest
+from runtime.tasks.job_client import remote_cache_fingerprint
+from runtime.utils.files import read_json
 from orchestration.protocol import APP_NAME, PROVISION_REGISTRY, state_path
 from orchestration.deployment_state import DeploymentState, source_version, model_source_version, classify_error
 from orchestration.leases import Lease, LeaseBusy, terminal_proof
@@ -21,7 +21,7 @@ REGISTRY = PROVISION_REGISTRY
 
 def model_paths(root=ROOT):
     result = {}
-    for path in sorted(root.glob("*/model.json")):
+    for path in sorted(root.glob("models/*/model.json")):
         spec = validate(read_json(path))
         if spec["service"] in result:
             raise ValueError("Duplicate model service: " + spec["service"])
@@ -228,7 +228,7 @@ class Provisioner:
     def command_benchmark(self, model_path):
         """Use the same public HF downloader as the standalone CLI."""
         workspace = getattr(self, "root", ROOT)
-        subprocess.run([sys.executable, str(workspace / "scripts/download_models.py"),
+        subprocess.run([sys.executable, str(workspace / "tools/download_models.py"),
                         str(model_path), "--execute"], cwd=workspace, check=True,
                        timeout=90000)
 
@@ -371,7 +371,7 @@ class Provisioner:
                         self.assert_sources_unchanged(spec, base_version)
                         with self.phase(key, spec, "build_deploy"):
                             with lease.external("deploy", app=app, version=version):
-                                self.command("deploy", "orchestration/cloud_app.py" if spec is None else
+                                self.command("deploy", "pipeline/deploy_shot.py" if spec is None else
                                              "orchestration/provision_entry.py", **env,
                                              MODEL_PREPARE="0", MODEL_DEPLOY_VERSION=version)
                                 deployment_requested = True

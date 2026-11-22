@@ -5,13 +5,13 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-MODELS = ("001-moss-image", "002-pika-h3-flex", "005-minimax-h3-image")
+MODELS = ("models/001-moss-image", "models/002-pika-h3-flex", "models/005-minimax-h3-image")
 
 
 class DeployOnlyTests(unittest.TestCase):
     def test_all_models_register_the_same_template(self):
-        from shared.config.model_spec import validate
-        from shared.utils.files import read_json
+        from runtime.config.model_spec import validate
+        from runtime.utils.files import read_json
         for folder in MODELS:
             with self.subTest(folder=folder):
                 spec = validate(read_json(ROOT / folder / "model.json"))
@@ -19,17 +19,17 @@ class DeployOnlyTests(unittest.TestCase):
                 self.assertIn("Model", app)
                 self.assertEqual(app["app"].name, spec["app_name"])
                 download = runpy.run_path(str(ROOT / folder / "download_model.py"))
-                self.assertIn("download", download)
-                self.assertIn("check_cache", download)
+                self.assertIn("download_main", download)
+                self.assertIn("main", download)
                 for name in ("image.py", "video.py", "model_cache.py", "proxy.py"):
                     self.assertFalse((ROOT / folder / name).exists())
 
     def test_common_service_has_one_gpu_class_and_private_http(self):
         # GPU lifecycle and CPU preparation have separate entry modules.
-        tree = ast.parse((ROOT / "shared/serving/model_runtime.py").read_text(encoding="utf-8"))
+        tree = ast.parse((ROOT / "runtime/serving/model_runtime.py").read_text(encoding="utf-8"))
         classes = [n for n in ast.walk(tree) if isinstance(n, ast.ClassDef)]
         self.assertEqual(len(classes), 1)
-        facade = ast.parse((ROOT / "shared/serving/model_service.py").read_text(encoding="utf-8"))
+        facade = ast.parse((ROOT / "runtime/serving/legacy_cache_preparer.py").read_text(encoding="utf-8"))
         self.assertFalse(any(isinstance(n, ast.ClassDef) for n in ast.walk(facade)))
         cls = classes[0]
         self.assertEqual(cls.name, "Model")

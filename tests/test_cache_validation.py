@@ -6,10 +6,10 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from shared.config.cache import file_inventory
-from shared.config.model_cache import component_specs, verify_cache
-from shared.tasks.batch import intent_digest
-from shared.utils.files import atomic_json
+from runtime.config.cache_inventory import file_inventory
+from runtime.config.model_cache import component_specs, verify_cache
+from runtime.tasks.task_identity import intent_digest
+from runtime.utils.files import atomic_json
 from tests.test_model_service import SPEC
 
 
@@ -59,8 +59,8 @@ class CacheValidationTests(unittest.TestCase):
 
     def test_success_timing_preserves_return_value(self):
         expected = ({'model': Path('/models/model')}, 'fingerprint')
-        with patch('shared.config.model_cache._verify_cache_full', return_value=expected), \
-                patch('shared.config.model_cache.time.perf_counter', side_effect=[10, 10.25]), \
+        with patch('runtime.config.model_cache._verify_cache_full', return_value=expected), \
+                patch('runtime.config.model_cache.time.perf_counter', side_effect=[10, 10.25]), \
                 patch('sys.stdout', new_callable=io.StringIO) as output:
             self.assertEqual(verify_cache(SPEC, phase='engine_start'), expected)
         event = json.loads(output.getvalue())

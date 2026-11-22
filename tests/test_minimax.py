@@ -1,6 +1,6 @@
 """MiniMax cache integrity and existing runner integration; no GPU."""
 import unittest
-from orchestration import adapters
+from orchestration import model_capabilities as adapters
 
 
 class MiniMaxTests(unittest.TestCase):

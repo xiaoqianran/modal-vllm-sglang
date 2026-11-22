@@ -13,7 +13,7 @@ not changed by editing these local JSON files.
 
 ## uv builds
 
-`shared/serving/modal_setup.py` delegates package installation to Modal's
+`runtime/serving/modal_setup.py` delegates package installation to Modal's
 native `Image.uv_pip_install`, which automatically provides uv in the
 builder and installs into the first Python on `PATH`. The existing SGLang
 base image previously used `python -m pip` to install into

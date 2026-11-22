@@ -11,11 +11,14 @@ import threading
 import unittest
 from unittest.mock import Mock, patch
 
-from orchestration import runner, sdk, state
-from shared.config.storage import VOLUME_NAME
-from shared.tasks.artifacts import image_reference, resolve_frames
-from shared.tasks.task_spec import prepare
-from shared.utils.files import read_json
+from run import main as run_cli
+from pipeline import s01_build_plan as runner
+from pipeline.s03_run_shot import tick
+from orchestration import sdk, state
+from runtime.config.storage import VOLUME_NAME
+from runtime.tasks.artifacts import image_reference, resolve_frames
+from runtime.tasks.task_spec import prepare
+from runtime.utils.files import read_json
 
 PNG = b"\x89PNG\r\n\x1a\n" + b"image-data" * 12
 MP4 = b"\x00\x00\x00\x1cftypisom" + b"video-data" * 12
@@ -65,7 +68,7 @@ class SDKWorkflowTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        from shared.telemetry.recorder import close_local
+        from runtime.telemetry.recorder import close_local
         self.addCleanup(close_local, self.root / ".runtime/logs")
         shutil.copytree(runner.ROOT / "workflows", self.root / "workflows")
         (self.root / "tasks").mkdir()
@@ -95,11 +98,11 @@ class SDKWorkflowTests(unittest.TestCase):
         self.backend.model_readiness = lambda service: ready[service]
         self.backend.collect_outputs = False
         for _ in range(3):
-            sdk.tick(directory, self.backend, {}, None)
+            tick(directory, self.backend, {}, None)
         self.assertEqual([s[0] for s in self.backend.submissions], ["image", "image"])
         ready["pika"] = {"status": "ready"}
         for _ in range(3):
-            sdk.tick(directory, self.backend, {}, None)
+            tick(directory, self.backend, {}, None)
         self.assertEqual([s[0] for s in self.backend.submissions], ["image", "image", "video"])
 
     def test_run_cli_registers_mixed_workflows_and_returns_without_cloud_access(self):
@@ -110,11 +113,11 @@ class SDKWorkflowTests(unittest.TestCase):
         original_plan, original_run = runner.build_plan, runner.new_run
         paths = [str(self.root / "tasks/006-cloud-demo.json"), str(single)]
         with patch("sys.argv", ["orchestration", "run", *paths]), \
-                patch.object(runner, "build_plan", side_effect=lambda path: original_plan(path, root=self.root)), \
-                patch.object(runner, "new_run", side_effect=lambda plan, output: original_run(plan, root=self.root, output=output)), \
+                patch("run.build_plan", side_effect=lambda path: original_plan(path, root=self.root)), \
+                patch("run.new_run", side_effect=lambda plan, output: original_run(plan, root=self.root, output=output)), \
                 patch("orchestration.sdk.Backend") as backend, \
                 patch("sys.stdout", new=io.StringIO()) as output:
-            runner.main()
+            run_cli()
         backend.assert_not_called()
         self.assertIn("Registration complete", output.getvalue())
         for name, count in (("006-cloud-demo", 3), ("006-single-demo", 1)):
@@ -127,7 +130,7 @@ class SDKWorkflowTests(unittest.TestCase):
         for args in (("--enqueue",), ("--transport", "http"), ("--timeout", "60")):
             with self.subTest(args=args), patch("sys.argv", ["orchestration", "run", "task.json", *args]), \
                     patch("sys.stderr", new=io.StringIO()), self.assertRaises(SystemExit) as exit:
-                runner.main()
+                run_cli()
             self.assertEqual(exit.exception.code, 2)
 
     def test_resume_retries_downloads_in_existing_worker_without_resubmission(self):
@@ -137,18 +140,18 @@ class SDKWorkflowTests(unittest.TestCase):
         downloads = {}
         with ThreadPoolExecutor(max_workers=8) as pool:
             for _ in range(3):
-                sdk.tick(directory, self.backend, downloads, pool)
+                tick(directory, self.backend, downloads, pool)
             for entry in downloads.values():
                 with self.assertRaises(OSError):
                     entry["future"].result(timeout=2)
-            result = sdk.tick(directory, self.backend, downloads, pool)
+            result = tick(directory, self.backend, downloads, pool)
             self.assertEqual(result["download_errors"], 3)
             self.backend.fail_download = False
             sdk.request_resume(directory)
-            sdk.tick(directory, self.backend, downloads, pool)
+            tick(directory, self.backend, downloads, pool)
             for entry in downloads.values():
                 entry["future"].result(timeout=2)
-            result = sdk.tick(directory, self.backend, downloads, pool)
+            result = tick(directory, self.backend, downloads, pool)
         self.assertEqual(result["download_errors"], 0)
         self.assertEqual(result["local_downloaded"], 3)
         self.assertEqual(len(self.backend.submissions), 3)
@@ -159,11 +162,11 @@ class SDKWorkflowTests(unittest.TestCase):
         downloads = {}
         with ThreadPoolExecutor(max_workers=8) as pool:
             try:
-                sdk.tick(directory, self.backend, downloads, pool)
+                tick(directory, self.backend, downloads, pool)
                 self.assertEqual([item["id"] for kind, item, _ in self.backend.submissions],
                                  ["j" + sdk.intent_digest(key)[:32] for key in
                                   ("first/001", "last/001", "first/002", "last/002")])
-                sdk.tick(directory, self.backend, downloads, pool)
+                tick(directory, self.backend, downloads, pool)
                 self.assertTrue(self.backend.download_entered.wait(2))
                 videos = [item for kind, item, _ in self.backend.submissions if kind == "video"]
                 self.assertEqual(len(videos), 2)
@@ -174,7 +177,7 @@ class SDKWorkflowTests(unittest.TestCase):
                     self.assertNotIn("first_frame_base64", item)
                     self.assertTrue(item["first_frame_artifact"]["path"].startswith("model-results/moss/"))
                 # Pika reads committed Volume bytes, independently of host downloads.
-                spec = read_json(runner.ROOT / "002-pika-h3-flex/model.json")
+                spec = read_json(runner.ROOT / "models/002-pika-h3-flex/model.json")
                 payload = resolve_frames(prepare(spec, videos[0])[0], self.backend.volume)
                 self.assertEqual(base64.b64decode(payload["first_frame_base64"]), PNG)
                 self.assertNotIn("first_frame_artifact", payload)
@@ -185,15 +188,15 @@ class SDKWorkflowTests(unittest.TestCase):
         first = self.create()
         downloads = {}
         with ThreadPoolExecutor(max_workers=8) as pool:
-            sdk.tick(first, self.backend, downloads, pool)
-            sdk.tick(first, self.backend, downloads, pool)
+            tick(first, self.backend, downloads, pool)
+            tick(first, self.backend, downloads, pool)
             self.assertEqual(sum(kind == "video" for kind, _, _ in self.backend.submissions), 1)
             second = self.create("006-second-demo")
-            sdk.tick(second, self.backend, downloads, pool)
+            tick(second, self.backend, downloads, pool)
             self.assertEqual(sum(kind == "image" for kind, _, _ in self.backend.submissions), 4)
             # Append while the first scene's video is still queued/running.
             self.assertEqual(self.create(count=2), first)
-            sdk.tick(first, self.backend, downloads, pool)
+            tick(first, self.backend, downloads, pool)
             self.assertEqual(sum(kind == "image" for kind, _, _ in self.backend.submissions), 6)
             self.assertEqual(sdk.snapshot(first)[1]["jobs"]["video/001"]["status"], "queued")
 
@@ -215,7 +218,7 @@ class SDKWorkflowTests(unittest.TestCase):
         with ThreadPoolExecutor(max_workers=8) as pool:
             def tick_first():
                 try:
-                    sdk.tick(first, self.backend, downloads, pool)
+                    tick(first, self.backend, downloads, pool)
                 except BaseException as exc:
                     errors.append(exc)
             thread = threading.Thread(target=tick_first)
@@ -223,7 +226,7 @@ class SDKWorkflowTests(unittest.TestCase):
             try:
                 self.assertTrue(entered.wait(2))
                 second = self.create("006-independent-demo")
-                sdk.tick(second, self.backend, {}, pool)
+                tick(second, self.backend, {}, pool)
                 self.create(count=2)
                 self.assertEqual(len(self.backend.submissions), 2)
             finally:
@@ -251,9 +254,9 @@ class SDKWorkflowTests(unittest.TestCase):
         with ThreadPoolExecutor(max_workers=8) as pool:
             with patch.object(self.backend, "submit", side_effect=OSError("Lost reply")):
                 with self.assertRaises(OSError):
-                    sdk.tick(directory, self.backend, {}, pool)
+                    tick(directory, self.backend, {}, pool)
             self.backend.poll = lambda record: None
-            sdk.tick(directory, self.backend, {}, pool)
+            tick(directory, self.backend, {}, pool)
         records = sdk.snapshot(directory)[1]["jobs"]
         self.assertEqual(records["first/001"]["status"], "uncertain")
         self.assertEqual(records["last/001"]["status"], "queued")
@@ -263,11 +266,11 @@ class SDKWorkflowTests(unittest.TestCase):
         directory = self.create()
         self.backend.collect_outputs = False
         with ThreadPoolExecutor(max_workers=8) as pool:
-            sdk.tick(directory, self.backend, {}, pool)
+            tick(directory, self.backend, {}, pool)
             with patch.object(self.backend, "poll", side_effect=RuntimeError(
                 "Local configuration differs from deployed model.json; deploy it first")):
-                sdk.tick(directory, self.backend, {}, pool)
-                sdk.tick(directory, self.backend, {}, pool)
+                tick(directory, self.backend, {}, pool)
+                tick(directory, self.backend, {}, pool)
         records = sdk.snapshot(directory)[1]["jobs"]
         self.assertEqual(records["first/001"]["status"], "failed")
         self.assertTrue(records["first/001"]["call_id"])
@@ -293,7 +296,7 @@ class SDKWorkflowTests(unittest.TestCase):
         with ThreadPoolExecutor(max_workers=8) as pool:
             downloads = {}
             for _ in range(4):
-                result = [sdk.tick(directory, self.backend, downloads, pool) for directory in directories]
+                result = [tick(directory, self.backend, downloads, pool) for directory in directories]
         self.assertEqual(len(self.backend.submissions), 6)
         self.assertTrue(all(r["counts"] == {"completed": 2, "queued": 1} for r in result))
 
@@ -321,7 +324,7 @@ class CloudImageTests(unittest.TestCase):
                 resolve_frames({"first_frame_artifact": self.ref()}, volume)
 
     def test_inline_and_cloud_inputs_are_mutually_exclusive(self):
-        spec = read_json(runner.ROOT / "002-pika-h3-flex/model.json")
+        spec = read_json(runner.ROOT / "models/002-pika-h3-flex/model.json")
         item = {"id": "001", "operation": "fl2va", "prompt": "boat", "seed": 1,
                 "first_frame_artifact": self.ref(), "last_frame_artifact": self.ref(),
                 "first_frame_base64": base64.b64encode(PNG).decode()}
@@ -329,23 +332,23 @@ class CloudImageTests(unittest.TestCase):
             prepare(spec, item)
 
     def test_shared_volume_identity(self):
-        from shared.serving.modal_setup import model_volume
+        from runtime.serving.modal_setup import model_volume
         self.assertEqual(VOLUME_NAME, "modal-vllm-sglang")
         with patch("modal.Volume.from_name") as factory:
             model_volume()
         factory.assert_called_once_with(VOLUME_NAME, create_if_missing=True, version=2)
 
     def test_cloud_worker_resolves_frames_and_commits_result_before_return(self):
-        from shared.serving.inference_execution import execute
-        spec = read_json(runner.ROOT / "002-pika-h3-flex/model.json")
+        from runtime.serving.inference_execution import execute
+        spec = read_json(runner.ROOT / "models/002-pika-h3-flex/model.json")
         item = {"id": "001", "operation": "fl2va", "prompt": "boat", "seed": 1,
                 "first_frame_artifact": self.ref(), "last_frame_artifact": self.ref()}
         signature = prepare(spec, item)[1]
         volume = Mock()
         volume.read_file.return_value = [PNG]
         with tempfile.TemporaryDirectory() as temporary, \
-                patch("shared.serving.inference_execution.Path", wraps=Path) as paths, \
-                patch("shared.serving.inference_api.SGLangVideoClient") as factory:
+                patch("runtime.serving.inference_execution.Path", wraps=Path) as paths, \
+                patch("runtime.serving.inference_api.SGLangVideoClient") as factory:
             paths.side_effect = lambda value: Path(temporary) if value == "/mnt/modal" else Path(value)
             client = factory.return_value
             client.submit.return_value = "engine-job-1"

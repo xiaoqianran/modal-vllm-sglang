@@ -58,4 +58,4 @@
 
 ## 共享模块与 CPU 缓存
 
-公共设施位于根目录 shared/；本项目的缓存校验由 model_cache.py 实现。下载使用 4 vCPU，复用原有 007-moss-image 缓存路径。新版本在启动 GPU 前校验 model-ready.json，没有完成 CPU 预备任务时会直接拒绝推理。
+公共设施位于根目录 runtime/；本项目的缓存校验由 model_cache.py 实现。下载使用 4 vCPU，复用原有 007-moss-image 缓存路径。新版本在启动 GPU 前校验 model-ready.json，没有完成 CPU 预备任务时会直接拒绝推理。

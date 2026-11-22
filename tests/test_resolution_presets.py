@@ -3,9 +3,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from orchestration import runner, adapters
-from shared.config.resolution import catalog, image_size, normalize
-from shared.utils.files import atomic_json, read_json
+from pipeline import s01_build_plan as runner
+from orchestration import model_capabilities as adapters
+from runtime.config.resolution import catalog, image_size, normalize
+from runtime.utils.files import atomic_json, read_json
 
 
 class ResolutionPresetTests(unittest.TestCase):

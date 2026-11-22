@@ -1,7 +1,7 @@
 """Shared plan bindings and derived progress; no scheduler dependency."""
 from collections import Counter
 
-from shared.tasks.batch import intent_digest
+from runtime.tasks.task_identity import intent_digest
 
 APP_NAME = "modal-vllm-sglang-orchestration"
 PROVISION_REGISTRY = APP_NAME + "-provisioning"

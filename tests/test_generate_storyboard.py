@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scripts.generate_storyboard import DEFAULT_SOURCE, generate, render, validate_storyboard, video_prompt
+from tools.generate_storyboard import DEFAULT_SOURCE, generate, render, validate_storyboard, video_prompt
 
 
 class StoryboardGeneratorTests(unittest.TestCase):

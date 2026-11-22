@@ -6,14 +6,14 @@ from unittest.mock import patch
 
 import pytest
 
-from shared.config.model_spec import validate, discover
-from shared.config.model_cache import command_argv, component_specs
-from shared.serving.llm_auth import BearerAuth
-from shared.utils.files import read_json
+from runtime.config.model_spec import validate, discover
+from runtime.config.model_cache import command_argv, component_specs
+from runtime.serving.llm_auth import BearerAuth
+from runtime.utils.files import read_json
 
 
 ROOT = Path(__file__).resolve().parents[1]
-CONFIG = ROOT / "006-qwen38-pi" / "model.json"
+CONFIG = ROOT / "models/006-qwen38-pi" / "model.json"
 
 
 @pytest.mark.parametrize("path, authorization, expected", [
@@ -81,8 +81,8 @@ def test_invalid_llm_operation_rejected():
 
 
 def test_llm_runtime_rejects_media_configuration():
-    from shared.serving.llm_runtime import create_llm_app
+    from runtime.serving.llm_runtime import create_llm_app
     with pytest.raises(ValueError, match="LLM"):
-        with patch("shared.serving.llm_runtime.read_json") as read:
-            read.return_value = read_json(ROOT / "001-moss-image" / "model.json")
-            create_llm_app(ROOT / "001-moss-image" / "model.json")
+        with patch("runtime.serving.llm_runtime.read_json") as read:
+            read.return_value = read_json(ROOT / "models/001-moss-image" / "model.json")
+            create_llm_app(ROOT / "models/001-moss-image" / "model.json")

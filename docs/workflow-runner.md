@@ -26,10 +26,10 @@ MOSS 和 Pika 是两个独立服务，各允许一个 GPU 容器，SDK 推理在
 新的 Volume 没有旧盘的缓存，必须先在新盘准备权重，再部署本次更新后的服务：
 
 ```powershell
-uv run python -m modal run 001-moss-image/download_model.py
-uv run python -m modal run 002-pika-h3-flex/download_model.py
-uv run python -m modal deploy 001-moss-image/app.py
-uv run python -m modal deploy 002-pika-h3-flex/app.py
+uv run python models/001-moss-image/download_model.py --execute
+uv run python models/002-pika-h3-flex/download_model.py --execute
+uv run python -m modal deploy models/001-moss-image/app.py
+uv run python -m modal deploy models/002-pika-h3-flex/app.py
 ```
 
 MiniMax 如需使用，也要在新盘准备并重新部署。新盘为空时不要使用 `--migrate-only`，
@@ -40,8 +40,8 @@ GPU 快照仍分别受各模型 memory_snapshot 配置控制，空闲缩容窗�
 ## 先离线检查
 
 ```powershell
-uv run python -m orchestration plan tasks/006-moss-pika-demo.json
-uv run python -m orchestration run tasks/006-moss-pika-demo.json --dry-run
+uv run python run.py plan tasks/006-moss-pika-demo.json
+uv run python run.py run tasks/006-moss-pika-demo.json --dry-run
 ```
 
 以上不连接 Modal、不写运行记录、不启动 GPU。示例有两个镜头、四张图片和两段视频。
@@ -52,13 +52,13 @@ uv run python -m orchestration run tasks/006-moss-pika-demo.json --dry-run
 终端 A 保持运行调度器：
 
 ```powershell
-uv run python -m orchestration worker
+uv run python run.py worker
 ```
 
 终端 B 注册一个或多个 Task：
 
 ```powershell
-uv run python -m orchestration run tasks/006-moss-pika-demo.json
+uv run python run.py run tasks/006-moss-pika-demo.json
 # 多份真实 Task 可一次注册：run tasks/A.json tasks/B.json
 ```
 
@@ -74,8 +74,8 @@ worker 会启动付费推理，只把准备执行的计划登记到所监视的 
 ## 查询与恢复
 
 ```powershell
-uv run python -m orchestration status outputs/006-moss-pika-demo/001-main
-uv run python -m orchestration resume outputs/006-moss-pika-demo/001-main
+uv run python run.py status outputs/006-moss-pika-demo/001-main
+uv run python run.py resume outputs/006-moss-pika-demo/001-main
 ```
 
 run 可一次登记多份 Task，登记后不等待执行。resume 也只写入恢复请求并返回，
@@ -106,8 +106,8 @@ SDK 不自动采用没有记录的现有同名输出，已有本地首尾帧请�
 ## 部署自检
 
 ```powershell
-uv run python -m orchestration check-deployment moss pika --dry-run
-uv run python -m orchestration check-deployment moss pika
+uv run python run.py check-deployment moss pika --dry-run
+uv run python run.py check-deployment moss pika
 ```
 
 --dry-run 完全离线；真实自检启动 GPU 并核对配置签名、缓存指纹、云端素材能力和 Volume，

@@ -1,7 +1,7 @@
 """One durable reservation per output identity; ambiguous acceptance never spawns twice."""
 import time
 from uuid import uuid4
-from shared.tasks.batch import intent_digest
+from runtime.tasks.task_identity import intent_digest
 
 
 class SubmissionUncertain(RuntimeError):

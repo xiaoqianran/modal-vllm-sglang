@@ -6,17 +6,17 @@ This is an **opt-in** feature. The existing `orchestration` worker and `outputs/
 
 `ArchivePipeline.run()` executes: **prepare_media → provider.upload → provider.verify → describe → write_record**.
 
-- `shared/archive/pipeline.py`: readable main flow and replaceable provider interface
-- `shared/archive/operations.py`: local compression, hashing, and JSON record
-- `shared/archive/huggingface.py`: official HF Bucket API adapter
-- `scripts/archive_to_hf.py`: manual, standalone command
+- `runtime/archive/pipeline.py`: readable main flow and replaceable provider interface
+- `runtime/archive/operations.py`: local compression, hashing, and JSON record
+- `runtime/archive/huggingface.py`: official HF Bucket API adapter
+- `tools/archive_to_hf.py`: manual, standalone command
 
 ## Test and preview (no network)
 
 ```powershell
 uv run --with pillow --with pytest --with huggingface_hub python -m pytest tests/test_archive_hf.py -q
 
-uv run --with pillow --with huggingface_hub python -m scripts.archive_to_hf "outputs/<project>/<scene>/001.png" --bucket owner/public-bucket --project demo
+uv run --with pillow --with huggingface_hub python -m tools.archive_to_hf "outputs/<project>/<scene>/001.png" --bucket owner/public-bucket --project demo
 ```
 
 The second command is a **dry run** unless `--upload` is supplied. Use a real media path.
@@ -26,7 +26,7 @@ The second command is a **dry run** unless `--upload` is supplied. Use a real me
 Create a **Public** Storage Bucket and configure your HF write token through a process secret/environment variable. Do not commit it.
 
 ```powershell
-uv run --with pillow --with huggingface_hub python -m scripts.archive_to_hf "outputs/<project>/<scene>/001.png" --bucket owner/public-bucket --project demo --upload --verify sha256 --manifest archive-record.json
+uv run --with pillow --with huggingface_hub python -m tools.archive_to_hf "outputs/<project>/<scene>/001.png" --bucket owner/public-bucket --project demo --upload --verify sha256 --manifest archive-record.json
 ```
 
 - `--compression none` disables recompression.

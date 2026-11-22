@@ -1,15 +1,17 @@
 """Offline contracts for modal-benchmark v0.2.2 CLI."""
 from __future__ import annotations
 from contextlib import nullcontext
+from importlib import import_module
 from importlib.metadata import version
+from runpy import run_path
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import TestCase
 from unittest.mock import Mock, patch
 
-from scripts.download_models import plan, run
-from shared.config.model_spec import validate
-from shared.utils.files import read_json
+from tools.download_models import cache_implementation, main, plan, run
+from runtime.config.model_spec import validate
+from runtime.utils.files import read_json
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -31,6 +33,14 @@ class App:
 
 
 class DownloadCliTests(TestCase):
+    @patch.dict("os.environ", MODEL_RUNTIME_VOLUME_NAME="isolated-runtime",
+                MODEL_SHARED_VOLUME_NAME="isolated-weights")
+    def test_download_plan_targets_mounted_volume(self):
+        spec = self.spec("models/001-moss-image")
+        for storage, expected in (("legacy", "isolated-runtime"), ("shared", "isolated-weights")):
+            with self.subTest(storage=storage):
+                self.assertEqual(plan({**spec, "model_storage": storage})["volume"], expected)
+
     def spec(self, name):
         return validate(read_json(ROOT / name / "model.json"))
 
@@ -53,20 +63,91 @@ class DownloadCliTests(TestCase):
         return downloader, app
 
     def test_free_plan_has_no_legacy_directory(self):
-        for name, kind in (("001-moss-image", "hf"),
-                           ("005-minimax-h3-image", "hf"),
-                           ("002-pika-h3-flex", "sglang_overlay")):
+        for name, kind in (("models/001-moss-image", "hf"),
+                           ("models/005-minimax-h3-image", "hf"),
+                           ("models/002-pika-h3-flex", "sglang_overlay")):
             with self.subTest(name=name):
                 result = plan(self.spec(name), 2)
                 self.assertEqual(result["strategy"], kind)
                 self.assertTrue(result["base"].endswith("/downloads"))
                 self.assertNotIn("/azure/", result["base"])
-        self.assertEqual(len(plan(self.spec("002-pika-h3-flex"), 2)["sources"]), 3)
+        self.assertEqual(len(plan(self.spec("models/002-pika-h3-flex"), 2)["sources"]), 3)
+
+    def test_cache_plugin_is_declared_by_model_not_python_search_path(self):
+        spec = self.spec("models/002-pika-h3-flex")
+        self.assertEqual(spec["cache_implementation"], "models.002-pika-h3-flex.model_impl")
+        self.assertEqual(cache_implementation(spec).__name__, spec["cache_implementation"])
+        self.assertNotIn("models/002-pika-h3-flex", __import__("sys").path)
+        for value in ("model_impl", "../models.002-pika-h3-flex.model_impl", "models.001-moss-image.model_impl"):
+            bad = {**spec, "cache_implementation": value}
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                validate(bad)
+        with self.assertRaisesRegex(ValueError, "cache_implementation"):
+            plan({**spec, "cache_implementation": None})
+
+    def test_pika_download_model_is_a_free_cli_facade(self):
+        entrypoint = ROOT / "models/002-pika-h3-flex" / "download_model.py"
+        with patch("tools.download_models.main") as delegate:
+            module = run_path(str(entrypoint))
+            module["main"]([])
+            self.assertEqual(delegate.call_count, 1)
+            self.assertEqual(delegate.call_args.args[0], [str(entrypoint.with_name("model.json"))])
+
+    def test_all_model_download_entrypoints_use_one_cli(self):
+        for folder in ("models/001-moss-image", "models/002-pika-h3-flex",
+                       "models/005-minimax-h3-image", "models/006-qwen38-pi"):
+            with self.subTest(folder=folder), patch("tools.download_models.main") as delegate:
+                entrypoint = ROOT / folder / "download_model.py"
+                module = run_path(str(entrypoint))
+                module["main"](["--check-only"])
+                delegate.assert_called_once_with([
+                    str(entrypoint.with_name("model.json")), "--check-only",
+                ])
+
+    def test_cache_modes_do_not_download_or_build_gpu_images(self):
+        model = str(ROOT / "models/002-pika-h3-flex" / "model.json")
+        for flag in ("--check-only", "--migrate-only"):
+            with (
+                self.subTest(flag=flag),
+                patch("tools.download_models.run_cache_maintenance",
+                      return_value={"ready": True}) as maintenance,
+                patch("tools.download_models.run") as downloader,
+            ):
+                main([model, flag])
+                maintenance.assert_not_called()
+                main([model, flag, "--execute"])
+                maintenance.assert_called_once_with(self.spec("models/002-pika-h3-flex"),
+                                                    migrate_only=flag == "--migrate-only")
+                downloader.assert_not_called()
+
+    def test_legacy_qwen_requires_extra_download_opt_in(self):
+        model = str(ROOT / "models/006-qwen38-pi" / "model.json")
+        with patch("tools.download_models.run") as download:
+            main([model])
+            with self.assertRaises(SystemExit):
+                main([model, "--execute"])
+            download.assert_not_called()
+            download.return_value = {"download": {"status": "VERIFIED"}}
+            main([model, "--execute", "--allow-archived-download"])
+            main([model, "--execute", "--allow-legacy-qwen"])
+            self.assertEqual(download.call_count, 2)
+
+    def test_invalid_download_policy_rejected(self):
+        spec = self.spec("models/006-qwen38-pi")
+        with self.assertRaisesRegex(ValueError, "download_policy"):
+            validate({**spec, "download_policy": "random"})
+
+    def test_check_and_migrate_are_mutually_exclusive(self):
+        model = str(ROOT / "models/001-moss-image" / "model.json")
+        with patch("tools.download_models.run_cache_maintenance") as maintenance:
+            with self.assertRaises(SystemExit):
+                main([model, "--check-only", "--migrate-only", "--execute"])
+            maintenance.assert_not_called()
 
     def test_per_model_worker_defaults_and_cli_override(self):
-        expected = {"001-moss-image": 2,
-                    "005-minimax-h3-image": 3,
-                    "002-pika-h3-flex": 4}
+        expected = {"models/001-moss-image": 2,
+                    "models/005-minimax-h3-image": 3,
+                    "models/002-pika-h3-flex": 4}
         for folder, workers in expected.items():
             with self.subTest(folder=folder):
                 spec = self.spec(folder)
@@ -74,19 +155,19 @@ class DownloadCliTests(TestCase):
                 self.assertEqual(plan(spec, 1)["workers"], 1)
         for invalid in (True, 0, 6, 2.5, "3"):
             with self.subTest(invalid=invalid):
-                spec = self.spec("001-moss-image")
+                spec = self.spec("models/001-moss-image")
                 spec["download_workers"] = invalid
                 with self.assertRaisesRegex(ValueError, "download_workers"):
                     validate(spec)
 
     def test_hf_publishes_and_verifies_in_one_rpc(self):
-        spec = self.spec("005-minimax-h3-image")
+        spec = self.spec("models/005-minimax-h3-image")
         d, app = self.setup_downloader(spec)
         with (
             patch("modal_benchmark.hf.create_downloader", return_value=d) as create,
-            patch("shared.config.azure_cache.publish_cache",
+            patch("runtime.config.cache_publication.publish_cache",
                   return_value={"ready": True, "fingerprint": "cache"}) as publish,
-            patch("shared.config.model_cache.verify_cache",
+            patch("runtime.config.model_cache.verify_cache",
                   return_value=({"model": Path("/mnt/modal/model")}, "cache")) as verify,
         ):
             result = run(spec, workers=2)
@@ -102,27 +183,51 @@ class DownloadCliTests(TestCase):
         create.assert_called_once()
 
     def test_pika_keeps_overlay_materialization(self):
-        spec = self.spec("002-pika-h3-flex")
+        spec = self.spec("models/002-pika-h3-flex")
         d, app = self.setup_downloader(spec)
+        sequence = []
+        d.download.side_effect = lambda *a, **kw: (
+            sequence.append("download"), {
+                "status": "VERIFIED", "manifest": {"models": []},
+                "base": plan(spec)["base"], "files": 2, "bytes": 4,
+                "end_to_end_seconds": 1.2,
+            })[1]
+        def build(*args, **kwargs):
+            sequence.append("sglang_image")
+            return object()
         with (
             patch("modal_benchmark.hf.create_downloader", return_value=d),
-            patch("shared.serving.model_runtime.build_image", return_value=object()) as image,
-            patch("shared.config.pika_overlay.publish_pika_cache",
+            patch.object(import_module("models.002-pika-h3-flex.model_impl.materializer_image"),
+                         "build_pika_materializer_image", side_effect=build) as image,
+            patch.object(import_module("models.002-pika-h3-flex.model_impl.overlay"), "publish_pika_cache",
                   return_value={"ready": True, "fingerprint": "pika"}) as materialize,
-            patch("shared.config.model_cache.verify_cache",
+            patch("runtime.config.model_cache.verify_cache",
                   return_value=({"model": Path("/mnt/modal/pika")}, "pika")),
         ):
             out = run(spec, workers=2)
         self.assertEqual(out["cache"]["fingerprint"], "pika")
-        image.assert_called_once_with(
-            {**spec, "uv_packages": (f"modal=={version('modal')}",)}, offline=True,
-        )
+        image.assert_called_once_with(spec, modal_version=version("modal"))
         materialize.assert_called_once()
+        self.assertEqual(sequence, ["download", "sglang_image"])
         self.assertEqual(app.runs, 1)
         self.assertEqual(len(app.registered), 1)
 
+    def test_failed_pika_download_never_builds_sglang_image(self):
+        spec = self.spec("models/002-pika-h3-flex")
+        d, app = self.setup_downloader(spec)
+        d.download.return_value = {"status": "FAILED"}
+        with (
+            patch("modal_benchmark.hf.create_downloader", return_value=d),
+            patch.object(import_module("models.002-pika-h3-flex.model_impl.materializer_image"),
+                         "build_pika_materializer_image") as build,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "not verified"):
+                run(spec)
+        build.assert_not_called()
+        self.assertEqual(app.runs, 0)
+
     def test_failed_download_never_publishes(self):
-        spec = self.spec("001-moss-image")
+        spec = self.spec("models/001-moss-image")
         d, app = self.setup_downloader(spec)
         d.download.return_value = {"status": "FAILED"}
         with patch("modal_benchmark.hf.create_downloader", return_value=d):

@@ -21,9 +21,9 @@ ComfyUI 下载入口通过 `MODEL_VOLUME_NAME=modal-model-store-v2` 选择相同
 确保共享卷存在 `models--<owner>--<repo>/snapshots/<40位commit>/`，且每个快照文件已由上游发布。将对应服务的 `model.json` 设置 `model_storage=shared`，固定每个组件的 40 位 commit，然后运行：
 
 ```powershell
-uv run python scripts/attach_shared_model.py 005-minimax-h3-image/model.json
-uv run python scripts/attach_shared_model.py 005-minimax-h3-image/model.json --execute
-uv run python scripts/check_shared_cache.py 005-minimax-h3-image/model.json
+uv run python tools/attach_shared_model.py models/005-minimax-h3-image/model.json
+uv run python tools/attach_shared_model.py models/005-minimax-h3-image/model.json --execute
+uv run python tools/check_shared_cache.py models/005-minimax-h3-image/model.json
 ```
 
 第一条命令默认只输出执行计划。第二条只用 CPU、以只读形式挂载共享权重、核对源快照与必需文件，并将就绪清单写入可写服务卷；不会复制和重新下载权重。实际业务模型的共享快照尚未就绪时，这一步会明确报错，不能跳过。
@@ -31,9 +31,9 @@ uv run python scripts/check_shared_cache.py 005-minimax-h3-image/model.json
 **B. 模型尚未保存在共享卷：通过 benchmark 下载。**
 
 ```powershell
-uv run python scripts/download_models.py 005-minimax-h3-image/model.json --workers 3
-uv run python scripts/download_models.py 005-minimax-h3-image/model.json --workers 3 --execute
-uv run python scripts/check_shared_cache.py 005-minimax-h3-image/model.json
+uv run python tools/download_models.py models/005-minimax-h3-image/model.json --workers 3
+uv run python tools/download_models.py models/005-minimax-h3-image/model.json --workers 3 --execute
+uv run python tools/check_shared_cache.py models/005-minimax-h3-image/model.json
 ```
 
 `modal-benchmark==0.3.0` 在 V2 卷的独立下载目录中按清单发布固定版本权重；专用 CPU 发布容器只读挂载模型卷并写入旧服务卷上的 `model-ready.json`，最后另一个 CPU 容器再次完整核对。已有业务输出、遥测和 Pika 派生文件位置不变。**此路径当前按完整下载清单生成身份**：不同文件筛选组合可能重复占空间；对已有 HF 原生快照优先使用 A，不能宣称跨所有清单自动按文件去重。
@@ -47,14 +47,14 @@ uv run python scripts/check_shared_cache.py 005-minimax-h3-image/model.json
 ```powershell
 # 从 ComfyUI 已发布的同一份模型权重零复制接管
 $env:MODEL_RUNTIME_VOLUME_NAME = "modal-model-metadata-stable-pilot-v2-20261122"
-uv run python scripts/attach_shared_model.py tests/fixtures/shared-tiny-pilot.model.json --execute
-uv run python scripts/check_shared_cache.py tests/fixtures/shared-tiny-pilot.model.json
+uv run python tools/attach_shared_model.py tests/fixtures/shared-tiny-pilot.model.json --execute
+uv run python tools/check_shared_cache.py tests/fixtures/shared-tiny-pilot.model.json
 Remove-Item Env:MODEL_RUNTIME_VOLUME_NAME
 ```
 
 默认共享卷名就是 `modal-model-store-v2`。该卷已由 ComfyUI 的试点清单写入 Tiny-GPT2 的 `config.json`、`pytorch_model.bin` 和 `tokenizer_config.json`，总体约 2.51 MB。试点仅把服务元数据写入独立的测试 Volume，不影响正式的 `modal-vllm-sglang`。
 
-另外也实际验证过 `scripts/download_models.py --execute` 在独立 V2 权重卷下载 9 个 Tiny-GPT2 文件，共 4,734,064 字节，并在全新 CPU 容器通过 `verify_cache` 和 `command_argv`。这种端到端检查**不是 GPU 推理成功证明**。
+另外也实际验证过 `tools/download_models.py --execute` 在独立 V2 权重卷下载 9 个 Tiny-GPT2 文件，共 4,734,064 字节，并在全新 CPU 容器通过 `verify_cache` 和 `command_argv`。这种端到端检查**不是 GPU 推理成功证明**。
 
 ## 回退与上线约束
 
@@ -70,4 +70,4 @@ Remove-Item Env:MODEL_RUNTIME_VOLUME_NAME
 - `MODEL_SHARED_VOLUME_NAME`：改变共享 V2 卷名，默认 `modal-model-store-v2`；生产应与 ComfyUI 的 `MODEL_VOLUME_NAME` 一致。
 - `MODEL_RUNTIME_VOLUME_NAME`：改变服务可写卷，默认 `modal-vllm-sglang`；通常仅用于独立试点，正式运行保留原名称。
 
-注意：`orchestration.Provisioner` 仍通过现有 `model-ready.json` 远程指纹检查，并在缓存缺失时调用 `scripts/download_models.py --execute`。开启 shared 后下载将进入共享 V2 卷、ready 记录仍回写原可写卷。旧的手动 `MODEL_PREPARE=1` 入口对于未就绪共享模型不会自行下载，请使用上面两个明确入口。
+注意：`orchestration.Provisioner` 仍通过现有 `model-ready.json` 远程指纹检查，并在缓存缺失时调用 `tools/download_models.py --execute`。开启 shared 后下载将进入共享 V2 卷、ready 记录仍回写原可写卷。旧的手动 `MODEL_PREPARE=1` 入口对于未就绪共享模型不会自行下载，请使用上面两个明确入口。

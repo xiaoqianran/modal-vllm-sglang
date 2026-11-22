@@ -6,10 +6,10 @@
 
 ```powershell
 # 只检查文件和源数据是否一致，不修改任何文件
-uv run --no-sync python scripts/generate_storyboard.py --check
+uv run --no-sync python tools/generate_storyboard.py --check
 
 # 根据源数据更新五个输出（需要显式允许覆盖）
-uv run --no-sync python scripts/generate_storyboard.py --force
+uv run --no-sync python tools/generate_storyboard.py --force
 ```
 
 无 `--force` 时，仅创建不存在的文件；如已存在的输出与源数据不同，命令报错而不覆盖。
@@ -27,7 +27,7 @@ uv run --no-sync python scripts/generate_storyboard.py --force
 然后：
 
 ```powershell
-uv run --no-sync python scripts/generate_storyboard.py --source docs/005-another-story/storyboard.json
+uv run --no-sync python tools/generate_storyboard.py --source docs/005-another-story/storyboard.json
 ```
 
 本工具仅支持当前项目的 `pika-fl2va`（首尾帧视频），不调用 GPT Image、MOSS 或 Pika API，也不会创建真正的图片文件或消耗 GPU。生成后的首尾帧文件应与 `inputs/pika/001_first.png`、`001_last.png` 等引用一一对应；实际生成视频前需先补齐图片。

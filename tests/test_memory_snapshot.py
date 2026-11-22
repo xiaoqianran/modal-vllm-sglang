@@ -5,9 +5,9 @@ from contextlib import ExitStack
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from shared.utils.files import atomic_json
-from shared.serving.model_runtime import create_app
-from shared.config.model_spec import validate
+from runtime.utils.files import atomic_json
+from runtime.serving.model_runtime import create_app
+from runtime.config.model_spec import validate
 from tests.test_model_service import SPEC
 
 
@@ -18,14 +18,14 @@ class MemorySnapshotTests(unittest.TestCase):
         directory = stack.enter_context(tempfile.TemporaryDirectory())
         path = Path(directory) / 'model.json'
         atomic_json(path, {**SPEC, 'memory_snapshot': mode})
-        cache = stack.enter_context(patch('shared.serving.model_runtime.verify_cache',
+        cache = stack.enter_context(patch('runtime.serving.model_runtime.verify_cache',
                                          side_effect=[({}, 'original'), ({}, 'changed' if changed else 'original')]))
-        stack.enter_context(patch('shared.serving.model_runtime.command_argv', return_value=['engine']))
-        popen = stack.enter_context(patch('shared.serving.model_runtime.subprocess.Popen'))
-        health = stack.enter_context(patch('shared.serving.runtime.wait_for_health'))
-        stop = stack.enter_context(patch('shared.serving.runtime.stop_process'))
-        monitor = stack.enter_context(patch('shared.serving.runtime.monitor_processes'))
-        resources = stack.enter_context(patch('shared.telemetry.sampler.ResourceMonitor'))
+        stack.enter_context(patch('runtime.serving.model_runtime.command_argv', return_value=['engine']))
+        popen = stack.enter_context(patch('runtime.serving.model_runtime.subprocess.Popen'))
+        health = stack.enter_context(patch('runtime.serving.process_lifecycle.wait_for_health'))
+        stop = stack.enter_context(patch('runtime.serving.process_lifecycle.stop_process'))
+        monitor = stack.enter_context(patch('runtime.serving.process_lifecycle.monitor_processes'))
+        resources = stack.enter_context(patch('runtime.telemetry.sampler.ResourceMonitor'))
         resources.return_value.snapshot.return_value = {}
         _, model = create_app(path)
         cls = model._get_user_cls()

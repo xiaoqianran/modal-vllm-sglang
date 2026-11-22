@@ -7,12 +7,12 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from shared.tasks.batch import intent_digest
-from shared.utils.files import atomic_json, read_json
-from shared.config.model_cache import DOWNLOAD_MAX_WORKERS, component_specs, prepare_cache, verify_cache, checked_inventory
-from shared.serving.inference_execution import execute
-from shared.serving.model_runtime import create_app
-from shared.config.model_spec import discover, parameters
+from runtime.tasks.task_identity import intent_digest
+from runtime.utils.files import atomic_json, read_json
+from runtime.config.model_cache import DOWNLOAD_MAX_WORKERS, component_specs, prepare_cache, verify_cache, checked_inventory
+from runtime.serving.inference_execution import execute
+from runtime.serving.model_runtime import create_app
+from runtime.config.model_spec import discover, parameters
 
 SPECS = discover()
 MP4 = b'\0\0\0\x20ftyp' + b'x' * 32
@@ -170,7 +170,7 @@ class CompatibilityTests(unittest.TestCase):
             parameters(spec, {'seconds': 6, 'target': spec['defaults']['target']})
 
     def test_existing_deployment_class_names_are_registered(self):
-        for folder, name in [('001-moss-image', 'Moss'), ('002-pika-h3-flex', 'Pika'), ('005-minimax-h3-image', 'H3')]:
+        for folder, name in [('models/001-moss-image', 'Moss'), ('models/002-pika-h3-flex', 'Pika'), ('models/005-minimax-h3-image', 'H3')]:
             app, model = create_app(Path(__file__).resolve().parents[1] / folder / 'model.json')
             self.assertIn(name, app.registered_classes)
 
@@ -180,11 +180,11 @@ class PikaRecoveryTests(unittest.TestCase):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
         self.root = Path(temp.name)
-        redirect = patch('shared.serving.inference_execution.Path', wraps=Path)
+        redirect = patch('runtime.serving.inference_execution.Path', wraps=Path)
         paths = redirect.start()
         paths.side_effect = lambda value: self.root if value == '/mnt/modal' else Path(value)
         self.addCleanup(redirect.stop)
-        factory = patch('shared.serving.inference_api.SGLangVideoClient')
+        factory = patch('runtime.serving.inference_api.SGLangVideoClient')
         self.client = factory.start().return_value
         self.addCleanup(factory.stop)
         self.client.submit.return_value = 'existing-job'
@@ -228,7 +228,7 @@ class PikaRecoveryTests(unittest.TestCase):
             if str(target).endswith('.mp4'):
                 raise OSError('publish failed')
             return replace(source, target)
-        with patch('shared.utils.files.os.replace', side_effect=fail_media), self.assertRaises(OSError):
+        with patch('runtime.utils.files.os.replace', side_effect=fail_media), self.assertRaises(OSError):
             self.run_batch()
         self.assertEqual(read_json(self.metadata)['job_id'], 'existing-job')
         self.assertEqual(list(stale.parent.glob('*.tmp')), [])

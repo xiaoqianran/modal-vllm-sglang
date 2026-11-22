@@ -4,7 +4,7 @@
 
 ## 1. 核心决定
 
-保留独立模型部署，在现有 `shared/` 上增加轻量 Python 编排包 `orchestration/`。统一任务生命周期、依赖和产物引用，模型参数与推理协议继续由各模型适配器负责。
+保留独立模型部署，在现有 `runtime/` 上增加轻量 Python 编排包 `orchestration/`。统一任务生命周期、依赖和产物引用，模型参数与推理协议继续由各模型适配器负责。
 
 第一版采用**本机单执行进程、文件持久化、按 item 顺序执行的静态 DAG**。一个 Task 同一时刻只允许一个执行者；第一版整个执行目录也只允许一个 runner，避免多个任务绕过服务并发限制。无需数据库、消息队列、常驻 API 服务或动态插件系统。
 
@@ -30,10 +30,10 @@ flowchart TD
 
 | 现有实现 | 保留与补齐 |
 | --- | --- |
-| `shared/utils/http.py` | 保留生成 POST 单次提交、只读 GET 有限重试；将来补结构化错误和鉴权头，便于区分拒绝与提交结果不明 |
-| `shared/serving/inference_api.py` | 保留图片同步返回、视频 submit/status/content 两种协议；编排层调用分步接口，不能用隐藏中间 ID 的便利方法代替落盘 |
-| `shared/tasks/batch.py` | 复用安全 ID、输入摘要、完整性校验；新编排器定义更完整的签名输入 |
-| `shared/utils/files.py` | 复用哈希与原子替换；固定 `.tmp` 名只用于锁保护下的串行写入，不宣称支持多写者 |
+| `runtime/utils/http.py` | 保留生成 POST 单次提交、只读 GET 有限重试；将来补结构化错误和鉴权头，便于区分拒绝与提交结果不明 |
+| `runtime/serving/inference_api.py` | 保留图片同步返回、视频 submit/status/content 两种协议；编排层调用分步接口，不能用隐藏中间 ID 的便利方法代替落盘 |
+| `runtime/tasks/batch.py` | 复用安全 ID、输入摘要、完整性校验；新编排器定义更完整的签名输入 |
+| `runtime/utils/files.py` | 复用哈希与原子替换；固定 `.tmp` 名只用于锁保护下的串行写入，不宣称支持多写者 |
 | 各模型 `app.py` / `model_cache.py` / 下载器 | 保持独立，不将 vLLM、SGLang 依赖装进同一个环境 |
 | Pika `workflow_*.json` + `tasks/*.json` | 保留旧入口；这是模型参数预设与批次数据，新增组合 Workflow 时显式导入 |
 | ComfyUI `batch_run.py` | 借鉴 DAG、文件引用、任务锁、提交状态落盘；通过 HTTP 接入已有服务，不跨仓库导入整个脚本 |
@@ -56,37 +56,21 @@ flowchart TD
 
 ```text
 modal-vllm-sglang/
-├── 001-moss-image/             # 现有部署与旧入口保留
-├── 002-pika-h3-flex/
-├── shared/                     # 现有底层工具，无编排反向依赖
-├── orchestration/              # 新增；仅 CPU 客户端依赖
-│   ├── __main__.py             # python -m orchestration
-│   ├── contracts.py            # 数据类型与 schema_version 校验
-│   ├── planner.py              # 引用解析、DAG 校验、计划冻结
-│   ├── runner.py               # 状态机与调度
-│   ├── store.py                # 文件锁、状态原子写入、恢复
-│   ├── artifacts.py            # 素材校验、导入与输出 manifest
-│   └── adapters/               # 静态注册，无动态导入配置
-│       ├── moss.py
-│       ├── pika.py
-│       └── comfyui.py
-├── services.json               # 只含环境变量名，不含凭据
+├── run.py
+├── pipeline/
+│   ├── s01_build_plan.py
+│   ├── s02_submit_shots.py
+│   ├── s03_run_shot.py
+│   ├── s04_collect_outputs.py
+│   └── deploy_shot.py
+├── models/
+├── orchestration/
+├── runtime/
+├── tools/
 ├── workflows/
-│   └── custom-moss-pika-fl2va/
-│       └── workflow.json
 ├── tasks/
-│   └── 001-story-demo.json
 ├── inputs/
-├── outputs/<task-name>/<run-id>/
-│   ├── plan.json               # 冻结配置、revision 和计划哈希
-│   ├── state.json              # 唯一状态权威；report 是派生数据
-│   ├── report.json
-│   ├── inputs/                 # 导入素材快照，不依赖原文件后续变化
-│   └── items/<item-id>/<step-id>/attempt-001/
-│       ├── request.json        # 可审计请求；不写 token/base64
-│       ├── artifacts.json      # 输出名 → 文件/hash/MIME/大小
-│       └── image.png 或 video.mp4
-└── docs/
+└── outputs/
 ```
 
 新任务采用 `NNN-short-description` 命名，文件 stem 与 `name` 一致；历史任务不改名。Workflow 用 `custom-` 表示本项目组合来源，不让模型序号变成业务任务编号。
@@ -270,10 +254,10 @@ ComfyUI 适配器负责上传输入图片、按显式映射填写节点字段、
 拟定 CLI（尚未实现）：
 
 ```text
-python -m orchestration plan tasks/001-story-demo.json
-python -m orchestration run tasks/001-story-demo.json
-python -m orchestration status outputs/001-story-demo/<run-id>
-python -m orchestration resume outputs/001-story-demo/<run-id>
+python run.py plan tasks/001-story-demo.json
+python run.py run tasks/001-story-demo.json
+python run.py status outputs/001-story-demo/<run-id>
+python run.py resume outputs/001-story-demo/<run-id>
 ```
 
 `plan` 完全离线，显示调用次数、依赖与所需服务，不启动 GPU。`run` 在完整校验后创建 Run；`resume` 读取冻结计划，校验当前服务 revision 后恢复。端点迁移需显式更新运行绑定，不能静默更换远端任务所属服务。

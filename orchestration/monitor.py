@@ -9,7 +9,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 from orchestration import state
-from shared.utils.files import read_json, atomic_write
+from runtime.utils.files import read_json, atomic_write
 
 
 @lru_cache(maxsize=256)

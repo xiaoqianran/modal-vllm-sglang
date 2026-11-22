@@ -24,7 +24,7 @@ event_id / span_id / producer_id 是事件去重、起止配对和文件生产�
 ## 模块
 
 ```text
-shared/telemetry/
+runtime/telemetry/
   schema.py      字段、阶段、状态、等待原因与校验
   recorder.py    span、interval、resource，接入业务边界
   sampler.py     CPU / 内存 / 显存采样
@@ -85,16 +85,16 @@ JSONL 分片写入后不修改；清单记录路径、字节数和 SHA256。索�
 
 ```powershell
 # 检查已部署的云端接口、存储及 telemetry 版本；会启动 GPU，不生成媒体
-uv run python -m orchestration check-deployment moss pika
+uv run python run.py check-deployment moss pika
 
 # 只整理本地记录，不访问云端、不启动 GPU
-uv run python -m orchestration telemetry collect --local
+uv run python run.py telemetry collect --local
 
 # 从已有任务的结果引用补收云端记录，不提交生成、不启动 GPU
-uv run python -m orchestration telemetry collect
+uv run python run.py telemetry collect
 
 # 读取本地证据并生成、输出 Task 报告，不访问云端
-uv run python -m orchestration telemetry report outputs/006-moss-pika-demo/001-main
+uv run python run.py telemetry report outputs/006-moss-pika-demo/001-main
 ```
 
 后台收集以结果清单为入口，不扫描整个 Volume。正常情况下，某项工作完成后会收集其记录、
