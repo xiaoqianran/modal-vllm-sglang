@@ -24,6 +24,6 @@ uv run --no-sync python 006-qwen38-pi/app.py deploy --backend-path D:\somewhere\
 
 调用链：006/app.py -> GitHub 缓存 -> deploy/modal_app.py -> Modal Qwen38HTTP -> SGLang + RTX PRO 6000 + Pi LoRA。模型名称：qwen3.8-27b:qwen3.8-27B-pi。
 
-默认设置 QWEN38_PI_LORA=1 和 QWEN38_SPECULATIVE_ALGORITHM=NONE；密钥、Volume、LoRA 权重由后端负责。原 download_model.py/model.json 暂保留，仅用于旧版模型缓存准备，不属于新部署入口。
+默认设置 QWEN38_PI_LORA=1 和 QWEN38_SPECULATIVE_ALGORITHM=DFLASH；默认使用 lmsysorg/sglang:nightly-dev-cu13-20260823-eec794bc（后端定义的 Pi LoRA + DFlash2 兼容镜像）。必须先用后端的下载入口准备 Target 和 Draft。密钥、Volume、LoRA 权重由后端负责。原 download_model.py/model.json 暂保留，仅用于旧版模型缓存准备，不属于新部署入口。
 
 注意：PC2 后端仓库当前存在未提交的改动，GitHub 版本不包含这些改动；需先推送，或以 --backend-path 指定本地版本进行测试。运行 Modal 会产生费用，--dry-run 不会部署。

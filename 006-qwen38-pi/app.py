@@ -13,6 +13,7 @@ from pathlib import Path
 REPOSITORY = "https://github.com/xiaoqianran/Qwen3.8-27B-RTX-6000-PRO-SGLang-DSpark.git"
 DEFAULT_REF = "main"
 MODEL_NAME = "qwen3.8-27b:qwen3.8-27B-pi"
+DFLASH_LORA_IMAGE = "lmsysorg/sglang:nightly-dev-cu13-20260823-eec794bc"
 DEFAULT_CACHE = Path.home() / ".cache" / "qwen38-pi" / "backend"
 
 
@@ -64,7 +65,8 @@ def build_command(action: str) -> tuple[list[str], dict[str, str]]:
         raise ValueError(f"Unsupported action: {action}")
     environment = os.environ.copy()
     environment["QWEN38_PI_LORA"] = "1"
-    environment.setdefault("QWEN38_SPECULATIVE_ALGORITHM", "NONE")
+    environment["QWEN38_SPECULATIVE_ALGORITHM"] = "DFLASH"
+    environment.setdefault("QWEN38_SGLANG_IMAGE", DFLASH_LORA_IMAGE)
     return ["uv", "run", "modal", action, "deploy/modal_app.py"], environment
 
 
@@ -92,6 +94,7 @@ def main() -> None:
     print(f"Command: {' '.join(command)}")
     print(f"LoRA:    {env['QWEN38_PI_LORA']}")
     print(f"Draft:   {env['QWEN38_SPECULATIVE_ALGORITHM']}")
+    print(f"Image:   {env.get('QWEN38_SGLANG_IMAGE')}")
     if not args.dry_run:
         print(f"Commit:  {run_git('rev-parse', 'HEAD', cwd=backend)}")
         subprocess.run(command, cwd=backend, env=env, check=True)
