@@ -62,6 +62,22 @@ class DownloadCliTests(TestCase):
                 self.assertNotIn("/azure/", result["base"])
         self.assertEqual(len(plan(self.spec("002-pika-h3-flex"), 2)["sources"]), 3)
 
+    def test_per_model_worker_defaults_and_cli_override(self):
+        expected = {"001-moss-image": 2,
+                    "005-minimax-h3-image": 3,
+                    "002-pika-h3-flex": 4}
+        for folder, workers in expected.items():
+            with self.subTest(folder=folder):
+                spec = self.spec(folder)
+                self.assertEqual(plan(spec)["workers"], workers)
+                self.assertEqual(plan(spec, 1)["workers"], 1)
+        for invalid in (True, 0, 6, 2.5, "3"):
+            with self.subTest(invalid=invalid):
+                spec = self.spec("001-moss-image")
+                spec["download_workers"] = invalid
+                with self.assertRaisesRegex(ValueError, "download_workers"):
+                    validate(spec)
+
     def test_hf_publishes_and_verifies_in_one_rpc(self):
         spec = self.spec("005-minimax-h3-image")
         d, app = self.setup_downloader(spec)

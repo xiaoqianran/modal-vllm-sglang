@@ -33,7 +33,7 @@ uv run python scripts/download_models.py 001-moss-image/model.json --execute
 uv run python scripts/download_models.py 005-minimax-h3-image/model.json --execute
 ```
 
-默认直接启动 2 个 Worker，`--workers 1` 至 `--workers 5` 可以调整，不再提供旧的自动候选数/`--max-workers` 参数；无远程队列、独立 Reader/Inspect/Report 容器，也不限制云厂商或区域。
+各模型在 model.json 中配置 download_workers（MOSS=2、MiniMax=3、Pika=4），未填写时默认 2 个 Worker；--workers N 可临时覆盖。`--workers 1` 至 `--workers 5` 可以调整，不再提供旧的自动候选数/`--max-workers` 参数；无远程队列、独立 Reader/Inspect/Report 容器，也不限制云厂商或区域。
 直接写入各服务的 `/mnt/modal/<service-cache>/downloads/`，**不兼容或搬迁旧的 `azure/<digest>` 数据**。用户自行清理旧模型目录；若切换固定仓库清单，已有新目录与新清单不一致时应清除相应 `downloads` 目录再执行。
 模型下载完成后：MOSS/MiniMax 使用一次远程调用发布 `model-ready.json` 并复核就绪，Pika 单独使用一次 SGLang 容器物化和发布。
 新入口使用既有 `modal-vllm-sglang` Volume（`volume_version=None`），不会自动从 v1 升级到 v2。需要 Modal 凭据及 `huggingface-secret` 的 `HF_TOKEN`。

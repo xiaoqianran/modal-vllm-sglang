@@ -16,8 +16,11 @@ from shared.config.storage import VOLUME_NAME
 from shared.utils.files import read_json
 
 
-def plan(spec: dict, workers: int) -> dict:
+def plan(spec: dict, workers: int | None = None) -> dict:
     """Build a free, local download plan; never contact HF or Modal."""
+    workers = spec.get("download_workers", 2) if workers is None else workers
+    if type(workers) is not int or not 1 <= workers <= 5:
+        raise ValueError("workers must be an integer between 1 and 5")
     strategy = preparation_strategy(spec)
     components = component_specs(spec)
     sources = (download_sources(spec) if strategy == "sglang_overlay" else [
@@ -30,10 +33,11 @@ def plan(spec: dict, workers: int) -> dict:
             "workers": workers, "sources": sources}
 
 
-def run(spec: dict, *, workers: int = 2) -> dict:
+def run(spec: dict, *, workers: int | None = None) -> dict:
     """Download once, then publish exactly one inference-ready cache."""
     from modal_benchmark.hf import create_downloader
     task = plan(spec, workers)
+    workers = task["workers"]
     downloader = create_downloader(
         volume_name=VOLUME_NAME, mount_path="/mnt/modal",
         volume_version=None, max_workers=workers, verification_mode="xet",
@@ -89,7 +93,8 @@ def run(spec: dict, *, workers: int = 2) -> dict:
 def main(argv: list[str] | None = None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("model_spec", help="Path to model.json")
-    parser.add_argument("--workers", type=int, choices=range(1, 6), default=2)
+    parser.add_argument("--workers", type=int, choices=range(1, 6), default=None,
+                        help="Override model.json download_workers (default: 2)")
     parser.add_argument("--execute", action="store_true",
                         help="Start paid Modal CPU download and publication")
     args = parser.parse_args(argv)

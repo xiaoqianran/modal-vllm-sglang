@@ -51,6 +51,10 @@ def validate(spec):
         raise ValueError(f"volume_name must be {VOLUME_NAME}")
     if spec.get("memory_snapshot", "off") not in ("off", "gpu"):
         raise ValueError("memory_snapshot must be off or gpu")
+    if ("download_workers" in spec and
+            (type(spec["download_workers"]) is not int
+             or not 1 <= spec["download_workers"] <= 5)):
+        raise ValueError("download_workers must be an integer between 1 and 5")
     for key in ("service", "operation"):
         if not isinstance(spec[key], str) or not IDENTIFIER.fullmatch(spec[key]):
             raise ValueError(f"Invalid model {key}")
