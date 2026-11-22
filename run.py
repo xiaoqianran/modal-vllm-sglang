@@ -96,11 +96,17 @@ def main():
                     print(json.dumps({"name": plan["name"], "render": plan.get("render"), "transport": "sdk", "calls": len(plan["jobs"]),
                                       "services": list(plan["services"]), "delivery": plan.get("delivery", {"provider": "local"}), "jobs": plan["jobs"]}, ensure_ascii=False, indent=2))
                 return
-            # Fail before starting paid inference when HF delivery cannot authenticate.
-            if any(plan.get("delivery", {}).get("provider") in {"huggingface", "both"} for plan in plans):
-                from runtime.archive.huggingface import configured_hf_token
-                if not configured_hf_token():
-                    raise ValueError("HF delivery requires HF_TOKEN or 'hf auth login' in this worker environment")
+            # Cloud-owned credentials: do not require or transmit a PC2 HF token.
+            # Verify deployed CPU archiver and its Modal Secret before GPU work.
+            hf_buckets = {plan["delivery"]["bucket"] for plan in plans
+                          if plan.get("delivery", {}).get("provider") in {"huggingface", "both"}}
+            if hf_buckets:
+                import modal
+                from runtime.archive.config import ASSET_APP_NAME
+                readiness = modal.Function.from_name(ASSET_APP_NAME, "check_bucket")
+                for bucket in sorted(hf_buckets):
+                    if not readiness.remote(bucket).get("ready"):
+                        raise ValueError("Cloud HF archive destination is unavailable")
             directories = [new_run(plan, output=args.output) for plan in plans]
             from orchestration.sdk import request_resume
             for directory in directories:
@@ -140,7 +146,7 @@ def main():
         else:
             from orchestration.sdk import request_resume
             request_resume(directory)
-            print("Resume registered. The worker will query original calls and retry local collection.", flush=True)
+            print("Resume registered. The worker will query original calls and retry cloud delivery.", flush=True)
             return
         print(json.dumps(result, ensure_ascii=False, indent=2))
         if result.get("download_errors") or result.get("archive_errors") or result.get("delivery_pending") or any(status != "completed" and count for status, count in result["counts"].items()):

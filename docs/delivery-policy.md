@@ -6,7 +6,9 @@
 2. `orchestration/delivery.py`：每个目的地的 Future、epoch 恢复、持久状态
 3. `runtime/delivery/config.py`：校验并冻结 Task 的 delivery 配置
 4. `runtime/delivery/local.py`：原有的 Modal Volume → outputs/，保留 SHA256、锁和原子写入
-5. `runtime/delivery/huggingface.py`：从 Volume 临时读取并 SHA256 校验，再复用 `runtime/archive/` 完成 WebP 无损压缩和 HF 上传
+5. `runtime/delivery/huggingface.py`：PC2 仅向已部署的 Modal CPU 归档函数发送素材元数据，不读取 Volume 文件
+6. `pipeline/deploy_assets.py`：独立的无 GPU Modal CPU App，使用只读挂载同一 Volume 与 `huggingface-secret`
+7. `runtime/delivery/cloud_cpu.py`：在云端完成文件完整性校验、无损压缩、HF 上传、SHA256 验证
 
 ## 默认：Hugging Face
 
@@ -48,13 +50,23 @@ uv run python run.py worker
 
 `huggingface` 模式不将图片或视频写入 `outputs/<name>/`；监控 HTML 可以显示公开 URL 的图片或视频。任务状态/日志依然写入 `.runtime/`。已经登记的任务交付策略冻结在 plan/hash 中，不能直接改 JSON 切换交付渠道；旧任务继续本地交付。
 
-**传输边界：** 当前归档适配器由本地 Worker 的 CPU 执行，使用一次性临时文件接收 Modal Volume 原文件，然后向 HF 上传（在 `both` 时可能另外进行一次本地输出下载）。不使用 GPU，也不保留临时缓存；但 **HF-only 并非 Modal 云端直接转存，PC2 仍承担临时网络传输**。如要完全避免 PC2 中转，未来须将这层适配器换成 Modal CPU 归档任务；交付策略、状态和主流程不需要更改。
+**传输边界：** HF-only 交付采用 `Modal Volume → Modal CPU → Hugging Face Bucket`。PC2 Worker 只提交 `artifact` 元数据和策略，不下载素材、无临时视频文件、不持有 HF Token。CPU App 从 Modal Secret `huggingface-secret` 注入 `HF_TOKEN`，仅读取已存在的 Volume（`create_if_missing=False`，避免意外创建空 Volume）。本地 `local` 是历史兼容/显式选择的独立交付目标，不是 HF 上传的中转站。
 
-**验证范围：** 当前只有离线模拟、已有全量测试、监控 HTML 测试。实际 HF Bucket 权限、联网 SDK 上传和公开 URL 可用性尚需用户配置后单独验证。不自动部署、启动 GPU 或执行上传。
+先确保目标 Modal 环境内已存在**实际存储生成结果的 Volume** 和 `huggingface-secret`（含 `HF_TOKEN`），再部署无 GPU CPU App：
+
+```powershell
+uv run python -m modal volume list
+uv run python -m modal secret list
+uv run python -m modal deploy pipeline/deploy_assets.py
+```
+
+新的 `run.py run` 在注册 HF 新任务前会调用 Modal CPU `check_bucket`，核实 Secret 的身份、Bucket 和公开状态；不再读取 PC2 的本地 HF Token。GPU 生成与 HF 归档分离，CPU 归档失败时仅恢复交付，不重新进行 GPU 推理。
+
+**验证状态：** Modal CPU 代码和离线集成测试已验证。正式部署需要对应 Modal 环境存在 Volume；完整云端 Volume→HF 端到端验证须在该环境完成。不会自动创建空 Volume。
+
 
 手动归档仍可使用 `uv run python -m tools.archive_to_hf ...`，与自动交付策略相互独立。
 
-\`run.py run\` 会在登记任务前检查本地 HF 登录凭据，缺失则拒绝提交以避免浪费 GPU；\`run.py plan\` 始终离线。不要将真实 Token 写入 \`.env.example\`。
 
 登记 HF 新任务前，`uv run python run.py run` 会检查 HF 登录凭据，避免 Token 缺失后才花费 GPU 费用。
 `run.py plan` 始终离线；真实 Token 只允许保存在忽略的 `.env` 或用户自身的 Hugging Face 凭据中，不得提交到 `.env.example`。

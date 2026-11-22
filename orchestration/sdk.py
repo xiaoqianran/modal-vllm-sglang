@@ -11,6 +11,7 @@ from orchestration import model_capabilities, state
 from runtime.tasks.task_identity import intent_digest
 from runtime.tasks.task_spec import prepare, result_prefix, execution_signature
 from runtime.tasks.job_client import remote_cache_fingerprint, remote_record, check_record
+from runtime.config.storage import volume_key
 from runtime.tasks.artifacts import image_reference
 from runtime.utils.files import read_json
 from runtime.telemetry.recorder import local_recorder
@@ -75,7 +76,7 @@ class Backend:
         ref = image_reference({"path": "workflow-inputs/" + artifact["sha256"],
                                "sha256": artifact["sha256"], "size": artifact["size"]})
         with self.volume.batch_upload(force=True) as batch:
-            batch.put_file(str(path), "/" + ref["path"])
+            batch.put_file(str(path), volume_key("/" + ref["path"]))
         return ref
 
     def submit(self, spec, item, prefix, fingerprint):
@@ -129,15 +130,16 @@ class Backend:
 
     def archive(self, directory, job, record, plan):
         from runtime.delivery.huggingface import archive_from_volume
-        return archive_from_volume(self.volume, job, record, plan)
+        return archive_from_volume(self.modal, job, record, plan)
 
 
 def snapshot(directory):
     with state.lock(directory, timeout=10):
         plan = read_json(directory / "plan.json")
         current = read_json(directory / "state.json")
-        from runtime.config.storage import runtime_volume_name
+        from runtime.config.storage import runtime_volume_name, VOLUME_SUB_PATH
         if (plan.get("transport") != "sdk" or plan.get("volume") != runtime_volume_name()
+                or plan.get("volume_sub_path") != VOLUME_SUB_PATH
                 or plan.get("adapter_version") != model_capabilities.VERSION
                 or intent_digest({k: v for k, v in plan.items() if k != "hash"}) != plan["hash"]
                 or current["plan_hash"] != plan["hash"]):

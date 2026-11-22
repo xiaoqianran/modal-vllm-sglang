@@ -121,25 +121,21 @@ class DeliveryTests(unittest.TestCase):
         self.assertEqual(len(self.backend.submissions), 3)
         self.assertEqual(len(attempts), 6)
 
-    def test_archive_adapter_verifies_source_before_upload(self):
+    def test_cloud_dispatch_only_metadata(self):
+        from unittest.mock import Mock
         directory, plan = self.create(self.config("huggingface"))
         source = {"type": "image", "storage": "volume", "path": "model-results/test/a.png",
                   "size": len(PNG), "sha256": hashlib.sha256(PNG).hexdigest()}
         record = {"result": {"file": "a.png"}, "artifacts": {"image": source}}
-        self.backend.files["/" + source["path"]] = PNG
-        with patch("runtime.delivery.huggingface.ArchivePipeline") as factory:
-            factory.return_value.run.return_value = {"status": "archived", "url": "https://example.test/a"}
-            result = archive_from_volume(self.backend.volume,
-                                          {"uses": "moss.t2i"}, record, plan)
-            self.assertEqual(result["source_artifact"], source)
-            self.assertEqual(result["transfer_bytes"], len(PNG))
-            self.assertEqual(factory.call_args.args[0].verify, "sha256")
-        self.assertEqual(list((self.root / "outputs/006-hf-demo").iterdir()), [])
-        record["artifacts"]["image"]["sha256"] = "0" * 64
-        with patch("runtime.delivery.huggingface.ArchivePipeline") as factory:
-            with self.assertRaises(ValueError):
-                archive_from_volume(self.backend.volume, {"uses": "moss.t2i"}, record, plan)
-            factory.assert_not_called()
+        modal_client = Mock()
+        modal_client.Function.from_name.return_value.remote.return_value = {"status": "archived"}
+        result = archive_from_volume(modal_client, {"uses": "moss.t2i"}, record, plan)
+        self.assertEqual(result["status"], "archived")
+        modal_client.Function.from_name.assert_called_once_with(
+            "modal-vllm-sglang-assets", "archive_asset")
+        modal_client.Function.from_name.return_value.remote.assert_called_once_with(
+            source, plan["delivery"], plan["project"])
+        self.backend.volume.read_file.assert_not_called()
 
 
 if __name__ == "__main__":

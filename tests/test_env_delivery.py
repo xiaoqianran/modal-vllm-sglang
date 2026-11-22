@@ -67,7 +67,7 @@ class EnvironmentDeliveryTests(unittest.TestCase):
         with patch.dict(os.environ, {"OUTPUT_DELIVERY_PROVIDER": "local"}):
             self.assertEqual(configured_delivery(self.root), {"provider": "local"})
 
-    def test_hf_registration_checks_credentials_before_registering(self):
+    def test_hf_registration_checks_cloud_cpu_before_registering(self):
         import io
         from run import main
         self.enable_hf()
@@ -75,12 +75,14 @@ class EnvironmentDeliveryTests(unittest.TestCase):
         with patch("sys.argv", ["run.py", "run", str(self.task_path)]), \
                 patch("run.build_plan", return_value=plan), \
                 patch("run.new_run") as new_run, \
-                patch("runtime.archive.huggingface.configured_hf_token", return_value=None), \
+                patch("modal.Function.from_name") as function, \
                 patch("sys.stderr", new_callable=io.StringIO):
+            function.return_value.remote.side_effect = RuntimeError("CPU archiver unavailable")
             with self.assertRaises(SystemExit) as error:
                 main()
             self.assertEqual(error.exception.code, 2)
             new_run.assert_not_called()
+            function.assert_called_once_with("modal-vllm-sglang-assets", "check_bucket")
 
 
 if __name__ == "__main__":
