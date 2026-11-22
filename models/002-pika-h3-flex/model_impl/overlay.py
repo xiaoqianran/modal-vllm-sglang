@@ -92,7 +92,11 @@ def materialize_with_sglang(source_dir, overlay_dir, base_dir):
     if (not target or target.get("overlay_repo_id") != OVERLAY_REPO
             or target.get("overlay_revision") != OVERLAY_REV
             or target.get("source_revision") != SOURCE_REV):
-        raise RuntimeError("Installed SGLang overlay registry differs from pinned Pika inputs")
+        raise RuntimeError(
+            "Installed SGLang overlay registry differs from pinned Pika inputs: "
+            f"observed={target!r}, expected_overlay={OVERLAY_REPO}@{OVERLAY_REV}, "
+            f"expected_source={SOURCE_REV}"
+        )
 
     def local_base(repo_id, **kwargs):
         if (repo_id != BASE_REPO or kwargs.get("revision") != BASE_REV

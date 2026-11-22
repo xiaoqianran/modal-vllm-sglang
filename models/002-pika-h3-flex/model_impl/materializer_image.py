@@ -5,6 +5,9 @@ The SGLang revision is fixed and its Pika registry contract is checked again
 inside this model_impl package before publishing any ready marker.
 """
 from pathlib import Path
+import json
+
+from .overlay import SOURCE_REPO, SOURCE_REV, OVERLAY_REPO, OVERLAY_REV
 
 import modal
 
@@ -29,6 +32,9 @@ def build_pika_materializer_image(spec, *, modal_version):
     image = (
         modal.Image.debian_slim(python_version="3.12")
         .apt_install("git")
+        # Pika CPU materialization needs SGLang's Python overlay helpers, not
+        # its optional Rust extensions. This must be set BEFORE uv builds Git.
+        .env({"SGLANG_BUILD_RUST_EXTS": "none"})
         .uv_pip_install(
             f"modal[api-proxy-support]=={modal_version}",
             SGLANG_MATERIALIZER,
@@ -40,6 +46,15 @@ def build_pika_materializer_image(spec, *, modal_version):
             "SGLANG_DIFFUSION_CACHE_ROOT": root + "/sglang",
             "HF_HUB_OFFLINE": "1",
             "TRANSFORMERS_OFFLINE": "1",
+            # The pinned SGLang commit has no built-in Pika entry; use its
+            # supported registry override, keeping the three revision pins.
+            "SGLANG_DIFFUSION_MODEL_OVERLAY_REGISTRY": json.dumps({
+                SOURCE_REPO: {
+                    "overlay_repo_id": OVERLAY_REPO,
+                    "overlay_revision": OVERLAY_REV,
+                    "source_revision": SOURCE_REV,
+                },
+            }),
         })
     )
     return (image
