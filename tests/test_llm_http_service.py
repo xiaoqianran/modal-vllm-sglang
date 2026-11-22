@@ -37,9 +37,14 @@ def test_bearer_auth_applies_to_all_http_routes(monkeypatch, path, authorization
     assert events[0]["status"] == expected
 
 
-def test_llm_modal_entrypoint_registers_locally():
+def test_llm_backend_entrypoint_uses_latest_external_checkout():
     entry = run_path(str(CONFIG.with_name("app.py")))
-    assert entry["app"].name == "modal-model-qwen38-pi"
+    assert entry["DEFAULT_REF"] == "main"
+    assert entry["REPOSITORY"].endswith("/Qwen3.8-27B-RTX-6000-PRO-SGLang-DSpark.git")
+    command, environment = entry["build_command"]("deploy")
+    assert command == ["uv", "run", "modal", "deploy", "deploy/modal_app.py"]
+    assert environment["QWEN38_PI_LORA"] == "1"
+    assert environment["QWEN38_SPECULATIVE_ALGORITHM"] == "DFLASH"
 
 
 def test_llm_spec_and_components():

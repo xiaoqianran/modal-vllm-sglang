@@ -1,102 +1,106 @@
-"""Prepare model caches using provider-neutral Modal downloads and SGLang overlays."""
+"""Prepare model caches with modal-benchmark's Coordinator and direct Writers."""
+from __future__ import annotations
+
 import argparse
-from contextlib import nullcontext
 import json
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from shared.config.azure_cache import preparation_strategy
+from shared.config.model_cache import cache_directory, component_specs
+from shared.config.model_spec import validate
+from shared.config.pika_overlay import download_sources
+from shared.config.storage import VOLUME_NAME
+from shared.utils.files import read_json
 
-def main():
-    import modal
-    from modal_benchmark.hf import create_downloader
-    from shared.config.model_spec import validate
-    from shared.config.model_cache import component_specs, cache_directory
-    from shared.config.azure_cache import publish_cache, preparation_strategy
-    from shared.config.pika_overlay import download_sources, publish_pika_cache
-    from shared.config.storage import VOLUME_NAME
-    from shared.tasks.batch import intent_digest
-    from shared.utils.files import read_json
 
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("model_spec", help="Path to model.json")
-    parser.add_argument("--workers", default="2", choices=["auto", *map(str, range(1, 6))])
-    parser.add_argument("--max-workers", type=int, default=2, choices=range(1, 6))
-    parser.add_argument("--execute", action="store_true")
-    args = parser.parse_args()
-    if args.workers != "auto" and int(args.workers) > args.max_workers:
-        parser.error("--workers exceeds --max-workers")
-
-    spec = validate(read_json(args.model_spec))
+def plan(spec: dict, workers: int) -> dict:
+    """Build a free, local download plan; never contact HF or Modal."""
     strategy = preparation_strategy(spec)
-    if strategy == "sglang_overlay":
-        sources = download_sources(spec)
-    else:
-        sources = [
-            {"repo_id": config["model"], "revision": config["revision"],
-             "include": ",".join(config.get("allow_patterns", []))}
-            for config in component_specs(spec).values()
-        ]
+    components = component_specs(spec)
+    sources = (download_sources(spec) if strategy == "sglang_overlay" else [
+        {"repo_id": item["model"], "revision": item["revision"],
+         "include": ",".join(item.get("allow_patterns", []))}
+        for item in components.values()
+    ])
+    return {"service": spec["service"], "strategy": strategy,
+            "volume": VOLUME_NAME, "base": cache_directory(spec) + "/downloads",
+            "workers": workers, "sources": sources}
 
-    downloader = create_downloader(volume_name=VOLUME_NAME, mount_path="/mnt/modal",
-                                   volume_version=None, max_workers=args.max_workers)
+
+def run(spec: dict, *, workers: int = 2) -> dict:
+    """Download once, then publish exactly one inference-ready cache."""
+    from modal_benchmark.hf import create_downloader
+    task = plan(spec, workers)
+    downloader = create_downloader(
+        volume_name=VOLUME_NAME, mount_path="/mnt/modal",
+        volume_version=None, max_workers=workers, verification_mode="xet",
+    )
     volume = downloader.volume
-    image = downloader.image.add_local_python_source("shared")
+    publisher_image = downloader.image.add_local_python_source("shared")
 
-    @downloader.app.function(image=image,
-        region=downloader.config.region, cpu=0.5, memory=1024, timeout=3600,
-        volumes={"/mnt/modal": volume}, serialized=True)
-    def publish(spec, models, base, root):
-        volume.reload()
-        return publish_cache(spec, models, base, root, volume)
+    if task["strategy"] == "sglang_overlay":
+        from shared.serving.model_runtime import build_image
+        publisher_image = build_image(spec, offline=True)
 
-    @downloader.app.function(image=image,
-        region=downloader.config.region, cpu=0.5, memory=1024, timeout=3600,
-        volumes={"/mnt/modal": volume}, serialized=True)
-    def check_inference_cache(spec):
-        from shared.config.model_cache import verify_cache
+    # Business publication is deliberately separate: generic HF Coordinator
+    # cannot know the inference-specific SGLang Overlay/cache contract.
+    @downloader.app.function(
+        image=publisher_image, cpu=4 if task["strategy"] == "sglang_overlay" else 1,
+        memory=8192 if task["strategy"] == "sglang_overlay" else 2048,
+        timeout=86400 if task["strategy"] == "sglang_overlay" else 3600,
+        volumes={"/mnt/modal": volume}, serialized=True,
+    )
+    def publish(spec, manifest, base, root, strategy):
+        from shared.config.azure_cache import publish_cache
+        from shared.config.model_cache import component_specs, verify_cache
+        from shared.config.pika_overlay import publish_pika_cache
+
         volume.reload()
+        if strategy == "sglang_overlay":
+            published = publish_pika_cache(spec, manifest, base, root, volume)
+        else:
+            by_repo = {model["repo_id"]: model for model in manifest["models"]}
+            models = {name: by_repo[item["model"]]
+                      for name, item in component_specs(spec).items()}
+            published = publish_cache(spec, models, base, root, volume)
+        # Check inference-readiness in the same remote function, not a
+        # second container. The cache publishers already commit the marker.
         paths, fingerprint = verify_cache(spec, phase="download_persisted")
-        return {"ready": True, "fingerprint": fingerprint,
+        return {**published, "fingerprint": fingerprint,
                 "paths": {name: str(path) for name, path in paths.items()}}
 
-    if strategy == "sglang_overlay" and args.execute:
-        from shared.serving.model_runtime import build_image
-        sglang_image = build_image(spec, offline=True)
+    result = downloader.download(task["sources"], base=task["base"], workers=workers)
+    if result["status"] != "VERIFIED":
+        raise RuntimeError("Model download was not verified")
+    with downloader.app.run():
+        published = publish.remote(
+            spec, result["manifest"], result["base"],
+            cache_directory(spec), task["strategy"],
+        )
+    return {"download": {"status": result["status"],
+                          "files": result["files"], "bytes": result["bytes"],
+                          "seconds": result["end_to_end_seconds"]},
+            "cache": published}
 
-        @downloader.app.function(image=sglang_image,
-            region=downloader.config.region, cpu=4, memory=8192, timeout=86400,
-            volumes={"/mnt/modal": volume}, serialized=True)
-        def publish_overlay(spec, manifest, base, root):
-            # All writer commits must be visible before materialization.
-            volume.reload()
-            return publish_pika_cache(spec, manifest, base, root, volume)
 
-    # Modal Rich progress output can crash on Windows GBK when stdout is piped.
-    output = modal.enable_output() if sys.stdout.isatty() else nullcontext()
-    with output, downloader.app.run():
-        manifest = downloader.discover_many(sources)
-        if strategy == "sglang_overlay":
-            models = None
-        else:
-            models = dict(zip(component_specs(spec), manifest["models"]))
-        root = cache_directory(spec)
-        # Preserve existing Volume layout for completed or partially downloaded tasks.
-        base = root + "/azure/" + intent_digest(manifest)
-        print(json.dumps({"service": spec["service"], "strategy": strategy,
-            "volume": VOLUME_NAME, "base": base, "provider_policy": "any",
-            "workers": args.workers, "max_workers": args.max_workers,
-            "files": sum(len(m["files"]) for m in manifest["models"]),
-            "bytes": sum(f["size"] for m in manifest["models"] for f in m["files"].values())}))
-        if args.execute:
-            downloader.run_manifest(manifest, base, workers=args.workers,
-                                    max_workers=args.max_workers)
-            if strategy == "sglang_overlay":
-                print(json.dumps(publish_overlay.remote(spec, manifest, base, root)))
-            else:
-                print(json.dumps(publish.remote(spec, models, base, root)))
-            print(json.dumps(check_inference_cache.remote(spec)))
+def main(argv: list[str] | None = None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("model_spec", help="Path to model.json")
+    parser.add_argument("--workers", type=int, choices=range(1, 6), default=2)
+    parser.add_argument("--execute", action="store_true",
+                        help="Start paid Modal CPU download and publication")
+    args = parser.parse_args(argv)
+
+    spec = validate(read_json(args.model_spec))
+    task = plan(spec, args.workers)
+    print("PLAN " + json.dumps({**task, "execute": args.execute},
+                                ensure_ascii=False), flush=True)
+    if args.execute:
+        print("RESULT " + json.dumps(run(spec, workers=args.workers),
+                                     ensure_ascii=False), flush=True)
 
 
 if __name__ == "__main__":

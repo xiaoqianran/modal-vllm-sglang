@@ -1,6 +1,6 @@
 # Modal 多云模型下载与 SGLang 物化
 
-本项目通过 PyPI 发布的 `modal-benchmark==0.1.5` 复用直接下载调度，不复制调度器源码，也不依赖本地相邻仓库。
+本项目通过 PyPI 固定依赖 `modal-benchmark==0.2.2`，使用一个 Coordinator + N 个直接 Writer；默认 Xet 可信下载凭证不会因文件时间戳漂移重新扫描完整 SHA-256。
 `uv sync` 后使用统一入口 `scripts/download_models.py`；旧 `scripts/download_azure.py` 作为兼容入口保留。
 
 ## 三种模型
@@ -22,7 +22,7 @@ Pika 的三个固定版本输入为：
 
 ```powershell
 uv sync
-# 预览：远端清单发现可能产生少量云费用，不下载模型文件
+# 免费预览：只读取本地 model.json，不启动 Modal 或访问 Hugging Face
 uv run python scripts/download_models.py 002-pika-h3-flex/model.json
 
 # 下载并物化：会产生大量 Modal 云资源及存储费用
@@ -33,9 +33,9 @@ uv run python scripts/download_models.py 001-moss-image/model.json --execute
 uv run python scripts/download_models.py 005-minimax-h3-image/model.json --execute
 ```
 
-默认直接启动 2 个 Worker，不申请候选容器（显式传参最多 5 个）。不按 Azure、GCP、AWS 过滤，也不强制 region。文件按传输成本与逐文件固定开销分配给 Worker；每台 Worker 使用本地任务与重试队列，不再有远程共享下载队列。`--workers auto` 可按文件清单估算 Worker 数。
-为兼容既有缓存与断点恢复，Volume 中下载路径暂时仍保留 `/azure/` 历史目录名；它不代表 Azure-only 策略。
-Worker 数决定下载并发，SGLang 后处理单独在 CPU 容器中执行，不按 Worker 数复制。
+默认直接启动 2 个 Worker，`--workers 1` 至 `--workers 5` 可以调整，不再提供旧的自动候选数/`--max-workers` 参数；无远程队列、独立 Reader/Inspect/Report 容器，也不限制云厂商或区域。
+直接写入各服务的 `/mnt/modal/<service-cache>/downloads/`，**不兼容或搬迁旧的 `azure/<digest>` 数据**。用户自行清理旧模型目录；若切换固定仓库清单，已有新目录与新清单不一致时应清除相应 `downloads` 目录再执行。
+模型下载完成后：MOSS/MiniMax 使用一次远程调用发布 `model-ready.json` 并复核就绪，Pika 单独使用一次 SGLang 容器物化和发布。
 新入口使用既有 `modal-vllm-sglang` Volume（`volume_version=None`），不会自动从 v1 升级到 v2。需要 Modal 凭据及 `huggingface-secret` 的 `HF_TOKEN`。
 
 ## Pika 两阶段机制
