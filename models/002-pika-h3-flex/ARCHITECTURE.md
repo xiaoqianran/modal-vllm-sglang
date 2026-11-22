@@ -7,13 +7,13 @@
 
 1. **Download** — `tools/download_models.py` 调用 `modal-benchmark`（轻量
    Debian 下载器、HF Xet）。下载文件存入 Volume
-   `modal-vllm-sglang:/009-pika-h3-flex/downloads/`，保留固定版本的三套
+   `models:/models/002-pika-h3-flex/downloads/`，保留固定版本的三套
    HF 文件快照，已有数据可由下载器核验后复用。
 2. **Materialize** — `models/002-pika-h3-flex/model_impl/materializer_image.py` 定义 Debian
    Slim + uv 的独立 CPU 镜像，`models/002-pika-h3-flex/model_impl/overlay.py` 检查固定注册表、
    本地快照及物化完成标记。物化结果写到
-   `/mnt/modal/009-pika-h3-flex/sglang/materialized_models/`；通过全量文件清单验证后，
-   才更新 `/mnt/modal/009-pika-h3-flex/model-ready.json`。
+   `/data/models/002-pika-h3-flex/sglang/materialized_models/`；通过全量文件清单验证后，
+   才更新 `/data/models/002-pika-h3-flex/model-ready.json`。
 3. **Inference** — `runtime/serving/model_runtime.py` 读取上述已验证本地路径，
    GPU 推理继续使用 `model.json` 中固定的 SGLang 引擎镜像。不会为下载启动 GPU。
 

@@ -38,7 +38,7 @@ benchmark 已下载且验证的特定 MiniMax-H3 快照，拒绝意外联网补�
 根据可用后端选择 Worker，历史日志中出现 Azure 并不意味着代码固定 Azure；
 实际选择可能跨云及跨区域，不能保证随机、特定价格或某个地理位置。
 
-本项目通过 PyPI 固定依赖 `modal-benchmark==0.3.0`，使用一个 Coordinator + N 个直接 Writer；默认 Xet 可信下载凭证不会因文件时间戳漂移重新扫描完整 SHA-256。
+本项目通过 PyPI 固定依赖 `modal-benchmark==0.3.1`，使用一个 Coordinator + N 个直接 Writer；默认 Xet 可信下载凭证不会因文件时间戳漂移重新扫描完整 SHA-256。
 `uv sync` 后使用统一入口 `tools/download_models.py`；旧 `tools/download_azure.py` 作为兼容入口保留。
 
 ## 三种模型
@@ -72,9 +72,9 @@ uv run python tools/download_models.py models/005-minimax-h3-image/model.json --
 ```
 
 各模型在 model.json 中配置 download_workers（MOSS=2、MiniMax=3、Pika=4），未填写时默认 2 个 Worker；--workers N 可临时覆盖。`--workers 1` 至 `--workers 5` 可以调整，不再提供旧的自动候选数/`--max-workers` 参数；无远程队列、独立 Reader/Inspect/Report 容器，也不限制云厂商或区域。
-直接写入各服务的 `/mnt/modal/<service-cache>/downloads/`，**不兼容或搬迁旧的 `azure/<digest>` 数据**。用户自行清理旧模型目录；若切换固定仓库清单，已有新目录与新清单不一致时应清除相应 `downloads` 目录再执行。
+直接写入各服务的 `/data/<service-cache>/downloads/`，**不兼容或搬迁旧的 `azure/<digest>` 数据**。用户自行清理旧模型目录；若切换固定仓库清单，已有新目录与新清单不一致时应清除相应 `downloads` 目录再执行。
 模型下载完成后：MOSS/MiniMax 使用一次远程调用发布 `model-ready.json` 并复核就绪，Pika 单独使用一次 SGLang 容器物化和发布。
-新入口使用既有 `modal-vllm-sglang` Volume（`volume_version=2`），不会自动从 v1 升级到 v2。需要 Modal 凭据及 `huggingface-secret` 的 `HF_TOKEN`。
+下载器和运行时均只使用名为 `model-store` 的单个 Volume V2（`volume_version=2`），挂载在 `/data`；模型位于 `/data/models/<模型目录>`，运行缓存和输出共享同一卷但按目录区分。如果云端原资源仍为 V1，必须先完成云端数据迁移或重新下载；修改 SDK 的 version 参数不会自动转换现有 Volume，旧资源不会自动清理。需要 Modal 凭据及 `huggingface-secret` 的 `HF_TOKEN`。
 
 ## Pika 两阶段机制
 
@@ -90,3 +90,8 @@ Pika 原有 `download_model.py` 仍可独立使用，作为人工恢复路径；
 离线模拟测试覆盖三仓库计划、固定版本、拒绝额外联网请求、失败保留旧标记及现有推理路径。
 未在此次改动后运行 Pika 273+ GiB 的云端全量下载、真实 SGLang 物化及 GPU 推理；云端是否支持全部文件链接/符号链接和运行镜像中的 SGLang Overlay API 需要专项实测。
 `lmsysorg/sglang:dev` 是可变镜像标签。当前本地 Pika 配置已固定 Docker Hub 于 2026-11-21 查询得到的 digest，但尚未通过新镜像的远程 GPU 推理验证；在远程任务空闲并验收成功前，不应将该 digest 视为已验证的生产基线。详见 [镜像构建策略](image-build-policy.md)。
+
+
+### Volume 子路径约定
+
+`model-store` 是唯一推理模型 Volume V2。所有推理/物化/维护容器将卷内 `/inference` 使用 Modal `sub_path` 精确挂载为 `/data`。模型缓存位于 `/data/models`，原始 Volume SDK 路径需要补 `/inference` 前缀。当前 modal-benchmark 0.3.1 已支持 `sub_path="/inference"`，Coordinator 和 Writer 均只将 Volume 内该子树挂载为 `/data`；业务方不再负责前缀转换；上传与推理禁止写入 ComfyUI 专用子树。

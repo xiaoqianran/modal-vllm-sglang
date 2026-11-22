@@ -9,7 +9,7 @@
   "image": "vllm/vllm-openai@sha256:cf5b2fdd087eb4f6d261736967cc5cde974bd22ff4df50365f8fa419b6b4c484",
   "build_commands": ["ln -sf /usr/bin/python3 /usr/local/bin/python"],
   "env": {
-    "VLLM_CACHE_ROOT": "/mnt/modal/models/qwen38-pi/engine-cache/v0.34.0/vllm",
+    "VLLM_CACHE_ROOT": "/data/models/qwen38-pi/engine-cache/v0.34.0/vllm",
     "VLLM_ENABLE_STARTUP_PLAN": "1"
   },
   "gpu": "RTX-PRO-6000",
@@ -24,7 +24,7 @@
   "modal_class": "Qwen38Pi",
   "endpoint_label": "qwen38-pi-serve",
   "api_key_secret": "modal-qwen38-27B-pi",
-  "cache_directory": "/mnt/modal/models/qwen38-pi",
+  "cache_directory": "/data/models/qwen38-pi",
   "cache": {
     "mode": "hf",
     "required_files": [

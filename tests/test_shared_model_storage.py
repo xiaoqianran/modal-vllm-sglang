@@ -101,21 +101,15 @@ class SharedModelStorageTests(unittest.TestCase):
         legacy.pop("model_storage")
         self.assertFalse(shared_storage(validate(legacy)))
 
-    def test_gpu_mounts_keep_weights_readonly_and_service_writable(self):
+    def test_single_volume_mount_for_both_layouts(self):
         with patch("runtime.serving.modal_setup.modal.Volume.from_name") as lookup:
-            legacy_volume = Mock(name="writable")
-            shared_volume = Mock(name="shared")
-            lookup.side_effect = [legacy_volume, shared_volume]
-            readonly = Mock(name="readonly")
-            shared_volume.with_mount_options.return_value = readonly
             mounts = model_mounts(self.spec)
-            self.assertIs(mounts["/mnt/modal"], legacy_volume)
-            self.assertIs(mounts["/mnt/models"], readonly)
-            shared_volume.with_mount_options.assert_called_once_with(read_only=True)
-
+            self.assertEqual(list(mounts), ["/data"])
+            lookup.assert_called_once_with("model-store", create_if_missing=True, version=2)
+            lookup.return_value.with_mount_options.assert_called_once_with(sub_path="/inference")
         with patch("runtime.serving.modal_setup.modal.Volume.from_name") as lookup:
-            legacy = dict(self.spec, model_storage="legacy")
-            self.assertEqual(list(model_mounts(legacy)), ["/mnt/modal"])
+            mounts = model_mounts({**self.spec, "model_storage": "legacy"})
+            self.assertEqual(list(mounts), ["/data"])
             lookup.assert_called_once()
 
 

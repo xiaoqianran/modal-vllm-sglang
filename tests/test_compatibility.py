@@ -182,7 +182,7 @@ class PikaRecoveryTests(unittest.TestCase):
         self.root = Path(temp.name)
         redirect = patch('runtime.serving.inference_execution.Path', wraps=Path)
         paths = redirect.start()
-        paths.side_effect = lambda value: self.root if value == '/mnt/modal' else Path(value)
+        paths.side_effect = lambda value: self.root if value == '/data' else Path(value)
         self.addCleanup(redirect.stop)
         factory = patch('runtime.serving.inference_api.SGLangVideoClient')
         self.client = factory.start().return_value

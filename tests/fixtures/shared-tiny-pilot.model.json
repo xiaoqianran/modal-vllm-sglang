@@ -22,7 +22,7 @@
   "port": 8000,
   "endpoint_label": "shared-tiny-pilot",
   "model_storage": "shared",
-  "cache_directory": "/mnt/modal/models/shared-tiny-pilot",
+  "cache_directory": "/data/models/shared-tiny-pilot",
   "cache": {
     "required_files": [
       "pytorch_model.bin"

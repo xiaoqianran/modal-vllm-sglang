@@ -33,11 +33,10 @@ class App:
 
 
 class DownloadCliTests(TestCase):
-    @patch.dict("os.environ", MODEL_RUNTIME_VOLUME_NAME="isolated-runtime",
-                MODEL_SHARED_VOLUME_NAME="isolated-weights")
+    @patch.dict("os.environ", MODEL_VOLUME_NAME="isolated-models")
     def test_download_plan_targets_mounted_volume(self):
         spec = self.spec("models/001-moss-image")
-        for storage, expected in (("legacy", "isolated-runtime"), ("shared", "isolated-weights")):
+        for storage, expected in (("legacy", "isolated-models"), ("shared", "isolated-models")):
             with self.subTest(storage=storage):
                 self.assertEqual(plan({**spec, "model_storage": storage})["volume"], expected)
 
@@ -52,7 +51,7 @@ class DownloadCliTests(TestCase):
             for source in plan(spec, 2)["sources"]
         ]}
         downloader = SimpleNamespace(
-            app=app, volume=SimpleNamespace(reload=Mock()),
+            app=app, volume=SimpleNamespace(reload=Mock(), with_mount_options=Mock(return_value=Mock())),
             image=SimpleNamespace(add_local_python_source=Mock(return_value=object())),
             download=Mock(return_value={
                 "status": "VERIFIED", "manifest": manifest,
@@ -160,6 +159,14 @@ class DownloadCliTests(TestCase):
                 with self.assertRaisesRegex(ValueError, "download_workers"):
                     validate(spec)
 
+    def test_model_names_match_directories(self):
+        for folder in ("001-moss-image", "002-pika-h3-flex", "005-minimax-h3-image"):
+            spec = self.spec("models/" + folder)
+            self.assertEqual(spec["service_directory"], folder)
+            self.assertEqual(spec["app_name"], folder)
+            self.assertEqual(spec["endpoint_label"], folder + "-serve")
+            self.assertEqual(spec["cache_directory"], "/data/models/" + folder)
+
     def test_hf_publishes_and_verifies_in_one_rpc(self):
         spec = self.spec("models/005-minimax-h3-image")
         d, app = self.setup_downloader(spec)
@@ -168,10 +175,13 @@ class DownloadCliTests(TestCase):
             patch("runtime.config.cache_publication.publish_cache",
                   return_value={"ready": True, "fingerprint": "cache"}) as publish,
             patch("runtime.config.model_cache.verify_cache",
-                  return_value=({"model": Path("/mnt/modal/model")}, "cache")) as verify,
+                  return_value=({"model": Path("/data/model")}, "cache")) as verify,
         ):
             result = run(spec, workers=2)
-        self.assertEqual(create.call_args.kwargs["volume_version"], 1)
+        self.assertEqual(create.call_args.kwargs["volume_version"], 2)
+        self.assertEqual(create.call_args.kwargs["mount_path"], "/data")
+        self.assertEqual(create.call_args.kwargs["sub_path"], "/inference")
+        self.assertEqual(create.call_args.kwargs["app"].name, "download-005-minimax-h3-image")
         self.assertEqual(result["download"]["status"], "VERIFIED")
         self.assertEqual(app.runs, 1)
         self.assertEqual(len(app.registered), 1)
@@ -202,7 +212,7 @@ class DownloadCliTests(TestCase):
             patch.object(import_module("models.002-pika-h3-flex.model_impl.overlay"), "publish_pika_cache",
                   return_value={"ready": True, "fingerprint": "pika"}) as materialize,
             patch("runtime.config.model_cache.verify_cache",
-                  return_value=({"model": Path("/mnt/modal/pika")}, "pika")),
+                  return_value=({"model": Path("/data/pika")}, "pika")),
         ):
             out = run(spec, workers=2)
         self.assertEqual(out["cache"]["fingerprint"], "pika")

@@ -230,13 +230,13 @@ def build_plan(task_path, *, root=ROOT):
                          "uses": step["uses"], "params": params, "inputs": inputs,
                          "reuse_existing": item.get("reuse_existing", False)})
     from runtime.config.model_spec import validate
-    from runtime.config.storage import runtime_volume_name
+    from runtime.config.storage import runtime_volume_name, VOLUME_SUB_PATH
     specs = {spec["service"]: spec for path in ROOT.glob("models/*/model.json")
              for spec in [validate(read_json(path))]}
     services = {name: {"spec": specs[name]} for name in
                 sorted({model_capabilities.CAPABILITIES[j["uses"]]["service"] for j in jobs})}
     plan = {"version": 1, "layout_version": 3, "adapter_version": model_capabilities.VERSION,
-            "transport": "sdk", "volume": runtime_volume_name(),
+            "transport": "sdk", "volume": runtime_volume_name(), "volume_sub_path": VOLUME_SUB_PATH,
             "name": task["name"], "project": project, "scene": scene,
             "workflow": workflow_id, "jobs": jobs, "services": services,
             "outputs": workflow["outputs"], "imports": imports}
@@ -262,7 +262,7 @@ def _extend_scene(directory, old, plan, saved):
         raise ValueError("Cannot extend an older run; migrate it first")
     if intent_digest({key: value for key, value in old.items() if key != "hash"}) != old.get("hash"):
         raise ValueError("Existing scene plan has been modified")
-    for key in ("name", "project", "scene", "workflow", "services", "outputs", "adapter_version", "transport", "volume", "delivery"):
+    for key in ("name", "project", "scene", "workflow", "services", "outputs", "adapter_version", "transport", "volume", "volume_sub_path", "delivery"):
         if old.get(key) != plan.get(key):
             raise ValueError(f"Cannot change frozen scene configuration: {key}")
     for key, value in old.get("imports", {}).items():

@@ -1,3 +1,5 @@
+> 历史试点方案：本文描述 0.3.0 时期的独立共享卷与旧部署路径，非当前默认配置。现行方案参见 `docs/model-download.md`：`model-store` Volume V2 与 `sub_path=/inference`，上层依赖 `modal-benchmark==0.3.1`。
+
 # 共享模型 Volume V2：双卷迁移与回退
 
 本仓库已经支持普通 Hugging Face 模型按服务逐个迁移到共享 V2 Volume，保留既有服务可写 Volume。模型下载、`model-ready.json` 发布、独立 CPU 检查和 GPU 服务启动使用相同的路径校验逻辑。

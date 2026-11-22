@@ -12,6 +12,7 @@ from pathlib import Path
 from runtime.config.model_spec import ROOT, validate
 from runtime.tasks.task_identity import intent_digest
 from runtime.tasks.job_client import remote_cache_fingerprint
+from runtime.config.storage import volume_key
 from runtime.utils.files import read_json
 from orchestration.protocol import APP_NAME, PROVISION_REGISTRY, state_path
 from orchestration.deployment_state import DeploymentState, source_version, model_source_version, classify_error
@@ -194,7 +195,7 @@ class Provisioner:
         remaining = self.registry.get(name, {})
         for identity, jobs in list(remaining.items()):
             try:
-                record = json.loads(b"".join(self.backend.volume.read_file("/" + state_path(identity))))
+                record = json.loads(b"".join(self.backend.volume.read_file(volume_key("/" + state_path(identity)))))
             except FileNotFoundError:
                 continue
             if all(record["jobs"].get(job, {}).get("status") in {"completed", "failed"} for job in jobs):

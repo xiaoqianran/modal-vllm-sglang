@@ -16,8 +16,7 @@ def run(spec: dict, *, execute: bool = False, replace: bool = False) -> dict:
     from runtime.config.storage import shared_storage, shared_volume_name, runtime_volume_name
     if not shared_storage(spec):
         raise ValueError("Set model_storage=shared in model.json")
-    plan = {"service": spec["service"], "shared_volume": shared_volume_name(),
-            "runtime_volume": runtime_volume_name(), "execute": execute}
+    plan = {"service": spec["service"], "volume": runtime_volume_name(), "execute": execute}
     if not execute:
         return plan
 
@@ -28,7 +27,7 @@ def run(spec: dict, *, execute: bool = False, replace: bool = False) -> dict:
     image = (modal.Image.debian_slim(python_version="3.12")
              .add_local_python_source("runtime"))
     mounts = model_mounts(spec)
-    writable_volume = mounts["/mnt/modal"]
+    writable_volume = mounts["/data"]
 
     @app.function(image=image, cpu=1, memory=1024, timeout=300,
                   volumes=mounts, serialized=True)

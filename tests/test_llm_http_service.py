@@ -57,11 +57,11 @@ def test_llm_spec_and_components():
 
 def test_llm_command_injects_local_base_and_adapter():
     spec = validate(read_json(CONFIG))
-    args = command_argv(spec, {"model": PurePosixPath("/mnt/modal/base"),
-                               "adapter": PurePosixPath("/mnt/modal/adapter")})
-    assert args[:3] == ["vllm", "serve", "/mnt/modal/base"]
+    args = command_argv(spec, {"model": PurePosixPath("/data/base"),
+                               "adapter": PurePosixPath("/data/adapter")})
+    assert args[:3] == ["vllm", "serve", "/data/base"]
     assert args[args.index("--served-model-name") + 1] == "qwen3.8-27B"
-    assert args[args.index("--lora-modules") + 1] == "qwen3.8-27B-pi=/mnt/modal/adapter"
+    assert args[args.index("--lora-modules") + 1] == "qwen3.8-27B-pi=/data/adapter"
     assert args[args.index("--tool-call-parser") + 1] == "qwen3_xml"
     assert args[args.index("--max-model-len") + 1] == "131072"
     assert args[args.index("--default-chat-template-kwargs") + 1] == '{"enable_thinking":false}'

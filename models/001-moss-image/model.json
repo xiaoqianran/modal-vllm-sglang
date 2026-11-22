@@ -1,5 +1,5 @@
 {
-  "volume_name": "modal-vllm-sglang",
+  "volume_name": "model-store",
   "download_workers": 3,
   "revision": "main",
   "gpu": "RTX-PRO-6000",
@@ -11,7 +11,7 @@
   "scaledown_window": 30,
   "memory_snapshot": "gpu",
   "service": "moss",
-  "app_name": "modal-forge-008-moss-image",
+  "app_name": "001-moss-image",
   "operation": "t2i",
   "kind": "image",
   "model": "OpenMOSS-Team/MOSS-Image-SFT",
@@ -72,7 +72,8 @@
       "model_index.json"
     ]
   },
-  "cache_directory": "/mnt/modal/007-moss-image",
-  "endpoint_label": "modal-forge-008-moss-image-serve",
-  "modal_class": "Moss"
+  "cache_directory": "/data/models/001-moss-image",
+  "endpoint_label": "001-moss-image-serve",
+  "modal_class": "Moss",
+  "service_directory": "001-moss-image"
 }

@@ -2,23 +2,19 @@
 from pathlib import Path
 
 import modal
-from runtime.config.storage import SHARED_MOUNT, shared_storage, shared_volume_name, runtime_volume_name
+from runtime.config.storage import VOLUME_MOUNT, VOLUME_VERSION, VOLUME_SUB_PATH, runtime_volume_name
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 def model_volume():
     """Project storage shared by model workers and SDK clients."""
-    return modal.Volume.from_name(runtime_volume_name(), create_if_missing=True, version=2)
+    return modal.Volume.from_name(runtime_volume_name(), create_if_missing=True, version=VOLUME_VERSION)
 
 
 def model_mounts(spec):
-    """Share immutable weights without changing the writable service storage."""
-    mounts = {"/mnt/modal": model_volume()}
-    if shared_storage(spec):
-        shared = modal.Volume.from_name(shared_volume_name(), create_if_missing=True, version=2)
-        mounts[SHARED_MOUNT] = shared.with_mount_options(read_only=True)
-    return mounts
+    """All services mount the same writable V2 Volume once."""
+    return {VOLUME_MOUNT: model_volume().with_mount_options(sub_path=VOLUME_SUB_PATH)}
 
 
 def runtime_image(registry, *, env, files=(), commands=(), uv_packages=()):

@@ -15,7 +15,7 @@ from runtime.tasks.task_identity import intent_digest
 from runtime.utils.files import read_json
 from runtime.telemetry.recorder import cloud_recorder
 
-def run(payload, identity, *, backend=None, root=Path("/mnt/modal"), timeout=85000, poll=2):
+def run(payload, identity, *, backend=None, root=Path("/data"), timeout=85000, poll=2):
     """Single claimed owner. Every spawn intent and receipt is committed to Volume."""
     plan = payload["plan"]
     items = {job["item"] for job in plan["jobs"]}

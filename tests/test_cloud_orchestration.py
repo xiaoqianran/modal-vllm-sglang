@@ -187,7 +187,7 @@ class CloudTests(unittest.TestCase):
         manifest = writer.publish(writer.reference())
         sdk.update(self.directory, "first/001", status="completed", result={"telemetry": manifest})
         volume = Mock()
-        volume.read_file.side_effect = lambda path: [(self.remote / path.lstrip("/")).read_bytes()]
+        volume.read_file.side_effect = lambda path: [(self.remote / path.removeprefix("/inference/").lstrip("/")).read_bytes()]
         collector = Collector(self.output, volume)
         self.addCleanup(collector.close)
         path = self.output / ".telemetry/reports" / (intent_digest(task_id) + ".json")
@@ -209,7 +209,7 @@ class CloudTests(unittest.TestCase):
             manifest = writer.publish(ref)
         self.assertFalse(manifest["complete"])
         volume = Mock()
-        volume.read_file.side_effect = lambda path: [(self.remote / path.lstrip("/")).read_bytes()]
+        volume.read_file.side_effect = lambda path: [(self.remote / path.removeprefix("/inference/").lstrip("/")).read_bytes()]
         self.assertFalse(collect_cloud(self.output, volume, ref)["pending"])
 
     def test_background_publication_does_not_block_caller_and_manifests_are_incremental(self):

@@ -5,6 +5,7 @@ from pathlib import PurePosixPath
 import re
 
 from runtime.utils.media import MAX_FRAME, image_format
+from runtime.config.storage import volume_key
 
 
 def image_reference(value):
@@ -32,7 +33,7 @@ def resolve_frames(payload, volume):
             continue
         ref = image_reference(ref)
         chunks, size = [], 0
-        for chunk in volume.read_file("/" + ref["path"]):
+        for chunk in volume.read_file(volume_key("/" + ref["path"])):
             size += len(chunk)
             if size > ref["size"]:
                 raise ValueError("Cloud image size mismatch")

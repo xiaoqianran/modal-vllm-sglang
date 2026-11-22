@@ -38,7 +38,7 @@ def create_llm_app(config_path):
     volume = model_volume()
     app = modal.App(spec["app_name"])
     api_key_secret = spec.get("api_key_secret")
-    persistent_cache = spec.get("env", {}).get("VLLM_CACHE_ROOT", "").startswith("/mnt/modal/")
+    persistent_cache = spec.get("env", {}).get("VLLM_CACHE_ROOT", "").startswith("/data/")
     image = build_image(spec, offline=True).add_local_file(
         str(config_path), "/opt/model.json", copy=False
     )

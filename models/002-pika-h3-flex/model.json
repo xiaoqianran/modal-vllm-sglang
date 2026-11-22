@@ -1,5 +1,5 @@
 {
-  "volume_name": "modal-vllm-sglang",
+  "volume_name": "model-store",
   "download_workers": 5,
   "revision": "main",
   "gpu": "RTX-PRO-6000",
@@ -11,7 +11,7 @@
   "scaledown_window": 30,
   "memory_snapshot": "gpu",
   "service": "pika",
-  "app_name": "modal-forge-009-pika-h3-flex-fl2va",
+  "app_name": "002-pika-h3-flex",
   "operation": "t2va",
   "kind": "video",
   "model": "Pika-Labs/Pika-H3-Flex",
@@ -91,8 +91,8 @@
       ".sglang_overlay_materialized.json"
     ]
   },
-  "cache_directory": "/mnt/modal/009-pika-h3-flex",
-  "endpoint_label": "modal-forge-009-pika-h3-flex-fl2va-serve",
+  "cache_directory": "/data/models/002-pika-h3-flex",
+  "endpoint_label": "002-pika-h3-flex-serve",
   "modal_class": "Pika",
   "resolution_profiles": {
     "480p": {
@@ -117,5 +117,6 @@
         480
       ]
     }
-  }
+  },
+  "service_directory": "002-pika-h3-flex"
 }

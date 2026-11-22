@@ -13,6 +13,7 @@ from orchestration.protocol import APP_NAME, VERSION, run_id, state_path
 from runtime.tasks.task_identity import intent_digest
 from runtime.telemetry.collector import enqueue
 from runtime.telemetry.recorder import local_recorder
+from runtime.config.storage import volume_key
 from runtime.utils.files import read_json
 
 
@@ -23,7 +24,7 @@ class Backend(sdk.Backend):
     def poll_workflow(self, receipt):
         try:
             data = bytearray()
-            for chunk in self.volume.read_file("/" + state_path(receipt["id"])):
+            for chunk in self.volume.read_file(volume_key("/" + state_path(receipt["id"]))):
                 data.extend(chunk)
                 if len(data) > 16 * 1024 * 1024:
                     raise ValueError("Workflow state too large")

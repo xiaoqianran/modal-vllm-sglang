@@ -52,7 +52,7 @@ class ImageBuildPolicyTests(unittest.TestCase):
     def test_uv_install_only_applies_to_model_that_requests_it(self):
         with patch("runtime.serving.modal_setup.modal.Image.from_registry") as factory:
             image = factory.return_value.entrypoint.return_value
-            result = runtime_image("example/image@sha256:" + "a" * 64, env={"HF_HOME": "/mnt/modal"})
+            result = runtime_image("example/image@sha256:" + "a" * 64, env={"HF_HOME": "/data"})
             image.uv_pip_install.assert_not_called()
             self.assertIs(result, image.env.return_value.add_local_dir.return_value)
 

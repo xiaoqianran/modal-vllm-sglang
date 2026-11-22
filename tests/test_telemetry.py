@@ -80,7 +80,7 @@ class TelemetryTests(unittest.TestCase):
             pass
         manifest = writer.flush()
         volume = Mock()
-        volume.read_file.side_effect = lambda path: [(self.root / "cloud" / path.lstrip("/")).read_bytes()]
+        volume.read_file.side_effect = lambda path: [(self.root / "cloud" / path.removeprefix("/inference/").lstrip("/")).read_bytes()]
         first = collect_cloud(self.output, volume, manifest)
         self.assertEqual(first["errors"], 0)
         self.assertEqual(first["events"], 2)
@@ -93,7 +93,7 @@ class TelemetryTests(unittest.TestCase):
                 result = collect_cloud(self.output, volume, manifest)
                 self.assertEqual(result["errors"], 0)
                 self.assertEqual(result["events"], 0)
-                volume.read_file.assert_called_once_with("/" + ref["path"])
+                volume.read_file.assert_called_once_with("/inference/" + ref["path"])
                 self.assertEqual(hashlib.sha256(target.read_bytes()).hexdigest(), ref["sha256"])
 
     def test_writer_failure_and_backpressure_do_not_fail_business_operation(self):
@@ -161,7 +161,7 @@ class TelemetryTests(unittest.TestCase):
         recorder = Recorder(writer, task_id="006-demo/001-main")
         early = writer.reference()
         volume = Mock()
-        volume.read_file.side_effect = lambda path: [(self.root / "cloud" / path.lstrip("/")).read_bytes()]
+        volume.read_file.side_effect = lambda path: [(self.root / "cloud" / path.removeprefix("/inference/").lstrip("/")).read_bytes()]
         self.assertTrue(collect_cloud(self.output, volume, early)["pending"])
         with recorder.span("save"):
             pass
@@ -223,7 +223,7 @@ class TelemetryTests(unittest.TestCase):
             pass
         manifest = writer.publish(writer.reference())
         volume = Mock()
-        volume.read_file.side_effect = lambda path: [(self.root / "cloud" / path.lstrip("/")).read_bytes()]
+        volume.read_file.side_effect = lambda path: [(self.root / "cloud" / path.removeprefix("/inference/").lstrip("/")).read_bytes()]
         collector = Collector(self.output, volume)
         self.addCleanup(collector.close)
         collector.submit({**manifest, "task_id": "006-demo/001-main"})
@@ -245,7 +245,7 @@ class TelemetryTests(unittest.TestCase):
         self.addCleanup(close_local, self.output)
         cloud_root = self.root / "cloud"
         volumes = Mock()
-        volumes.read_file.side_effect = lambda path: [(cloud_root / path.lstrip("/")).read_bytes()]
+        volumes.read_file.side_effect = lambda path: [(cloud_root / path.removeprefix("/inference/").lstrip("/")).read_bytes()]
         recorders = {name: Recorder(self.writer(cloud=True), container_id=name) for name in ("moss", "pika")}
         for recorder in recorders.values():
             with recorder.span("startup", mode="post_snapshot_hook", initialization_is_snapshot_history=True):
@@ -273,7 +273,7 @@ class TelemetryTests(unittest.TestCase):
                     with patch("runtime.serving.inference_execution.Path", wraps=Path) as paths, \
                             patch("runtime.serving.inference_api.ImageGenerationClient") as images, \
                             patch("runtime.serving.inference_api.SGLangVideoClient") as videos:
-                        paths.side_effect = lambda value: cloud_root if value == "/mnt/modal" else Path(value)
+                        paths.side_effect = lambda value: cloud_root if value == "/data" else Path(value)
                         images.return_value.generate.return_value = (PNG, ".png")
                         videos.return_value.submit.return_value = "engine-video-1"
                         videos.return_value.content.return_value = MP4
@@ -309,7 +309,7 @@ class TelemetryTests(unittest.TestCase):
         volume.commit.side_effect = [None, None, None, OSError("telemetry commit failed")]
         with patch("runtime.serving.inference_execution.Path", wraps=Path) as paths, \
                 patch("runtime.serving.inference_api.ImageGenerationClient") as images:
-            paths.side_effect = lambda value: self.root / "cloud" if value == "/mnt/modal" else Path(value)
+            paths.side_effect = lambda value: self.root / "cloud" if value == "/data" else Path(value)
             images.return_value.generate.return_value = (PNG, ".png")
             result = next(execute(SPEC, [{"id": "001", "prompt": "boat", "seed": 1}],
                                   "model-results/test", volume, recorder=recorder))

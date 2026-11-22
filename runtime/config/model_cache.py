@@ -17,7 +17,7 @@ def cache_root(spec):
 
 def cache_directory(spec):
     """Container path, independent of the SDK host's operating system."""
-    return spec.get("cache_directory", "/mnt/modal/models/" + spec["service"])
+    return spec.get("cache_directory", "/data/models/" + spec["service"])
 
 
 def migrate_legacy_cache(spec, volume, root):

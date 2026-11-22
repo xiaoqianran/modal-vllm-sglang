@@ -14,7 +14,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from runtime.config.cache_publication import preparation_strategy
 from runtime.config.model_cache import cache_directory, component_specs
 from runtime.config.model_spec import validate
-from runtime.config.storage import runtime_volume_name, SHARED_MOUNT, shared_storage, shared_volume_name
+from runtime.config.storage import runtime_volume_name, VOLUME_MOUNT, VOLUME_VERSION, VOLUME_SUB_PATH, shared_storage
 from runtime.utils.files import read_json
 
 
@@ -44,25 +44,32 @@ def plan(spec: dict, workers: int | None = None) -> dict:
             for item in components.values()
         ]
     return {"service": spec["service"], "strategy": strategy,
-            "volume": shared_volume_name() if shared_storage(spec) else runtime_volume_name(),
+            "volume": runtime_volume_name(),
             "base": None if shared_storage(spec) else cache_directory(spec) + "/downloads",
             "workers": workers, "sources": sources}
 
 
 def run(spec: dict, *, workers: int | None = None) -> dict:
     """Download once, then publish exactly one inference-ready cache."""
+    import modal
     from modal_benchmark.hf import create_downloader
     task = plan(spec, workers)
     workers = task["workers"]
     shared = shared_storage(spec)
     downloader = create_downloader(
-        volume_name=task["volume"], mount_path=SHARED_MOUNT if shared else "/mnt/modal",
-        volume_version=2, max_workers=workers, verification_mode="xet",
+        app=modal.App('download-' + spec.get('service_directory', spec['service'])),
+        volume_name=task["volume"], mount_path=VOLUME_MOUNT,
+        sub_path=VOLUME_SUB_PATH,
+        volume_version=VOLUME_VERSION, max_workers=workers, verification_mode="xet",
     )
     # Complete the lightweight transfers before constructing the SGLang
     # publisher image. Otherwise Modal may eagerly build the large image
     # while the lightweight download workers are still idle.
-    result = downloader.download(task["sources"], base=task["base"], workers=workers)
+    result = downloader.download(
+        task["sources"],
+        base=(task["base"] if task["base"] is not None else VOLUME_MOUNT + "/shared-hf"),
+        workers=workers,
+    )
     if result["status"] != "VERIFIED":
         raise RuntimeError("Model download was not verified")
     print("DOWNLOAD_VERIFIED " + json.dumps({
@@ -71,16 +78,8 @@ def run(spec: dict, *, workers: int | None = None) -> dict:
     }), flush=True)
 
     volume = downloader.volume
-    if shared:
-        from runtime.serving.modal_setup import model_volume
-        writable_volume = model_volume()
-        publish_mounts = {
-            "/mnt/modal": writable_volume,
-            SHARED_MOUNT: volume.with_mount_options(read_only=True),
-        }
-    else:
-        writable_volume = volume
-        publish_mounts = {"/mnt/modal": volume}
+    writable_volume = volume
+    publish_mounts = {VOLUME_MOUNT: volume.with_mount_options(sub_path=VOLUME_SUB_PATH)}
     publisher_image = downloader.image.add_local_python_source("runtime")
 
     if task["strategy"] == "sglang_overlay":
@@ -121,7 +120,8 @@ def run(spec: dict, *, workers: int | None = None) -> dict:
 
     with downloader.app.run():
         published = publish.remote(
-            spec, result["manifest"], result["base"],
+            spec, result["manifest"],
+            result["base"],
             cache_directory(spec), task["strategy"],
         )
     return {"download": {"status": result["status"],
@@ -138,7 +138,7 @@ def run_cache_maintenance(spec, *, migrate_only=False):
     image = (modal.Image.debian_slim(python_version="3.12")
              .env({"PYTHONPATH": "/opt"})
              .add_local_dir(str(PROJECT_ROOT / "runtime"), "/opt/runtime", copy=False))
-    app = modal.App("model-cache-maintenance-" + spec["service"])
+    app = modal.App("prepare-" + spec.get("service_directory", spec["service"]))
 
     @app.function(image=image, cpu=1, memory=2048, timeout=1800,
                   serialized=True, max_containers=1, volumes=model_mounts(spec))

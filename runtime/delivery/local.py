@@ -3,6 +3,7 @@ from pathlib import Path
 
 from orchestration import model_capabilities, state
 from runtime.tasks.task_identity import intent_digest
+from runtime.config.storage import volume_key
 from runtime.utils.files import download_volume_file, sha256_file
 
 
@@ -18,7 +19,7 @@ def download_to_local(volume, directory, job, record, fields):
             fields["reused"] = True
         else:
             fields.update(download_volume_file(
-                volume, "/" + artifact["path"], target,
+                volume, volume_key("/" + artifact["path"]), target,
                 expected_sha256=artifact["sha256"], kind=kind,
                 refuse_existing=True, max_bytes=artifact["size"]))
     return {**artifact, "storage": "local",

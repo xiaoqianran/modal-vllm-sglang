@@ -46,10 +46,9 @@ def create_app(config_path):
     from runtime.serving.process_lifecycle import monitor_processes, stop_process, wait_for_health
     config_path = Path(config_path)
     spec = validate(read_json(config_path))
-    from runtime.config.storage import runtime_volume_name, shared_storage, shared_volume_name
+    from runtime.config.storage import runtime_volume_name
     writable_name = runtime_volume_name()
-    weights_name = shared_volume_name() if shared_storage(spec) else writable_name
-    volume = model_volume()
+    weights_name = writable_name
     app = modal.App(spec.get("app_name", "modal-model-" + spec["service"]))
     deployment_version = os.environ.get("MODEL_DEPLOY_VERSION", "manual")
 
@@ -107,7 +106,8 @@ def create_app(config_path):
         def start(self):
             from runtime.telemetry.recorder import cloud_recorder
             container_id = os.environ.get("MODAL_TASK_ID")
-            self.telemetry = cloud_recorder(Path("/mnt/modal"), container_id) if container_id else Recorder()
+            self.volume = model_volume()
+            self.telemetry = cloud_recorder(Path("/data"), container_id) if container_id else Recorder()
             try:
                 with self.telemetry.span("startup", mode="post_snapshot_hook" if gpu_snapshot else "full_initialization",
                                          cpu=spec.get("cpu", 4), memory_mib=spec.get("memory", 32768),
@@ -123,7 +123,7 @@ def create_app(config_path):
                 try:
                     if self.telemetry.writer is not None:
                         self.telemetry.writer.flush()
-                        volume.commit()
+                        self.volume.commit()
                 except Exception:
                     pass
                 raise
@@ -157,7 +157,7 @@ def create_app(config_path):
                     stop_process(self.process)
                 raise
 
-            self.monitor = monitor_processes((self.process, self.gateway), volume, label=spec["service"],
+            self.monitor = monitor_processes((self.process, self.gateway), self.volume, label=spec["service"],
                               stopping=self.stopping, on_failure=lambda: os._exit(1))
             self.startup_seconds = time.perf_counter() - started
             print(json.dumps({"event": "model_ready", "service": spec["service"],
@@ -208,7 +208,7 @@ def create_app(config_path):
                 print(json.dumps({"event": "generate_one", "id": item["id"], "prefix": prefix,
                                   "container": os.environ.get("MODAL_TASK_ID"),
                                   "input": modal.current_input_id()}), flush=True)
-                record = next(execute(spec, [item], prefix, volume, self.cache_fingerprint,
+                record = next(execute(spec, [item], prefix, self.volume, self.cache_fingerprint,
                                       recorder=telemetry, background_telemetry=True))
                 print(json.dumps({"event": "generate_one_completed", "id": item["id"], "prefix": prefix,
                                   "service": spec["service"],
@@ -219,10 +219,10 @@ def create_app(config_path):
                                   "input": modal.current_input_id()}), flush=True)
                 return record
             except BaseException:
-                metadata = Path("/mnt/modal").joinpath(*prefix.split("/"), item["id"] + ".json")
+                metadata = Path("/data").joinpath(*prefix.split("/"), item["id"] + ".json")
                 try:
                     if metadata.is_file():
-                        publish_telemetry(telemetry, metadata, read_json(metadata), volume, background=True)
+                        publish_telemetry(telemetry, metadata, read_json(metadata), self.volume, background=True)
                 except Exception:
                     pass
                 raise

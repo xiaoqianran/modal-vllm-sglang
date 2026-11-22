@@ -2,12 +2,13 @@
 import json
 from runtime.tasks.task_identity import intent_digest
 from runtime.config.model_cache import cache_directory, component_specs
+from runtime.config.storage import volume_key
 
 
 def remote_cache_fingerprint(spec, volume):
     try:
         cache = json.loads(b"".join(volume.read_file(
-            cache_directory(spec).removeprefix("/mnt/modal") + "/model-ready.json")))
+            volume_key(cache_directory(spec).removeprefix("/data") + "/model-ready.json"))))
     except FileNotFoundError as exc:
         raise RuntimeError(f"Remote cache manifest missing for {spec['service']}; "
                            "run download_model.py --migrate-only or prepare it on CPU first") from exc
@@ -18,7 +19,7 @@ def remote_cache_fingerprint(spec, volume):
 
 def remote_record(volume, prefix, shot):
     try:
-        return json.loads(b"".join(volume.read_file(f"/{prefix}/{shot}.json")))
+        return json.loads(b"".join(volume.read_file(volume_key(f"/{prefix}/{shot}.json"))))
     except FileNotFoundError:
         return None
 

@@ -138,7 +138,7 @@ class ModelServiceTests(unittest.TestCase):
         item = {"id": "001", "prompt": "boat", "seed": 42}
         with tempfile.TemporaryDirectory() as directory, patch("runtime.serving.inference_execution.Path", wraps=Path) as paths:
             # Redirect only the remote mount, leaving all other Path behavior intact.
-            paths.side_effect = lambda value: Path(directory) if value == "/mnt/modal" else Path(value)
+            paths.side_effect = lambda value: Path(directory) if value == "/data" else Path(value)
             with patch("runtime.serving.inference_api.ImageGenerationClient") as factory:
                 factory.return_value.generate.side_effect = TimeoutError("lost response")
                 with self.assertRaises(TimeoutError):
@@ -151,7 +151,7 @@ class ModelServiceTests(unittest.TestCase):
         spec = {**SPEC, "kind": "video", "operation": "t2v"}
         item = {"id": "001", "prompt": "boat", "seed": 42}
         with tempfile.TemporaryDirectory() as directory, patch("runtime.serving.inference_execution.Path", wraps=Path) as paths:
-            paths.side_effect = lambda value: Path(directory) if value == "/mnt/modal" else Path(value)
+            paths.side_effect = lambda value: Path(directory) if value == "/data" else Path(value)
             with patch("runtime.serving.inference_api.SGLangVideoClient") as factory:
                 client = factory.return_value
                 client.submit.return_value = "job-1"
@@ -176,7 +176,7 @@ class ModelServiceTests(unittest.TestCase):
     def test_busy_sdk_task_can_retry_without_changing_identity(self):
         item = {"id": "001", "prompt": "boat", "seed": 42}
         with tempfile.TemporaryDirectory() as directory, patch("runtime.serving.inference_execution.Path", wraps=Path) as paths:
-            paths.side_effect = lambda value: Path(directory) if value == "/mnt/modal" else Path(value)
+            paths.side_effect = lambda value: Path(directory) if value == "/data" else Path(value)
             with patch("runtime.serving.inference_api.ImageGenerationClient") as factory:
                 factory.return_value.generate.side_effect = [SubmissionRejected(), (b"\x89PNG\r\n\x1a\n" + b"x" * 32, ".png")]
                 with self.assertRaises(SubmissionRejected):
@@ -189,7 +189,7 @@ class ModelServiceTests(unittest.TestCase):
         spec = {**SPEC, "kind": "video", "operation": "t2v"}
         item = {"id": "001", "prompt": "boat", "seed": 42}
         with tempfile.TemporaryDirectory() as directory, patch("runtime.serving.inference_execution.Path", wraps=Path) as paths:
-            paths.side_effect = lambda value: Path(directory) if value == "/mnt/modal" else Path(value)
+            paths.side_effect = lambda value: Path(directory) if value == "/data" else Path(value)
             with patch("runtime.serving.inference_api.SGLangVideoClient") as factory:
                 client = factory.return_value
                 client.submit.return_value = "job-1"

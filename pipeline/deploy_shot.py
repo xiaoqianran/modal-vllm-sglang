@@ -7,6 +7,7 @@ import modal
 from pipeline.s03_run_shot import run
 from orchestration.protocol import APP_NAME, state_path
 from runtime.serving.modal_setup import model_volume
+from runtime.config.storage import VOLUME_MOUNT, VOLUME_SUB_PATH, volume_key
 from runtime.tasks.task_identity import intent_digest
 
 root = Path(__file__).resolve().parents[1]
@@ -44,13 +45,13 @@ volume = model_volume()
 claims = modal.Dict.from_name(APP_NAME + "-claims", create_if_missing=True)
 
 
-@app.function(image=image, cpu=0.25, memory=512, volumes={"/mnt/modal": volume},
+@app.function(image=image, cpu=0.25, memory=512, volumes={VOLUME_MOUNT: volume.with_mount_options(sub_path=VOLUME_SUB_PATH)},
               timeout=86400, retries=0, max_containers=32)
 def run_shot(payload, identity):
     # Check durable state first, then use an atomic distributed claim. Volume file
     # locks alone cannot exclude owners running in different Modal containers.
     try:
-        existing = json.loads(b"".join(volume.read_file("/" + state_path(identity))))
+        existing = json.loads(b"".join(volume.read_file(volume_key("/" + state_path(identity)))))
     except FileNotFoundError:
         existing = None
     if existing is not None:

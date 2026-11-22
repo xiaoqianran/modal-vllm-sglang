@@ -16,11 +16,22 @@ def validate_relative_path(value: str) -> str:
     return value
 
 
-def probe(volume_name: str, relative_path: str) -> dict:
+def validate_sub_path(value: str) -> str:
+    """Require a canonical, non-root Volume subtree."""
+    path = PurePosixPath(value)
+    if (not isinstance(value, str) or not value.startswith("/")
+            or value != path.as_posix() or value == "/"
+            or ".." in path.parts or "\\" in value):
+        raise ValueError("sub_path must be a canonical absolute subtree")
+    return value
+
+
+def probe(volume_name: str, relative_path: str, *, sub_path: str = "/inference") -> dict:
     """只读挂载模型卷，确认精确文件在另一个 Modal App 内可见。"""
     import modal
 
     relative_path = validate_relative_path(relative_path)
+    sub_path = validate_sub_path(sub_path)
     volume = modal.Volume.from_name(volume_name, version=2)
     app = modal.App("modal-shared-model-read-probe")
 
@@ -29,14 +40,14 @@ def probe(volume_name: str, relative_path: str) -> dict:
         cpu=1,
         memory=512,
         timeout=120,
-        volumes={"/mnt/models": volume.with_mount_options(read_only=True)},
+        volumes={"/data": volume.with_mount_options(read_only=True, sub_path=sub_path)},
         serialized=True,
     )
     def inspect(path: str) -> dict:
         import hashlib
         from pathlib import Path, PurePosixPath
 
-        root = Path("/mnt/models").resolve()
+        root = Path("/data").resolve()
         relative = PurePosixPath(path)
         if relative.is_absolute() or ".." in relative.parts:
             raise ValueError("Invalid model path")
@@ -59,15 +70,16 @@ def probe(volume_name: str, relative_path: str) -> dict:
 
     with app.run():
         result = inspect.remote(relative_path)
-    return {"volume_name": volume_name, **result}
+    return {"volume_name": volume_name, "sub_path": sub_path, **result}
 
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--volume", required=True, help="已验证的 Modal Volume V2 名称")
-    parser.add_argument("--path", required=True, help="Volume 内的相对文件路径")
+    parser.add_argument("--path", required=True, help="所选子目录内的相对文件路径")
+    parser.add_argument("--sub-path", default="/inference", help="Volume 子目录，默认 /inference，可设 /comfyui")
     args = parser.parse_args(argv)
-    print(json.dumps(probe(args.volume, args.path), ensure_ascii=False, indent=2))
+    print(json.dumps(probe(args.volume, args.path, sub_path=args.sub_path), ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":

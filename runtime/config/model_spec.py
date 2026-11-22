@@ -43,6 +43,10 @@ def validate(spec):
     json.dumps(spec, allow_nan=False)
     spec = copy.deepcopy(spec)
     spec.setdefault("defaults", {})
+    directory = spec.get("service_directory")
+    if directory is not None and (not isinstance(directory, str)
+            or not re.fullmatch(r"[0-9]{3}-[a-z0-9-]+", directory)):
+        raise ValueError("Invalid service_directory")
     spec.setdefault("options", {})
     if "metrics_interval" in spec:
         raise ValueError("Use telemetry_interval for telemetry sampling")
@@ -78,8 +82,8 @@ def validate(spec):
         from pathlib import PurePosixPath
         directory = PurePosixPath(spec["cache_directory"])
         if (not directory.is_absolute() or ".." in directory.parts or "\\" in str(directory)
-                or not directory.is_relative_to("/mnt/modal") or str(directory) == "/mnt/modal"):
-            raise ValueError("cache_directory must be inside /mnt/modal")
+                or not directory.is_relative_to("/data") or str(directory) == "/data"):
+            raise ValueError("cache_directory must be inside /data")
     if not isinstance(spec["command"], list) or not spec["command"] or not all(isinstance(x, str) for x in spec["command"]):
         raise ValueError("command must be a nonempty argv list")
     if not isinstance(spec["defaults"], dict) or not isinstance(spec["options"], dict):

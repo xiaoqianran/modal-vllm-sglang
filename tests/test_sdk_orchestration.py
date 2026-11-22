@@ -15,7 +15,7 @@ from run import main as run_cli
 from pipeline import s01_build_plan as runner
 from pipeline.s03_run_shot import tick
 from orchestration import sdk, state
-from runtime.config.storage import VOLUME_NAME
+from runtime.config.storage import VOLUME_NAME, volume_key
 from runtime.tasks.artifacts import image_reference, resolve_frames
 from runtime.tasks.task_spec import prepare
 from runtime.utils.files import read_json
@@ -49,7 +49,7 @@ class FakeBackend(sdk.Backend):
             return None
         data, suffix = (PNG, ".png") if kind == "image" else (MP4, ".mp4")
         filename = item["id"] + suffix
-        self.files["/" + prefix + "/" + filename] = data
+        self.files[volume_key("/" + prefix + "/" + filename)] = data
         return {"id": item["id"], "file": filename, "bytes": len(data), "status": "completed",
                 "sha256": hashlib.sha256(data).hexdigest(), "intent_hash": record["intent_hash"],
                 "execution_hash": record["execution_hash"]}
@@ -89,7 +89,7 @@ class SDKWorkflowTests(unittest.TestCase):
             directory = self.create()
         plan = read_json(directory / "plan.json")
         self.assertEqual(plan["transport"], "sdk")
-        self.assertEqual(plan["volume"], "modal-vllm-sglang")
+        self.assertEqual(plan["volume"], "model-store")
         self.assertFalse((self.root / "endpoints.example.json").exists())
 
     def test_model_preparation_waits_independently_and_never_duplicates_generation(self):
@@ -333,7 +333,7 @@ class CloudImageTests(unittest.TestCase):
 
     def test_shared_volume_identity(self):
         from runtime.serving.modal_setup import model_volume
-        self.assertEqual(VOLUME_NAME, "modal-vllm-sglang")
+        self.assertEqual(VOLUME_NAME, "model-store")
         with patch("modal.Volume.from_name") as factory:
             model_volume()
         factory.assert_called_once_with(VOLUME_NAME, create_if_missing=True, version=2)
@@ -349,7 +349,7 @@ class CloudImageTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary, \
                 patch("runtime.serving.inference_execution.Path", wraps=Path) as paths, \
                 patch("runtime.serving.inference_api.SGLangVideoClient") as factory:
-            paths.side_effect = lambda value: Path(temporary) if value == "/mnt/modal" else Path(value)
+            paths.side_effect = lambda value: Path(temporary) if value == "/data" else Path(value)
             client = factory.return_value
             client.submit.return_value = "engine-job-1"
             client.content.return_value = MP4

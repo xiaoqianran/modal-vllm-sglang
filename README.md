@@ -207,8 +207,8 @@ Pika、MiniMax 替换目录名执行同样命令。普通任务无需重复 Depl
 查询与下载可以独立转发。POST 不自动重试；提交结果不明时，由各任务日志阻止该任务重复提交。
 没有任务时允许缩容至零，下次调用仍可能需要加载模型。
 
-现有模型保留旧 Volume 缓存目录：007-moss-image、009-pika-h3-flex、003-minimax-h3-image。
-新模型默认 models/<service>/。所在 Volume 统一为 modal-vllm-sglang。
+三个模型的新缓存目录统一为：/data/models/001-moss-image、/data/models/002-pika-h3-flex、/data/models/005-minimax-h3-image。旧目录 007-moss-image、009-pika-h3-flex、003-minimax-h3-image 不会自动迁移或删除。
+新模型默认 models/<service>/。所在 Volume 统一为 model-store（Volume V2）。
 新盘为空时先运行普通 CPU 准备命令；旧 modal-forge Volume 不会自动复制到新盘。
 只有同一盘已有旧清单时才用 --execute --migrate-only，它只校验并转换，不下载权重。
 --check-only 和 --migrate-only 互斥；统一 benchmark 入口不提供旧版 --refresh，GPU 只接受已准备好的新清单。
@@ -336,3 +336,12 @@ uv run python run.py check-deployment pika --dry-run
 
 Modal 多云 Worker 模型准备入口见 [接入说明](docs/model-download.md)；
 公共代码与各模型实现的命名规则见 [模块命名约定](docs/module-conventions.md)。
+
+### Modal V2 精确挂载
+
+- 唯一模型 Volume：`model-store`（V2）。
+- 本仓库云端数据放在 Volume 的 `/inference/` 子树；GPU、CPU 物化、缓存维护和 HF 归档容器只将这一子树挂载在容器的 `/data`。
+- 容器内部模型仍在 `/data/models/<模型目录>`，结果在 `/data/model-results/`，不需要更改服务内业务路径。
+- SDK 直接访问 Volume 的原始路径时，统一通过 `runtime.config.storage.volume_key()` 补齐 `/inference` 前缀，避免误读 ComfyUI 数据。
+- `modal-benchmark==0.3.1` 已支持 `sub_path="/inference"`：下载 Worker、Coordinator 和业务发布容器均精确挂载该子树到 `/data`，不再由业务层转换下载路径。
+- 切换子树不是旧卷数据迁移，原 Volume 根目录下的旧数据不会自动移动；新配置要求在子树内重新下载/准备。

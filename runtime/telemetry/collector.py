@@ -9,6 +9,7 @@ import threading
 import time
 
 from runtime.telemetry.schema import validate
+from runtime.config.storage import volume_key
 from runtime.utils.files import atomic_json, download_volume_file, sha256_file, read_json
 
 MAX_SHARD = 4 * 1024 * 1024
@@ -27,7 +28,7 @@ def collect_cloud(output, volume, manifest):
             if not re.fullmatch(r"telemetry/[0-9a-f]{32}/manifest-[0-9a-f]{32}\.json", pointer):
                 raise ValueError("Invalid telemetry manifest reference")
             chunks, size = [], 0
-            for chunk in volume.read_file("/" + pointer):
+            for chunk in volume.read_file(volume_key("/" + pointer)):
                 size += len(chunk)
                 if size > MAX_SHARD:
                     raise ValueError("Telemetry manifest too large")
@@ -54,7 +55,7 @@ def collect_cloud(output, volume, manifest):
             # Re-download atomically so a failed repair cannot publish partial data.
             if (not target.exists() or target.stat().st_size != ref["bytes"]
                     or sha256_file(target) != ref["sha256"]):
-                download_volume_file(volume, "/" + path, target, expected_sha256=ref["sha256"],
+                download_volume_file(volume, volume_key("/" + path), target, expected_sha256=ref["sha256"],
                                      max_bytes=ref["bytes"])
             if target.stat().st_size != ref["bytes"] or sha256_file(target) != ref["sha256"]:
                 raise ValueError("Telemetry shard checksum mismatch")

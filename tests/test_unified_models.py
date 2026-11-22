@@ -44,8 +44,8 @@ class UnifiedModelsTests(unittest.TestCase):
         with patch("runtime.serving.modal_setup.runtime_image") as factory:
             build_image(SPECS["pika.t2va"], offline=True)
             env = factory.call_args.kwargs["env"]
-            self.assertEqual(env["HF_HOME"], "/mnt/modal/009-pika-h3-flex")
-            self.assertEqual(env["SGLANG_DIFFUSION_CACHE_ROOT"], "/mnt/modal/009-pika-h3-flex/sglang")
+            self.assertEqual(env["HF_HOME"], "/data/models/002-pika-h3-flex")
+            self.assertEqual(env["SGLANG_DIFFUSION_CACHE_ROOT"], "/data/models/002-pika-h3-flex/sglang")
             self.assertEqual(env["HF_HUB_OFFLINE"], "1")
             build_image(SPECS["pika.t2va"], offline=False)
             self.assertEqual(factory.call_args.kwargs["env"]["HF_HUB_OFFLINE"], "0")
@@ -230,7 +230,7 @@ class UnifiedModelsTests(unittest.TestCase):
         spec = SPECS["moss.t2i"]
         item = {"id": "001", "prompt": "boat", "seed": 42}
         with tempfile.TemporaryDirectory() as directory, patch("runtime.serving.inference_execution.Path", wraps=Path) as paths:
-            paths.side_effect = lambda value: Path(directory) if value == "/mnt/modal" else Path(value)
+            paths.side_effect = lambda value: Path(directory) if value == "/data" else Path(value)
             with patch("runtime.serving.inference_api.ImageGenerationClient") as factory:
                 factory.return_value.generate.return_value = (PNG, ".png")
                 original = atomic_json

@@ -18,7 +18,7 @@ def execute(spec, items, prefix, volume, cache_fingerprint="unverified", recorde
     parts = prefix.split("/")
     for part in parts:
         validate_path_component(part)
-    folder = Path("/mnt/modal").joinpath(*parts)
+    folder = Path("/data").joinpath(*parts)
     prepared = [(item, *prepare(spec, item)) for item in items]
     if not prepared or len({x[0]["id"].lower() for x in prepared}) != len(prepared):
         raise ValueError("Nonempty batch with unique IDs required")

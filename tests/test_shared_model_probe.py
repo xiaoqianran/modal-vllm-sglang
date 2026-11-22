@@ -1,7 +1,7 @@
 """共享模型 Volume 只读检查入口的离线路径校验。"""
 import unittest
 
-from tools.probe_shared_model import validate_relative_path
+from tools.probe_shared_model import validate_relative_path, validate_sub_path
 
 
 class SharedVolumeProbeTests(unittest.TestCase):
@@ -18,3 +18,12 @@ class SharedVolumeProbeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_volume_subpath_validation():
+    assert validate_sub_path("/inference") == "/inference"
+    assert validate_sub_path("/comfyui") == "/comfyui"
+    import pytest
+    for invalid in ("", "/", "../inference", "/a/../b", "/a//b", "/a\\b"):
+        with pytest.raises(ValueError):
+            validate_sub_path(invalid)
