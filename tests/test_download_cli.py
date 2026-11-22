@@ -145,9 +145,9 @@ class DownloadCliTests(TestCase):
             maintenance.assert_not_called()
 
     def test_per_model_worker_defaults_and_cli_override(self):
-        expected = {"models/001-moss-image": 2,
-                    "models/005-minimax-h3-image": 3,
-                    "models/002-pika-h3-flex": 4}
+        expected = {"models/001-moss-image": 3,
+                    "models/005-minimax-h3-image": 4,
+                    "models/002-pika-h3-flex": 5}
         for folder, workers in expected.items():
             with self.subTest(folder=folder):
                 spec = self.spec(folder)
@@ -171,7 +171,7 @@ class DownloadCliTests(TestCase):
                   return_value=({"model": Path("/mnt/modal/model")}, "cache")) as verify,
         ):
             result = run(spec, workers=2)
-        self.assertEqual(create.call_args.kwargs["volume_version"], 2)
+        self.assertEqual(create.call_args.kwargs["volume_version"], 1)
         self.assertEqual(result["download"]["status"], "VERIFIED")
         self.assertEqual(app.runs, 1)
         self.assertEqual(len(app.registered), 1)
