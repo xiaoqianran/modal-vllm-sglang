@@ -8,6 +8,7 @@ dependencies = [
     "modal-benchmark==0.3.0",
     "pillow>=13.0.0",
     "huggingface-hub>=2.4.0",
+    "python-dotenv>=1.2.4",
 ]
 
 [[tool.uv.index]]

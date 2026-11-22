@@ -1,6 +1,10 @@
 """Frozen output policy. No configuration means unchanged local outputs."""
 from __future__ import annotations
 
+import os
+from pathlib import Path
+from dotenv import dotenv_values
+
 from runtime.archive.config import DEFAULT_ASSET_BUCKET
 from runtime.archive.huggingface import public_url
 
@@ -40,3 +44,17 @@ def normalize_delivery(value):
 def destinations(plan):
     mode = plan.get("delivery", {}).get("provider", "local")
     return ("local", "huggingface") if mode == "both" else (mode,)
+
+
+def configured_delivery(root: str | Path):
+    """Read repo .env for *new* Tasks, with real environment taking precedence.
+
+    No .env and no override keeps the historical local behavior for tests,
+    clones and unconfigured environments. Never read the example as a secret.
+    """
+    settings = dotenv_values(Path(root) / ".env")
+    provider = os.getenv("OUTPUT_DELIVERY_PROVIDER") or settings.get("OUTPUT_DELIVERY_PROVIDER") or "local"
+    if provider == "local":
+        return normalize_delivery({"provider": provider})
+    bucket = os.getenv("HF_ASSET_BUCKET") or settings.get("HF_ASSET_BUCKET") or DEFAULT_ASSET_BUCKET
+    return normalize_delivery({"provider": provider, "bucket": bucket})

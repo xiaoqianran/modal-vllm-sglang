@@ -8,9 +8,18 @@
 4. `runtime/delivery/local.py`：原有的 Modal Volume → outputs/，保留 SHA256、锁和原子写入
 5. `runtime/delivery/huggingface.py`：从 Volume 临时读取并 SHA256 校验，再复用 `runtime/archive/` 完成 WebP 无损压缩和 HF 上传
 
-## 默认不变：local
+## 默认：Hugging Face
 
-Task 不写 `delivery` 时，与旧版完全相同：图片/视频仍写入 `outputs/<name>/`。
+本地 `.env` 和仓库的 `.env.example` 都配置：
+
+```dotenv
+OUTPUT_DELIVERY_PROVIDER=huggingface
+HF_ASSET_BUCKET=seachen/modal-vllm-sglang-assets
+```
+
+新 Task 不写 `delivery` 时归档 HF，不写本地 `outputs/<name>/`；已登记的历史 Task 仍然按冻结的旧计划交付。
+新任务如需本地输出，可以在 Task 中设置 `"delivery": {"provider": "local"}`，或修改 `.env` 为 `OUTPUT_DELIVERY_PROVIDER=local`。
+如果不存在 `.env` 且没有环境变量覆盖，保留兼容默认 `local`。
 
 可选 `delivery`（在 Task JSON **顶层**）：
 
@@ -44,3 +53,8 @@ uv run python run.py worker
 **验证范围：** 当前只有离线模拟、已有全量测试、监控 HTML 测试。实际 HF Bucket 权限、联网 SDK 上传和公开 URL 可用性尚需用户配置后单独验证。不自动部署、启动 GPU 或执行上传。
 
 手动归档仍可使用 `uv run python -m tools.archive_to_hf ...`，与自动交付策略相互独立。
+
+\`run.py run\` 会在登记任务前检查本地 HF 登录凭据，缺失则拒绝提交以避免浪费 GPU；\`run.py plan\` 始终离线。不要将真实 Token 写入 \`.env.example\`。
+
+登记 HF 新任务前，`uv run python run.py run` 会检查 HF 登录凭据，避免 Token 缺失后才花费 GPU 费用。
+`run.py plan` 始终离线；真实 Token 只允许保存在忽略的 `.env` 或用户自身的 Hugging Face 凭据中，不得提交到 `.env.example`。

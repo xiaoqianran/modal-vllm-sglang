@@ -23,14 +23,22 @@ def public_url(bucket: str, remote_path: str) -> str:
     )
 
 
+def configured_hf_token():
+    """Use env/.env or an existing Hugging Face CLI login; never print tokens."""
+    from dotenv import load_dotenv
+    from huggingface_hub import get_token
+    load_dotenv(Path(__file__).resolve().parents[2] / ".env", override=False)
+    return os.getenv("HF_TOKEN") or get_token()
+
+
 class HuggingFaceBucket:
     def __init__(self, bucket: str, token: str | None = None):
         if not _BUCKET.fullmatch(bucket):
             raise ValueError("Bucket must be owner/name")
         self.bucket = bucket
-        self.token = token or os.getenv("HF_TOKEN")
+        self.token = token or configured_hf_token()
         if not self.token:
-            raise RuntimeError("HF_TOKEN is required for upload")
+            raise RuntimeError("Hugging Face login or HF_TOKEN is required for upload")
 
     def upload(self, local_file: Path, remote_path: str) -> str:
         from huggingface_hub import batch_bucket_files

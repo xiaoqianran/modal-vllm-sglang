@@ -242,9 +242,13 @@ def build_plan(task_path, *, root=ROOT):
             "outputs": workflow["outputs"], "imports": imports}
     if render:
         plan["render"] = render
+    from runtime.delivery.config import configured_delivery, normalize_delivery
     if "delivery" in task:
-        from runtime.delivery import normalize_delivery
         plan["delivery"] = normalize_delivery(task["delivery"])
+    else:
+        configured = configured_delivery(root)
+        if configured["provider"] != "local":
+            plan["delivery"] = configured
     plan["hash"] = intent_digest(plan)
     return plan
 
@@ -289,6 +293,15 @@ def new_run(plan, *, root=ROOT, output="outputs"):
     logs = runtime_root / "logs"
     media = output_path / plan["name"]
     proposed_directory = runtime_root / "tasks" / plan["project"] / plan["scene"]
+    # Existing frozen plans without delivery remain local, even after .env changes.
+    # Explicitly adding delivery to the source Task is not silently migrated.
+    previous_plan = proposed_directory / "plan.json"
+    source_task = Path(root) / "tasks" / (plan["name"] + ".json")
+    if previous_plan.is_file() and source_task.is_file() and "delivery" in plan:
+        old = read_json(previous_plan)
+        if "delivery" not in old and "delivery" not in read_json(source_task):
+            plan = {key: value for key, value in plan.items() if key not in {"delivery", "hash"}}
+            plan["hash"] = intent_digest(plan)
     for marker in (runtime_root / "tasks").glob("*/*/layout.json"):
         if marker.parent != proposed_directory and read_json(marker).get("media") == str(media):
             raise ValueError("Another scene owns this output task name")

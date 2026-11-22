@@ -96,6 +96,11 @@ def main():
                     print(json.dumps({"name": plan["name"], "render": plan.get("render"), "transport": "sdk", "calls": len(plan["jobs"]),
                                       "services": list(plan["services"]), "delivery": plan.get("delivery", {"provider": "local"}), "jobs": plan["jobs"]}, ensure_ascii=False, indent=2))
                 return
+            # Fail before starting paid inference when HF delivery cannot authenticate.
+            if any(plan.get("delivery", {}).get("provider") in {"huggingface", "both"} for plan in plans):
+                from runtime.archive.huggingface import configured_hf_token
+                if not configured_hf_token():
+                    raise ValueError("HF delivery requires HF_TOKEN or 'hf auth login' in this worker environment")
             directories = [new_run(plan, output=args.output) for plan in plans]
             from orchestration.sdk import request_resume
             for directory in directories:
