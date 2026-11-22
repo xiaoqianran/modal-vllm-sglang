@@ -42,7 +42,7 @@ def build_image(spec, *, offline):
 def create_app(config_path):
     """One GPU lifecycle shared by all configured models."""
     import modal
-    from shared.serving.modal_setup import model_volume
+    from shared.serving.modal_setup import model_volume, model_mounts
     from shared.serving.runtime import monitor_processes, stop_process, wait_for_health
     config_path = Path(config_path)
     spec = validate(read_json(config_path))
@@ -60,7 +60,7 @@ def create_app(config_path):
 
     @app.cls(image=image, serialized=True, gpu=spec.get("gpu", "RTX-PRO-6000"),
              cpu=spec.get("cpu", 4), memory=spec.get("memory", 32768),
-             volumes={"/mnt/modal": volume}, min_containers=0, max_containers=1,
+             volumes=model_mounts(spec), min_containers=0, max_containers=1,
              scaledown_window=spec.get("scaledown_window", 30),
              enable_memory_snapshot=gpu_snapshot,
              experimental_options={"enable_gpu_snapshot": True} if gpu_snapshot else {},
@@ -161,8 +161,9 @@ def create_app(config_path):
         @modal.method()
         def deployment_info(self):
             """Explicit live check: starts the GPU container, but generates no media."""
-            from shared.config.storage import VOLUME_NAME
+            from shared.config.storage import VOLUME_NAME, shared_storage, shared_volume_name
             return {"service": spec["service"], "spec_hash": intent_digest(spec), "volume": VOLUME_NAME,
+                    "model_volume": shared_volume_name() if shared_storage(spec) else VOLUME_NAME,
                     "cache_fingerprint": self.cache_fingerprint,
                     "methods": ["generate_one", "deployment_info"],
                     "image": spec["image"], "max_inputs": spec.get("max_inputs", 1),

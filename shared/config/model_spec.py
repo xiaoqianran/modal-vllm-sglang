@@ -49,6 +49,12 @@ def validate(spec):
     from shared.config.storage import VOLUME_NAME
     if spec.get("volume_name", VOLUME_NAME) != VOLUME_NAME:
         raise ValueError(f"volume_name must be {VOLUME_NAME}")
+    if spec.get("model_storage", "legacy") not in ("legacy", "shared"):
+        raise ValueError("model_storage must be legacy or shared")
+    if spec.get("model_storage") == "shared" and (
+            spec.get("cache", {}).get("mode") == "sglang_overlay"
+            or any(c.get("mode") == "sglang_overlay" for c in spec.get("components", {}).values())):
+        raise ValueError("Pika/SGLang Overlay requires legacy writable materialization")
     if spec.get("memory_snapshot", "off") not in ("off", "gpu"):
         raise ValueError("memory_snapshot must be off or gpu")
     if ("download_workers" in spec and

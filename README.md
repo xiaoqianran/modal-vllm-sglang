@@ -1,5 +1,15 @@
 # modal-vllm-sglang 图片 / 视频模型服务
 
+### 共享模型 Volume V2（渐进迁移）
+
+普通 Hugging Face 模型已支持 `model.json` 中按服务启用 `"model_storage": "shared"`：
+通用权重只读挂载在 `/mnt/models`，原有服务输出、`model-ready.json` 与遥测仍使用
+`/mnt/modal`。未启用的正式模型完全沿用旧缓存；Pika Overlay 暂不切换。
+已经使用 ComfyUI 模型快照做过零复制接管与 CPU 跨容器校验，另已验证 benchmark
+直接下载到 V2 模型卷并由全新 CPU 容器读取。尚未将大型生产模型整体迁移或完成 GPU 验收。
+详细的两条迁移路径、逐服务切换与回退操作见
+[共享模型存储迁移](docs/shared-model-rollout.md)。
+
 ### 分辨率预设（代码为准）
 
 `shared/config/resolution.py` 是统一预设来源；可离线查看全部比例及模型原生视频画布：

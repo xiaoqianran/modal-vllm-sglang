@@ -22,7 +22,7 @@ def optional_hf_download_secrets():
 
 def create_download_app(config_path):
     import modal
-    from shared.serving.modal_setup import model_volume
+    from shared.serving.modal_setup import model_volume, model_mounts
     spec = validate(read_json(config_path))
     volume = model_volume()
     app = modal.App("prepare-" + spec["service"])
@@ -38,7 +38,7 @@ def create_download_app(config_path):
         image = image.env({"PYTHONPATH": "/opt", "MODEL_DEPLOY_VERSION": os.environ.get("MODEL_DEPLOY_VERSION", "manual")}).add_local_dir(str(Path(__file__).parent.parent), "/opt/shared", copy=False)
 
     @app.function(name="download", image=image, serialized=True, cpu=4, memory=8192,
-                  timeout=86400, max_containers=1, volumes={"/mnt/modal": volume},
+                  timeout=86400, max_containers=1, volumes=model_mounts(spec),
                   secrets=optional_hf_download_secrets())
     def download(refresh: bool = False, migrate_only: bool = False, repair: bool = False):
         if repair and not refresh and not migrate_only:
@@ -49,7 +49,7 @@ def create_download_app(config_path):
         return prepare_cache(spec, volume, refresh=refresh, migrate_only=migrate_only)
 
     @app.function(name="check_cache", image=image, serialized=True, cpu=2, memory=8192,
-                  timeout=600, volumes={"/mnt/modal": volume})
+                  timeout=600, volumes=model_mounts(spec))
     def check_cache():
         _, fingerprint = verify_cache(spec)
         return {"ready": True, "fingerprint": fingerprint}

@@ -1,0 +1,40 @@
+{
+  "service": "shared-tiny-pilot",
+  "operation": "chat",
+  "kind": "llm",
+  "model": "sshleifer/tiny-gpt2",
+  "revision": "5f91d94bd9cd7190a9f3216ff93cd1dd95f2c7be",
+  "image": "python:3.12-slim",
+  "command": [
+    "python",
+    "-m",
+    "server",
+    "--model",
+    "{model_path}"
+  ],
+  "app_name": "shared-tiny-pilot",
+  "gpu": "T4",
+  "cpu": 1,
+  "memory": 2048,
+  "scaledown_window": 30,
+  "startup_timeout": 600,
+  "timeout": 600,
+  "port": 8000,
+  "endpoint_label": "shared-tiny-pilot",
+  "model_storage": "shared",
+  "cache_directory": "/mnt/modal/models/shared-tiny-pilot",
+  "cache": {
+    "required_files": [
+      "pytorch_model.bin"
+    ]
+  },
+  "options": {},
+  "defaults": {},
+  "operations": {
+    "chat": {
+      "inputs": {
+        "prompt": "string"
+      }
+    }
+  }
+}

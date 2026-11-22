@@ -6,6 +6,7 @@ import time
 from shared.tasks.batch import intent_digest
 from shared.config.cache import file_inventory
 from shared.utils.files import atomic_json, read_json
+from shared.config.storage import shared_storage, SHARED_MOUNT
 
 DOWNLOAD_MAX_WORKERS = 8
 
@@ -106,10 +107,25 @@ def _verify_cache_full(spec, root=None, *, record=None):
     paths = {}
     for name, config in component_specs(spec).items():
         entry = record.get("components", {}).get(name, {})
-        relative = entry.get("path", "")
-        path = (root / relative).resolve()
-        if not relative or not path.is_relative_to(root.resolve()) or path == root.resolve():
-            raise RuntimeError("Invalid model cache path")
+        if shared_storage(spec):
+            relative = entry.get("shared_path", "")
+            shared = Path(SHARED_MOUNT)
+            if not isinstance(relative, str) or not relative:
+                raise RuntimeError("Invalid shared model path")
+            rel_path = PurePosixPath(relative)
+            path = shared / relative
+            resolved = path.resolve()
+            if (rel_path.is_absolute() or ".." in rel_path.parts
+                    or rel_path.as_posix() != relative
+                    or "\\" in relative or not resolved.is_relative_to(shared.resolve())
+                    or resolved == shared.resolve() or "path" in entry):
+                raise RuntimeError("Invalid shared model path")
+        else:
+            relative = entry.get("path", "")
+            path = (root / relative).resolve()
+            if (not relative or not path.is_relative_to(root.resolve()) or path == root.resolve()
+                    or "shared_path" in entry):
+                raise RuntimeError("Invalid model cache path")
         if checked_inventory(path, config) != entry.get("inventory"):
             raise RuntimeError(f"Model cache changed or incomplete: {name}")
         paths[name] = path
@@ -119,6 +135,11 @@ def _verify_cache_full(spec, root=None, *, record=None):
 def prepare_cache(spec, volume, root=None, *, refresh=False, migrate_only=False):
     """Only called by the CPU downloader; a GPU startup never calls this."""
     root = Path(root) if root is not None else cache_root(spec)
+    if shared_storage(spec):
+        if refresh or migrate_only:
+            raise RuntimeError("Shared models must be prepared by scripts/download_models.py")
+        paths, fingerprint = verify_cache(spec, root, phase="cpu_prepare")
+        return {"ready": True, "fingerprint": fingerprint, "paths": {k: str(v) for k, v in paths.items()}}
     if refresh and migrate_only:
         raise ValueError("--refresh and --migrate-only are mutually exclusive")
     if migrate_only and not (root / "model-ready.json").is_file():

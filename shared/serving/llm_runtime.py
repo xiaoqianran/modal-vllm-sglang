@@ -9,7 +9,7 @@ from pathlib import Path
 from shared.config.model_spec import validate
 from shared.config.model_cache import verify_cache, command_argv
 from shared.serving.model_runtime import build_image
-from shared.serving.modal_setup import model_volume
+from shared.serving.modal_setup import model_volume, model_mounts
 from shared.serving.runtime import wait_for_health, stop_process
 from shared.utils.files import read_json
 
@@ -49,7 +49,7 @@ def create_llm_app(config_path):
         gpu=spec["gpu"],
         cpu=spec["cpu"],
         memory=spec["memory"],
-        volumes={"/mnt/modal": volume},
+        volumes=model_mounts(spec),
         secrets=[modal.Secret.from_name(api_key_secret, required_keys=["LLM_API_KEY"])] if api_key_secret else [],
         min_containers=0,
         max_containers=1,

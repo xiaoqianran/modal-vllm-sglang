@@ -13,7 +13,7 @@ from shared.config.azure_cache import preparation_strategy
 from shared.config.model_cache import cache_directory, component_specs
 from shared.config.model_spec import validate
 from shared.config.pika_overlay import download_sources
-from shared.config.storage import VOLUME_NAME
+from shared.config.storage import VOLUME_NAME, SHARED_MOUNT, shared_storage, shared_volume_name
 from shared.utils.files import read_json
 
 
@@ -23,6 +23,8 @@ def plan(spec: dict, workers: int | None = None) -> dict:
     if type(workers) is not int or not 1 <= workers <= 5:
         raise ValueError("workers must be an integer between 1 and 5")
     strategy = preparation_strategy(spec)
+    if shared_storage(spec) and strategy != "hf":
+        raise ValueError("Shared storage supports HF snapshots, not SGLang Overlay")
     components = component_specs(spec)
     sources = (download_sources(spec) if strategy == "sglang_overlay" else [
         {"repo_id": item["model"], "revision": item["revision"],
@@ -30,7 +32,8 @@ def plan(spec: dict, workers: int | None = None) -> dict:
         for item in components.values()
     ])
     return {"service": spec["service"], "strategy": strategy,
-            "volume": VOLUME_NAME, "base": cache_directory(spec) + "/downloads",
+            "volume": shared_volume_name() if shared_storage(spec) else VOLUME_NAME,
+            "base": None if shared_storage(spec) else cache_directory(spec) + "/downloads",
             "workers": workers, "sources": sources}
 
 
@@ -39,11 +42,22 @@ def run(spec: dict, *, workers: int | None = None) -> dict:
     from modal_benchmark.hf import create_downloader
     task = plan(spec, workers)
     workers = task["workers"]
+    shared = shared_storage(spec)
     downloader = create_downloader(
-        volume_name=VOLUME_NAME, mount_path="/mnt/modal",
-        volume_version=None, max_workers=workers, verification_mode="xet",
+        volume_name=task["volume"], mount_path=SHARED_MOUNT if shared else "/mnt/modal",
+        volume_version=2 if shared else None, max_workers=workers, verification_mode="xet",
     )
     volume = downloader.volume
+    if shared:
+        from shared.serving.modal_setup import model_volume
+        writable_volume = model_volume()
+        publish_mounts = {
+            "/mnt/modal": writable_volume,
+            SHARED_MOUNT: volume.with_mount_options(read_only=True),
+        }
+    else:
+        writable_volume = volume
+        publish_mounts = {"/mnt/modal": volume}
     publisher_image = downloader.image.add_local_python_source("shared")
 
     if task["strategy"] == "sglang_overlay":
@@ -61,7 +75,7 @@ def run(spec: dict, *, workers: int | None = None) -> dict:
         image=publisher_image, cpu=4 if task["strategy"] == "sglang_overlay" else 1,
         memory=8192 if task["strategy"] == "sglang_overlay" else 2048,
         timeout=86400 if task["strategy"] == "sglang_overlay" else 3600,
-        volumes={"/mnt/modal": volume}, serialized=True,
+        volumes=publish_mounts, serialized=True,
     )
     def publish(spec, manifest, base, root, strategy):
         from shared.config.azure_cache import publish_cache
@@ -70,12 +84,12 @@ def run(spec: dict, *, workers: int | None = None) -> dict:
 
         volume.reload()
         if strategy == "sglang_overlay":
-            published = publish_pika_cache(spec, manifest, base, root, volume)
+            published = publish_pika_cache(spec, manifest, base, root, writable_volume)
         else:
             by_repo = {model["repo_id"]: model for model in manifest["models"]}
             models = {name: by_repo[item["model"]]
                       for name, item in component_specs(spec).items()}
-            published = publish_cache(spec, models, base, root, volume)
+            published = publish_cache(spec, models, base, root, writable_volume)
         # Check inference-readiness in the same remote function, not a
         # second container. The cache publishers already commit the marker.
         paths, fingerprint = verify_cache(spec, phase="download_persisted")
