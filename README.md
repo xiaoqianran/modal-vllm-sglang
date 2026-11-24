@@ -339,7 +339,7 @@ Modal 多云 Worker 模型准备入口见 [接入说明](docs/model-download.md)
 - 本仓库云端数据放在 Volume 的 `/inference/` 子树；GPU、CPU 物化、缓存维护和 HF 归档容器只将这一子树挂载在容器的 `/data`。
 - 容器内部模型仍在 `/data/models/<模型目录>`，结果在 `/data/model-results/`，不需要更改服务内业务路径。
 - SDK 直接访问 Volume 的原始路径时，统一通过 `runtime.config.storage.volume_key()` 补齐 `/inference` 前缀，避免误读 ComfyUI 数据。
-- `modal-benchmark==0.4.2` 已支持 `sub_path="/inference"`：下载 Worker、Coordinator 和业务发布容器均精确挂载该子树到 `/data`，不再由业务层转换下载路径。
+- `modal-benchmark==0.4.3` 已支持 `sub_path="/inference"`：下载 Worker、Coordinator 和业务发布容器均精确挂载该子树到 `/data`，不再由业务层转换下载路径。
 - 切换子树不是旧卷数据迁移，原 Volume 根目录下的旧数据不会自动移动；新配置要求在子树内重新下载/准备。
 
 

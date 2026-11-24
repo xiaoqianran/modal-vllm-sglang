@@ -1,11 +1,11 @@
 [project]
 name = "modal-inference-workflows"
-version = "0.1.0"
+version = "0.1.1"
 description = "Local CPU orchestration for independent inference services"
 requires-python = ">=3.11"
 dependencies = [
     "modal[api-proxy-support]>=1.6.4,<2",
-    "modal-benchmark==0.4.2",
+    "modal-benchmark==0.4.3",
     "pillow>=13.0.0",
     "huggingface-hub>=2.4.0",
     "python-dotenv>=1.2.4",
