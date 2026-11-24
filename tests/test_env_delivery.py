@@ -1,6 +1,8 @@
 """Environment-selected delivery defaults and frozen legacy tasks."""
 import os
 import shutil
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -13,6 +15,15 @@ from runtime.utils.files import read_json
 
 
 class EnvironmentDeliveryTests(unittest.TestCase):
+    def test_cloud_shot_import_does_not_require_local_dotenv(self):
+        # A clean interpreter without site packages matches the CPU import
+        # boundary: local .env parsing is only needed when building new plans.
+        result = subprocess.run(
+            [sys.executable, "-S", "-c", "from pipeline.s03_run_shot import run"],
+            cwd=s01_build_plan.ROOT, capture_output=True, text=True, timeout=30,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)

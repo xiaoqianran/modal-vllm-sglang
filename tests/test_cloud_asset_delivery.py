@@ -70,3 +70,20 @@ def test_client_only_sends_metadata_without_volume_read():
     assert data["status"] == "archived"
     modal.Function.from_name.return_value.remote.assert_called_once_with(
         artifact, settings, "001-project")
+
+
+def test_cloud_archive_image_installs_dotenv_for_delivery_config_import():
+    from pathlib import Path
+    code = (Path(__file__).resolve().parents[1] / "pipeline/deploy_assets.py").read_text(encoding="utf-8")
+    assert '"python-dotenv>=1"' in code
+
+
+def test_cpu_archiver_uses_official_pypi():
+    import ast
+    path = Path(__file__).resolve().parents[1] / "pipeline/deploy_assets.py"
+    calls = [node for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
+             if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+             and node.func.attr == "uv_pip_install"]
+    assert len(calls) == 1
+    keywords = {kw.arg: ast.literal_eval(kw.value) for kw in calls[0].keywords}
+    assert keywords["index_url"] == "https://pypi.org/simple"

@@ -13,7 +13,8 @@ ROOT = Path(__file__).resolve().parents[1]
 from runtime.archive.config import ASSET_APP_NAME
 
 image = (modal.Image.debian_slim(python_version="3.12")
-         .uv_pip_install("huggingface-hub>=2.4,<3", "pillow>=13")
+         .uv_pip_install("huggingface-hub>=2.4,<3", "pillow>=13", "python-dotenv>=1",
+                         index_url="https://pypi.org/simple")
          .env({"PYTHONPATH": "/opt"})
          .add_local_dir(str(ROOT / "runtime"), "/opt/runtime", copy=False))
 app = modal.App(ASSET_APP_NAME)

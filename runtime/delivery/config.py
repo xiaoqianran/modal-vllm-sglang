@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from dotenv import dotenv_values
 
 from runtime.archive.config import DEFAULT_ASSET_BUCKET
 from runtime.archive.huggingface import public_url
@@ -52,6 +51,8 @@ def configured_delivery(root: str | Path):
     No .env and no override keeps the historical local behavior for tests,
     clones and unconfigured environments. Never read the example as a secret.
     """
+    from dotenv import dotenv_values
+
     settings = dotenv_values(Path(root) / ".env")
     provider = os.getenv("OUTPUT_DELIVERY_PROVIDER") or settings.get("OUTPUT_DELIVERY_PROVIDER") or "local"
     if provider == "local":

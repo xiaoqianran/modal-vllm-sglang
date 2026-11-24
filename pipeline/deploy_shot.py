@@ -30,15 +30,10 @@ for config in root.glob("models/*/model.json"):
 app = modal.App(APP_NAME)
 
 
-def make_provision_info(version):
-    @app.function(name="provision_info", serialized=True,
-                  image=modal.Image.debian_slim().env({"MODEL_DEPLOY_VERSION": version}))
-    def provision_info():
-        return version
-    return provision_info
-
-
-provision_info = make_provision_info(deployment_version)
+@app.function(image=image, cpu=0.25, memory=512, timeout=60)
+def provision_info():
+    """Check the same image and module import as run_shot, without GPU work."""
+    return os.environ["MODEL_DEPLOY_VERSION"]
 
 
 volume = model_volume()

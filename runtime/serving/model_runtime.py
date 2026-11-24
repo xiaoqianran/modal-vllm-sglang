@@ -56,9 +56,12 @@ def create_app(config_path):
     app = modal.App(spec.get("app_name", "modal-model-" + spec["service"]))
     deployment_version = os.environ.get("MODEL_DEPLOY_VERSION", "manual")
 
-    @app.function(name="provision_info", image=modal.Image.debian_slim().env({"MODEL_DEPLOY_VERSION": deployment_version}), serialized=True)
+    @app.function(name="provision_info", image=modal.Image.debian_slim().env({"MODEL_DEPLOY_VERSION": deployment_version}),
+                  serialized=True, cpu=0.25, memory=512, timeout=60)
     def provision_info():
-        return deployment_version
+        # Read the deployed image environment, not a serialized closure.
+        import os
+        return os.environ["MODEL_DEPLOY_VERSION"]
 
     image = build_image(spec, offline=True).add_local_file(str(config_path), "/opt/model.json", copy=False)
     if spec.get("validator_module"):

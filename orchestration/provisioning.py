@@ -265,12 +265,14 @@ class Provisioner:
                 return False
         return False
 
-    def deployed(self, app, version):
+    def deployed_version(self, app):
         try:
-            info = self.backend.modal.Function.from_name(app, "provision_info").remote()
+            return self.backend.modal.Function.from_name(app, "provision_info").remote()
         except self.backend.modal.exception.NotFoundError:
-            return False
-        return info == version
+            return None
+
+    def deployed(self, app, version):
+        return self.deployed_version(app) == version
 
     def wait_deployed(self, app, version, *, timeout=90, interval=3):
         """A rolling deployment may resolve the previous version briefly."""
@@ -365,6 +367,7 @@ class Provisioner:
                         version = intent_digest([base_version, spec, fingerprint])
                     else:
                         version = base_version
+                    self.publish(key, {"expected_version": version}, spec)
                     needs_deploy = not deployment_requested and not self.deployed(app, version)
                     if needs_deploy:
                         # Validate again after potentially slow cache checks,
@@ -376,15 +379,25 @@ class Provisioner:
                                              "orchestration/provision_entry.py", **env,
                                              MODEL_PREPARE="0", MODEL_DEPLOY_VERSION=version)
                                 deployment_requested = True
-                    if deployment_requested and not self.wait_deployed(app, version):
-                        # Do not immediately redeploy the same version again:
-                        # the rollout may still be settling or require review.
-                        raise RuntimeError("Deployment version verification failed after rollout wait")
+                    if deployment_requested:
+                        with self.phase(key, spec, "deployment_verify"):
+                            if not self.wait_deployed(app, version):
+                                # Do not replay a deployment whose rollout is uncertain.
+                                try:
+                                    actual = self.deployed_version(app)
+                                except Exception as exc:
+                                    actual = f"unavailable ({type(exc).__name__})"
+                                if actual != version:
+                                    self.publish(key, {"actual_version": actual}, spec)
+                                    raise RuntimeError(
+                                        f"Deployment version verification failed after rollout wait: "
+                                        f"app={app}, expected={version}, actual={actual!r}")
+                            self.publish(key, {"actual_version": version}, spec)
                     self.assert_sources_unchanged(spec, base_version)
                     if spec is not None:
                         self.registry["active:" + app] = key
                     self.publish(key, {"status": "ready", "version": version, "error": None,
-                                       "last_failed_stage": None,
+                                       "last_failed_stage": None, "actual_version": version,
                                        "spec_hash": intent_digest(spec) if spec is not None else None,
                                        "cache_fingerprint": fingerprint if spec is not None else None}, spec)
                     return

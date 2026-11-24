@@ -131,6 +131,42 @@ class ProvisioningTests(unittest.TestCase):
         self.assertEqual(p.deployed.call_count, 3)
         self.assertEqual(sleep.call_count, 2)
 
+    def test_rollout_mismatch_records_expected_actual_without_redeploy(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "model.json"
+            atomic_json(path, SPEC)
+            p = self.provisioner(path)
+            p.deployed = Mock(return_value=False)
+            p.wait_deployed = Mock(return_value=False)
+            p.deployed_version = Mock(return_value="old-version")
+            with patch("orchestration.provisioning.source_version", return_value="source"), \
+                 patch("orchestration.provisioning.remote_cache_fingerprint", return_value="weights"):
+                p.prepare(validate(SPEC), "key")
+            record = p.registry["key"]
+            self.assertEqual(record["status"], "failed")
+            self.assertEqual(record["actual_version"], "old-version")
+            self.assertIn(record["expected_version"], record["error"])
+            self.assertIn("old-version", record["error"])
+            self.assertEqual(record["last_failed_stage"], "deployment_verify")
+            self.assertEqual(record["error_code"], "deployment_verification")
+            self.assertFalse(record["retryable"])
+            p.command.assert_called_once()
+
+    def test_final_rollout_probe_can_confirm_exact_version(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "model.json"
+            atomic_json(path, SPEC)
+            p = self.provisioner(path)
+            p.deployed = Mock(return_value=False)
+            p.wait_deployed = Mock(return_value=False)
+            p.deployed_version = Mock(side_effect=lambda app: p.registry["key"]["expected_version"])
+            with patch("orchestration.provisioning.source_version", return_value="source"), \
+                 patch("orchestration.provisioning.remote_cache_fingerprint", return_value="weights"):
+                p.prepare(validate(SPEC), "key")
+            self.assertEqual(p.registry["key"]["status"], "ready")
+            self.assertEqual(p.registry["key"]["expected_version"], p.registry["key"]["actual_version"])
+            p.command.assert_called_once()
+
     def test_version_verification_failure_is_not_redeployed_blindly(self):
         result = classify_error(RuntimeError("Deployment version verification failed after rollout wait"))
         self.assertEqual(result["error_code"], "deployment_verification")
@@ -356,7 +392,7 @@ class ProvisioningTests(unittest.TestCase):
             self.assertTrue(worker_a.admit_batch(services, keys, {"example": members}, next(iter(members))))
             progress = {}
             def checkpoint(path):
-                identity = path.split("/")[2]
+                identity = path.rsplit("/", 2)[1]
                 if identity not in progress:
                     raise FileNotFoundError
                 return [json.dumps({"jobs": {members[identity][0]: {"status": progress[identity]}}}).encode()]
