@@ -345,20 +345,22 @@ Modal 多云 Worker 模型准备入口见 [接入说明](docs/model-download.md)
 
 ### MiniMax H3 Image：12 个电影镜头与 HF 画廊
 
-`tasks/021-minimax-cinematic-atlas-12.json` 是独立的电影感 12 镜头生成任务，16:9、2K，
+`tasks/022-minimax-cinematic-atlas-12.json` 是独立的电影感 12 镜头生成任务，16:9、2K，
 每个镜头一个不同的原创 Prompt 和固定 Seed，HF-only 交付。
-`tasks/021-minimax-cinematic-atlas-12.titles.json` 记录画面标题。
+`tasks/022-minimax-cinematic-atlas-12.titles.json` 记录画面标题。
 
 ```powershell
 python run.py prepare minimax
-python run.py run tasks/021-minimax-cinematic-atlas-12.json
-python run.py worker --task 021-minimax-cinematic-atlas-12 --poll 5
+python run.py run tasks/022-minimax-cinematic-atlas-12.json
+python run.py worker --task 022-minimax-cinematic-atlas-12 --poll 5
 python -m tools.build_cinematic_gallery --strict
 ```
 
 HF 图片从 Modal `model-store` 的 `/inference` 子目录经 CPU 归档直接上传
 `seachen/modal-vllm-sglang-assets`，**不经过 PC2 本地文件**。
-独立成品页面：`outputs/021-minimax-cinematic-atlas-12-gallery.html`。
+独立成品页面：`outputs/022-minimax-cinematic-atlas-12-gallery.html`。
 画廊仅从已成功归档的真实 HF URL 构建；未完成的画面明确显示占位，
 `--strict` 要求 12 张全部发布后才返回成功。
 `worker --task` 仅调度指定 Task，不恢复仓库历史任务。
+
+第一次尝试的 021 批次绑定旧版推理部署、未执行成功；保留作审计。022 是在新部署已验证后创建的独立任务，避免重放旧云端调用。

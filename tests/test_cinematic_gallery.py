@@ -38,3 +38,24 @@ def test_gallery_rejects_untrusted_urls():
         snapshot.return_value = {"jobs": [row]}
         with pytest.raises(ValueError, match="HF Bucket"):
             collect(Path(tmp), [{"id": "001", "title": "X", "en": "Y"}])
+
+
+def test_gallery_builds_from_direct_hf_archive_receipts():
+    from tools.build_cinematic_gallery import build
+    import json
+    with tempfile.TemporaryDirectory() as tmp:
+        root=Path(tmp)
+        (root/"tasks").mkdir()
+        (root/"outputs").mkdir()
+        name="022-minimax-cinematic-atlas-12"
+        titles=[{"id":f"{i:03d}","title":f"Chinese {i}","en":f"English {i}"} for i in range(1,13)]
+        prompts=[{"id":f"{i:03d}","prompt":f"Cinematic test {i}"} for i in range(1,13)]
+        records={"001":{"url":"https://huggingface.co/buckets/owner/name/resolve/x.webp","bytes":123}}
+        (root/"tasks"/f"{name}.titles.json").write_text(json.dumps(titles))
+        (root/"tasks"/f"{name}.json").write_text(json.dumps({"items":prompts}))
+        (root/"outputs"/f"{name}-direct-results.json").write_text(json.dumps(records))
+        output, items=build(root)
+        assert len(items)==12
+        assert items[0]["url"]==records["001"]["url"]
+        assert sum(bool(i["url"]) for i in items)==1
+        assert output.read_text(encoding="utf-8").count("<img src=")==1

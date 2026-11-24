@@ -14,7 +14,7 @@ from orchestration.monitor import dimensions
 from runtime.utils.files import read_json, atomic_write
 
 ROOT = Path(__file__).resolve().parents[1]
-TASK_NAME = "021-minimax-cinematic-atlas-12"
+TASK_NAME = "022-minimax-cinematic-atlas-12"
 
 
 def collect(directory, titles):
@@ -101,12 +101,35 @@ footer{border-top:1px solid var(--line);margin-top:72px;padding-top:20px;display
             '<footer><span>由实际归档记录生成 · 无占位图片冒充成品</span><span>点击任意画面打开 HF 原图</span></footer></main></body></html>')
 
 
-def build(root=ROOT):
+def build(root=ROOT, task_name=TASK_NAME):
     root=Path(root)
-    task_name=TASK_NAME
     titles=read_json(root/"tasks"/f"{task_name}.titles.json")
-    directory=state.resolve_task(root, "outputs/"+task_name)
-    items=collect(directory,titles)
+    direct_records=root/"outputs"/f"{task_name}-direct-results.json"
+    if direct_records.exists():
+        # The direct Modal GPU path archives outputs to HF without using the
+        # older CPU scheduler; these records are validated cloud receipts.
+        task=read_json(root/"tasks"/f"{task_name}.json")
+        prompts={item["id"]:item["prompt"] for item in task["items"]}
+        archived=read_json(direct_records)
+        if len(titles)!=12 or len(prompts)!=12 or set(archived)-set(prompts):
+            raise ValueError("Invalid cinematic Task or archive receipt IDs")
+        items=[]
+        for title in titles:
+            shot_id=title["id"]
+            record=archived.get(shot_id)
+            url=record.get("url") if record else None
+            if url is not None:
+                parsed=urlparse(url)
+                if (parsed.scheme!="https" or parsed.hostname!="huggingface.co"
+                        or not parsed.path.startswith("/buckets/")):
+                    raise ValueError("Invalid archived HF Bucket URL")
+            items.append({"id":shot_id,"title":title["title"],"en":title["en"],
+                          "prompt":prompts[shot_id],
+                          "status":"completed" if url else "pending",
+                          "url":url,"bytes":record.get("bytes") if record else None})
+    else:
+        directory=state.resolve_task(root, "outputs/"+task_name)
+        items=collect(directory,titles)
     html=render_gallery(items)
     dest=root/"outputs"/f"{task_name}-gallery.html"
     atomic_write(dest,html.encode("utf-8"))
@@ -116,8 +139,9 @@ def build(root=ROOT):
 def main():
     ap=argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--strict",action="store_true",help="Require 12 verified HF image links")
+    ap.add_argument("--task", default=TASK_NAME, help="Registered Task name to render")
     args=ap.parse_args()
-    output,items=build()
+    output,items=build(task_name=args.task)
     completed=sum(bool(x["url"]) for x in items)
     print(json.dumps({"html":str(output),"hf_images":completed,"expected":len(items)},ensure_ascii=False))
     if args.strict and completed!=12:
