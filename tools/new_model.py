@@ -10,7 +10,9 @@ sys.path.insert(0, str(ROOT))
 from runtime.utils.outputs import validate_path_component
 
 
-def scaffold(directory, service, engine, kind, model, revision, image):
+def scaffold(directory, service, engine, kind, model, revision, image="debian_slim",
+             *, python_version=None, uv_packages=None, uv_torch_backend=None,
+             uv_extra_index_url=None, uv_only_binary=False):
     validate_path_component(directory)
     validate_path_component(service)
     if engine not in {"vllm", "sglang"} or kind not in {"image", "video"}:
@@ -26,6 +28,16 @@ def scaffold(directory, service, engine, kind, model, revision, image):
     spec.update(service=service, operation="t2i" if kind == "image" else "t2v",
                 kind=kind, model=model, revision=revision, image=image, command=command,
                 defaults={"response_format": "b64_json"} if kind == "image" else {})
+    if image == "debian_slim" or python_version is not None:
+        spec["python_version"] = python_version or "3.12"
+    if uv_packages is not None:
+        spec["uv_packages"] = list(uv_packages)
+    if uv_torch_backend is not None:
+        spec["uv_torch_backend"] = uv_torch_backend
+    if uv_extra_index_url is not None:
+        spec["uv_extra_index_url"] = uv_extra_index_url
+    if uv_only_binary:
+        spec["uv_only_binary"] = True
     from runtime.config.model_spec import validate, discover
     validate(spec)
     if any(existing["service"] == service for existing in discover(ROOT).values()):
@@ -54,7 +66,8 @@ def scaffold(directory, service, engine, kind, model, revision, image):
         "outputs": {kind: {"ref": "generate." + kind}}}, indent=2) + "\n", encoding="utf-8")
     (target / "README.md").write_text(
         f"# {service}\n\nReview model.json defaults and command against this model's engine requirements.\n"
-        "Pin the container image by digest. This generated template has not been GPU validated.\n\n"
+        "Prefer a native Modal image with pinned uv packages; pin registry alternatives by digest. "
+        "This generated template has not been GPU validated.\n\n"
         f"From the repository root:\n```powershell\nuv sync\nuv run python run.py plan models/{directory}/{task_path.name}\n"
         f"uv run python models/{directory}/download_model.py --execute\nuv run python -m modal deploy models/{directory}/app.py\n"
         f"# Keep the worker in another terminal\nuv run python run.py worker\nuv run python run.py run models/{directory}/{task_path.name}\n```\n\nSee ../../docs/add-model.md for SDK workflows and recovery boundaries.\n",
@@ -64,8 +77,14 @@ def scaffold(directory, service, engine, kind, model, revision, image):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    for name in ("directory", "service", "model", "revision", "image"):
+    for name in ("directory", "service", "model", "revision"):
         parser.add_argument("--" + name, required=True)
+    parser.add_argument("--image", default="debian_slim", help="Native Modal base or explicit registry image")
+    parser.add_argument("--python-version", help="Native base Python minor version (default: 3.12)")
+    parser.add_argument("--uv-package", dest="uv_packages", action="append", help="Pinned package requirement; repeat for multiple packages")
+    parser.add_argument("--uv-torch-backend", help="Explicit CUDA backend, e.g. cu130")
+    parser.add_argument("--uv-extra-index-url", help="Official HTTPS wheel index")
+    parser.add_argument("--uv-only-binary", action="store_true", help="Reject source distributions")
     parser.add_argument("--engine", choices=["vllm", "sglang"], required=True)
     parser.add_argument("--kind", choices=["image", "video"], required=True)
     print(scaffold(**vars(parser.parse_args())))

@@ -1,41 +1,243 @@
 # Modal image build policy
 
-The three model services use immutable Docker image manifest digests. These
-digests were read from the Docker Hub registry on 2026-11-21; they were **not**
-verified by a new remote GPU inference test. Existing Modal deployments are
-not changed by editing these local JSON files.
+Prefer Modal-native images (`debian_slim` + `uv_pip_install`) and pinned
+published wheels for new models. Use a third-party registry image only when
+native installation cannot satisfy the engine's dependencies or runtime
+validation. Pin registry alternatives to an immutable manifest digest.
 
-| Service | Engine image | Local installation policy |
+| Service | Base image | Installation |
 | --- | --- | --- |
-| MOSS | `vllm/vllm-omni` pinned from `v0.32.0` | No additional build dependencies |
-| Pika | `lmsysorg/sglang` pinned from `dev` | No additional build dependencies |
-| MiniMax H3 Image | Existing pinned SGLang base image | `uv_pip_install` using Modal's default uv and the existing pinned SGLang Git revision |
+| MOSS | Modal Debian Slim, Python 3.12 | vLLM/Omni 0.32.0, CUDA backend cu130; prefetch vLLM kernels |
+| Pika | Modal Debian Slim, Python 3.12 | Verified official SGLang nightly wheel, CUDA wheel links, FFmpeg |
+| MiniMax H3 Image | Modal Debian Slim, Python 3.12 | Same verified SGLang nightly wheel and CUDA wheel links |
+| Qwen3.8 Pi | External SGLang backend; archived vLLM spec unchanged | Native wheel import/CLI audit passed; model store unavailable for GPU test |
 
-## uv builds
+MOSS native configuration follows the upstream [vLLM-Omni 0.32.0 release](https://github.com/vllm-project/vllm-omni/releases/tag/v0.32.0).
+The original registry baseline is
+`vllm/vllm-omni@sha256:f713b909f16cf8c7901f17c3aee3f471cbee5fbde5603b7dbe2631630887d7c2`.
+A source change does not alter existing deployed apps.
 
-`runtime/serving/modal_setup.py` delegates package installation to Modal's
-native `Image.uv_pip_install`, which automatically provides uv in the
-builder and installs into the first Python on `PATH`. The existing SGLang
-base image previously used `python -m pip` to install into
-`/opt/sglang/lib/python3.12/site-packages`; before deploying MiniMax, verify
-that the first Python on `PATH` still targets this environment.
+## Native image configuration
 
-`uv_packages` is an optional array of requirement strings in `model.json`.
-No uv executable version is set; Modal manages its default. Legacy
-`build_commands` remain available for non-Python custom build actions.
-When `uv_packages` is absent, no uv installation layer is created.
+```json
+{
+  "image": "debian_slim",
+  "python_version": "3.12",
+  "uv_packages": ["vllm==0.32.0", "vllm-omni==0.32.0"],
+  "uv_torch_backend": "cu130",
+  "build_commands": ["flashinfer install-cubin-wheel", "flashinfer install-jit-cache-wheel --cuda-version 13.0 --mode minimal --sm sm120"]
+}
+```
 
-uv can improve resolution, fetching and installing packages, but it **does not
-eliminate** Git checkout, SGLang source-wheel compilation, Docker layer pulls,
-or image saving. The slow first build should be measured against a subsequent
-identical cached build before claiming a speedup.
+The base image and explicit Python minor version are separate from the model
+weights. The shared builder uses Modal's native uv installer, without adding
+a separate uv dependency. `uv_torch_backend` is optional; when provided it
+selects an explicit CUDA backend and requires `uv_packages`.
+`build_commands` run after package installation and are for additional
+model-specific system dependencies and compatibility actions. MOSS prefetches FlashInfer cubins and only the JIT cache provider for its configured RTX PRO 6000 (SM120) on the CPU builder. Direct FlashInfer CLI commands avoid vLLM CLI device detection. When changing GPU architectures, review the SM target.
+Sources are mounted last with `copy=False`.
+
+Registry configurations continue to use `Image.from_registry` and may
+specify `uv_packages`. Registry Python versions are determined by the base.
+Existing SGLang source-wheel builds retain their Rust extension build flag.
+
+Native installation avoids importing a large external engine image, but
+CUDA/PyTorch wheels, kernel prefetch, dependency resolution, image saving
+and Modal caching still affect the build. Modal's installer may itself import
+a small uv utility image; eliminating the engine import is not a guarantee
+that no OCI-related log lines will ever appear.
+Keep model weights in the existing Volume; changing an image does not
+require downloading the weights again.
 
 ## Safe rollout
 
-1. Run `uv run python -m unittest discover -s tests -q` locally.
-2. Compare each pinned digest with the corresponding previously deployed image.
-3. When remote tasks are no longer active, deploy one service at a time.
-4. Confirm engine startup and execute one minimal inference per model before
-   treating the new images as validated.
+1. Run `uv run python -m unittest discover -s tests -q`.
+2. Build the native image in an ephemeral Modal app without replacing production.
+3. Verify installed package versions, CUDA compatibility, engine health and
+   real generation using the existing model cache. Compare against the pinned
+   registry baseline using identical GPU, input and model fingerprint.
+4. Test a new GPU memory snapshot and subsequent restore before production
+   rollout; do not reuse the old deployment's snapshot.
+5. Deploy one service at a time when no active remote work would be interrupted.
 
-No build, deploy, or GPU call is required to run the offline tests.
+If native installation cannot pass the required tests, retain the pinned
+registry baseline until the failure is understood and resolved.
+
+## Verified native builds (2026-11-24)
+
+### MOSS Image — GPU generation verified
+
+- Build: Modal Debian Slim / Python 3.12, vLLM and vLLM-Omni 0.32.0,
+  CUDA 13.0; FlashInfer 0.7.0.post1 cubin and SM120-family JIT cache.
+- Native image ID: `im-juhvjUTgxUwuck7NUsTSqH`. Cold dependency and kernel
+  layers took 65.60 s and 89.37 s in separate builds; environment layer 7.55 s.
+  Their sum is not a controlled single-run cold build measurement.
+- Ephemeral GPU test reused the existing `model-store` cache, fingerprint
+  `43e836eac25c9650d16b4f5f12999d2aa3f0237d820b64f6b11e03d396e3cf2c`.
+  RTX PRO 6000, seed 42, 1024x1024, 50 steps; engine time 14.66 s,
+  3.48 step/s, model loading 25.3364 GiB, 32.13 s. Engine initialization
+  73.65 s, gateway initialization 3.04 s. HTTP 200; PNG decoded and
+  its dimensions and SHA-256 verified against the published record.
+- Output: `validation/moss-native-1705ea226874/001.png` (3,147,861 bytes),
+  SHA-256 `0217fbc47851812753c492de9a5b747e8dd5981b6e611ea28330f21c923bd9e5`.
+- [Modal run](https://modal.com/apps/zhangchenzer/main/ap-1u8PY44KRR8verwtsFLpPJ).
+- Warm inference matches the historical 14.66 s engine result but the runs
+  are not a controlled A/B test. Ephemeral apps disable GPU snapshots;
+  production snapshot/restore and cold registry comparison remain unverified.
+- Optional causal-conv1d and flash-linear-attention reported reference fallback.
+  Do not add a speculative incompatible binary or claim that all runtime JIT
+  has been removed. The current tested generation latency is already comparable.
+
+### SGLang — official binary-only dependency image verified
+
+- [Stable PyPI release](https://pypi.org/project/sglang/): 0.5.23 (2026-10-30).
+- [Official nightly release](https://github.com/sgl-project/whl/releases/tag/nightly-2026-11-24-1173264b58):
+  `0.5.24.dev20261124+g1173264b58`, CPython 3.12, x86_64 manylinux_2_39,
+  46,280,354 bytes, SHA-256 `3c4e8dfb13c18bf3bf685f9029c0143a9ae74fe5c4124e7076f558f0ed2e6596`.
+- Native dependency layer `im-TTxkkREqHet2Bz4lJr5LoV` built in 133.16 s;
+  metadata-verification image `im-h8qVE5pIRzWHrAoTKZoCSF` built in 6.09 s;
+  complete client wall time 152.42 s. uv resolved 235 packages, installed 234
+  via wheels with `--only-binary=:all:` (no source distribution builds).
+- Installed `torch==2.14.1+cu130`, `sglang-kernel==0.4.11+cu130`,
+  `sgl-deep-gemm==0.2.9+cu130`, `sgl-fa3==0.1.0+cu130`,
+  `sgl-flash-mla==1.0.5+cu130`, `sgl-deep-ep==0.1.3+cu130`,
+  `flashinfer-python==0.7.4`. The installed wheel contains MiniMax H3 Image
+  pipeline configs and tests, plus the Pika Flex test module.
+- The previous MiniMax Git pin is on a divergent history. Do not infer model
+  or overlay compatibility from a successful package build. Existing Pika
+  and MiniMax cache manifests passed preflight without downloading weights.
+- [Installation guide](https://docs.sglang.ai/docs/get-started/install),
+  [official CUDA wheel index](https://docs.sglang.ai/whl/cu130/).
+
+The shared builder supports optional `uv_extra_index_url` (HTTPS wheel index)
+and `uv_only_binary: true` (reject source distributions). For official Nightly
+wheels, use an immutable direct URL with its SHA-256 fragment, not floating
+`--pre` or `git+main`. Strict binary mode is opt-in: MOSS has a pure-Python
+openai-whisper source distribution but no observed vLLM/PyTorch CUDA source build.
+Use the same dependency recipe for Pika and MiniMax so Modal can share cached
+layers; preserve their model-specific command, cache and request contracts.
+Pika CPU overlay materialization is a separate compatibility boundary and is
+not automatically replaced by a GPU engine-wheel test.
+
+### SGLang native recipe
+
+The two GPU services use the same verified dependency layer. The following
+fields show their common installation recipe; the model.json files also include
+the CUDA library layout fix below, plus FFmpeg for Pika only. These are the
+default repository configurations, not an approval to replace live deployments.
+
+```json
+{
+  "image": "debian_slim",
+  "python_version": "3.12",
+  "uv_packages": [
+    "sglang[diffusion] @ https://github.com/sgl-project/whl/releases/download/nightly-2026-11-24-1173264b58/sglang-0.5.24.dev20261124%2Bg1173264b58-cp312-cp312-manylinux_2_39_x86_64.whl#sha256=3c4e8dfb13c18bf3bf685f9029c0143a9ae74fe5c4124e7076f558f0ed2e6596"
+  ],
+  "uv_torch_backend": "cu130",
+  "uv_extra_index_url": "https://docs.sglang.ai/whl/cu130/",
+  "uv_only_binary": true,
+  "env": {
+    "CUDA_HOME": "/usr/local/lib/python3.12/site-packages/nvidia/cu13"
+  }
+}
+```
+
+The first Pika GPU attempt failed during the DeepGEMM import because CUDA_HOME
+was absent. MiniMax's generic CLI selected the LLM fallback instead of the
+diffusion backend. A CPU inspection of the exact native dependency image
+confirmed NVIDIA wheel-provided nvcc, CUDA headers and libcudart at the
+CUDA_HOME above; no external CUDA toolkit image is needed for path discovery.
+Use the explicit diffusion CLI
+`python -m sglang.multimodal_gen.runtime.entrypoints.cli.main serve`
+to expose backend startup failures instead of silently falling back to LLM.
+Keep the CUDA path coupled to the selected Python minor version and verified
+wheel layout. Do not assume arbitrary GPU architectures have the same kernels.
+
+Audit: [CUDA wheel inspection](https://modal.com/apps/zhangchenzer/main/ap-01nGkMicgQRCHJtA5ua0EU).
+
+### SGLang runtime findings
+
+- [Pika initial attempt](https://modal.com/apps/zhangchenzer/main/ap-834xmrucl6IiQ3cetidaop)
+  and [MiniMax initial attempt](https://modal.com/apps/zhangchenzer/main/ap-67ZRta1iPfitPLw8ae1iTA)
+  did not pass startup. Subsequent corrected runs are recorded below.
+- [Pika CUDA-path retest](https://modal.com/apps/zhangchenzer/main/ap-TRyiHdBYTN4CQfM31zfHjt)
+  recognized `PikaH3FlexPipeline` and initialized its CUDA worker, but the
+  pipeline requires system ffmpeg and ffprobe. Pika-only build command:
+  `apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/*`.
+  A separate [CPU media-image test](https://modal.com/apps/zhangchenzer/main/ap-9vQ4AcE84LexoRezfF0L3y)
+  installed and executed both ffmpeg and ffprobe 7.1.5 successfully. The
+  corrected full Pika GPU pipeline passed in the follow-up run below. These media
+  executables are not GPU kernels and should not be added to every image
+  without need.
+- [MiniMax CUDA-path retest](https://modal.com/apps/zhangchenzer/main/ap-WpFpJ2rI0bYu5ljOFKWq0K)
+  loaded all components and returned HTTP 200 on engine and gateway health
+  (engine 195.67 s, end-to-end startup 198.68 s, no snapshot). The fused
+  QKNorm+RoPE JIT kernel attempted nvcc compilation and failed to link
+  `-lcudart`: the wheel has `lib/libcudart.so.13`, while that build searched
+  `lib64`. The real 1024x1024, six-step request failed with HTTP 500 at the
+  required QKNorm JIT kernel. No image was produced.
+  A separate [CPU CUDA linker audit](https://modal.com/apps/zhangchenzer/main/ap-FlRm9ZI528wLeF8Y5Ac57W)
+  verified that the original wheel has neither lib64 nor the unversioned
+  libcudart.so link. Creating both links allowed c++ to compile, link and
+  execute a small CUDA runtime version probe without downloading a toolkit.
+  Build command for this exact Python/CUDA wheel layout:
+- Targeted offline regression: 11 image-policy and 16 service tests passed;
+  full unittest discovery did not finish within a 90-second execution cap.
+
+```sh
+set -e
+CUDA_ROOT=/usr/local/lib/python3.12/site-packages/nvidia/cu13
+test -f "$CUDA_ROOT/lib/libcudart.so.13"
+test -e "$CUDA_ROOT/lib64" || ln -s lib "$CUDA_ROOT/lib64"
+test -e "$CUDA_ROOT/lib/libcudart.so" || ln -s libcudart.so.13 "$CUDA_ROOT/lib/libcudart.so"
+```
+
+The linker probe and both corrected real GPU generations passed. Treat the
+links as a targeted compatibility fix, not proof that all kernel compilation
+has been eliminated. Some specialized kernels still use runtime JIT; retain
+published precompiled kernels where available. Both model.json files now
+select the verified native image recipe. GPU snapshot capture/restore and
+full production workload acceptance remain deployment gates.
+
+### Corrected native GPU acceptance (2026-11-24)
+
+Both tests reused the existing model-store cache, used an RTX PRO 6000 and
+disabled snapshots. Pika also disabled startup warmup for this smoke test;
+its existing default warmup policy was retained in the repository config.
+Both images share the exact immutable SGLang wheel and CUDA library-layout
+fix. Pika alone installs FFmpeg/ffprobe.
+
+| Metric | MiniMax H3 Image | Pika H3 Flex |
+| --- | --- | --- |
+| Engine initialization | 177.54 s | 111.61 s |
+| Full service initialization | 180.55 s | 114.62 s |
+| First generation (engine) | 60.26 s | 65.00 s |
+| Output | 1024x1024 PNG, six steps | 864x480 H.264 + AAC MP4, 5.167 s, six steps |
+| Output validation | Decoded PNG and SHA-256 | FFprobe video/audio streams and SHA-256 |
+| Result | PASS | PASS |
+
+- [MiniMax GPU run](https://modal.com/apps/zhangchenzer/main/ap-qkyAXMiJ0xGbGhsmddgLZT).
+  Output: validation/minimax-native-fixed-ab64351b1664/001.png,
+  3,147,060 bytes, SHA-256 65667aca50d644711dbd57ba98844da005c1fd9b726b2a666d9a0f2958cd6a6e.
+- [Pika GPU run](https://modal.com/apps/zhangchenzer/main/ap-iKgq1lcoFaMCSgYknu8RDQ).
+  Output: validation/pika-native-fixed-c52dd6dc22e3/001.mp4,
+  728,698 bytes, SHA-256 6465b36f6ee52e915899c285af48ac63268ee4416bb35a6502330c1b34b87f3f.
+- After updating the two model.json files, 10 image-policy tests and 16
+  model-service tests passed. Pika's CPU Overlay materializer keeps its
+  separately pinned source implementation; the GPU test validated loading
+  existing materialized weights, not rebuilding the Overlay.
+- These are first-request smoke tests, not controlled performance comparisons,
+  full-resolution/first-last-frame tests, or snapshot restore tests. Live
+  deployments were not replaced.
+
+### Qwen3.8 Pi external backend
+
+The active deployment lives in the separate
+[Qwen3.8 SGLang backend](https://github.com/xiaoqianran/Qwen3.8-27B-RTX-6000-PRO-SGLang-DSpark).
+The native nightly image passed all four DFlash2 runtime import checks and
+all seven checked CLI flags in a [CPU audit](https://modal.com/apps/zhangchenzer/main/ap-KQwW0o8XpX9YWGeiL0jaJM).
+The [read-only model preflight](https://modal.com/apps/zhangchenzer/main/ap-HFJqCNNREM9ak2LhpGcWhi)
+could not find qwen38-27b-model-store in the current main environment. No
+weights were downloaded and no Qwen GPU was allocated. The external
+backend's validated DFlash2/Pi LoRA image selection and the archived
+vLLM model.json remain unchanged.

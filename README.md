@@ -219,7 +219,7 @@ Hugging Face 组件记录实际解析的 snapshot；分支引用首次准备后�
 CPU 下载会检查 Modal Secret `huggingface-secret`：存在且包含 `HF_TOKEN` 时
 自动注入 Hugging Face 身份认证；Secret 不存在则匿名下载，无需设置本地 Token。
 其他 Secret 访问错误会直接报错，避免悄悄降级。正在运行的下载容器不会热更新。
-Pika 使用引擎 Overlay 注册表物化基础组件，CPU 与 GPU 使用相同镜像。
+Pika 使用引擎 Overlay 注册表物化基础组件，CPU 物化器与 GPU 推理镜像独立固定版本；二者必须保持权重布局兼容。
 启动时检查组件必需文件与文件大小清单；缓存清单指纹参与生成记录校验。
 
 ## 3. 统一提交 Task
@@ -297,8 +297,8 @@ uv run python -m unittest discover -s tests -v
 ```
 
 离线测试覆盖参数、配置发现、Modal 注册、缓存组件、首尾帧、下载校验和故障恢复，不调用 GPU。
-本轮统一迁移没有执行云端 Deploy 或真实 GPU 验收；本地代码更新不会改变已部署服务。
-MOSS/Pika 镜像延续现有版本选择，Pika dev 镜像仍是可变标签，生产使用应固定经过验收的 digest。
+本轮原生镜像迁移已完成三个媒体模型的真实 GPU 单项生成验收；未覆盖线上部署，GPU Snapshot 恢复与完整生产负载仍需单独验收。
+MOSS、Pika、MiniMax 默认采用 Modal 原生镜像 + 官方固定版本 wheel + 匹配 GPU 的预编译 CUDA 内核；仅在原生方案无法验收时保留已固定的 registry 镜像。详见 [镜像构建规范和验收记录](docs/image-build-policy.md)。
 
 根目录和各模型使用 pyproject.toml 声明依赖，uv.lock 仅保存在本机、不提交 Git。
 
@@ -328,11 +328,7 @@ uv run python run.py check-deployment pika --dry-run
 `download_completed` 输出首块等待、字节数、耗时和吞吐；`collect_summary` 输出批次吞吐。
 同步生成期间的收集统计包含等待生成结果的时间，比较纯下载性能请使用已完成任务的 `--collect --remote`。
 
-本次保留 Pika/MiniMax 的 GPU 容器 CPU、RAM 配置。Pika 和 MiniMax 的 GPU 推理镜像
-由各自 `model.json` 中独立的 digest 固定，不能互相替换。Pika 下载阶段使用
-`modal-benchmark` 轻量 CPU Worker，Overlay 物化阶段独立使用
-`debian_slim + uv`，**不再复用 GPU 推理镜像**。CPU 物化的真实构建和 GPU
-推理兼容性仍须独立验证；任何镜像或模型配置变更均需重新验收部署签名。
+保留 Pika/MiniMax 的 GPU 容器 CPU、RAM 配置。两者的 `model.json` 共享固定 SHA-256 的官方 SGLang Nightly wheel 与 CUDA wheel 兼容修复；Pika 另装 FFmpeg。Pika 下载阶段使用 `modal-benchmark` 轻量 CPU Worker，Overlay 物化阶段使用独立的 `debian_slim + uv` CPU 物化器，不复用 GPU 镜像。已有物化权重已通过真实 GPU 视频生成验收；重新物化、GPU snapshot 恢复及部署签名仍须独立验收。
 
 Modal 多云 Worker 模型准备入口见 [接入说明](docs/model-download.md)；
 公共代码与各模型实现的命名规则见 [模块命名约定](docs/module-conventions.md)。

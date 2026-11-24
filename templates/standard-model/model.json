@@ -6,7 +6,7 @@
   "kind": "image",
   "model": "REPLACE_MODEL_REPOSITORY",
   "revision": "REPLACE_WITH_COMMIT_BRANCH_OR_TAG",
-  "image": "REPLACE_CONTAINER_IMAGE_WITH_DIGEST",
+  "image": "debian_slim",
   "command": [
     "sglang",
     "serve",

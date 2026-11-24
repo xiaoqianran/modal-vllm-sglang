@@ -133,6 +133,30 @@ def validate(spec):
             or not all(isinstance(v, str) and v.strip() and not v.startswith("-")
                        for v in spec.get("uv_packages", []))):
         raise ValueError("uv_packages must be a list of nonempty package requirements")
+    if spec["image"] == "debian_slim":
+        version = spec.get("python_version")
+        if not isinstance(version, str) or not re.fullmatch(r"3\.\d{1,2}", version):
+            raise ValueError("debian_slim requires an explicit Python minor version, e.g. 3.12")
+        if not spec.get("uv_packages"):
+            raise ValueError("debian_slim requires uv_packages for the inference engine")
+    elif "python_version" in spec:
+        raise ValueError("python_version is only supported for debian_slim")
+    if "uv_torch_backend" in spec:
+        backend = spec["uv_torch_backend"]
+        if not spec.get("uv_packages") or not isinstance(backend, str) or not re.fullmatch(r"cu\d{3}", backend):
+            raise ValueError("uv_torch_backend requires uv_packages and an explicit CUDA backend, e.g. cu130")
+    if "uv_only_binary" in spec:
+        if type(spec["uv_only_binary"]) is not bool or not spec.get("uv_packages"):
+            raise ValueError("uv_only_binary must be a boolean and requires uv_packages")
+    if "uv_extra_index_url" in spec:
+        from urllib.parse import urlsplit
+        url = spec["uv_extra_index_url"]
+        if (not isinstance(url, str) or not spec.get("uv_packages")
+                or any(c.isspace() for c in url)):
+            raise ValueError("uv_extra_index_url requires uv_packages and an HTTPS index URL")
+        parsed = urlsplit(url)
+        if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password or parsed.fragment or parsed.query:
+            raise ValueError("uv_extra_index_url must be an HTTPS index URL without credentials")
     if spec.get("proxy_port") == spec.get("port", 8000):
         raise ValueError("Proxy and engine must use distinct ports")
     if "proxy_port" not in spec and spec.get("port", 8000) == 65535:

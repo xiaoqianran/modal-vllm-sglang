@@ -110,6 +110,22 @@ class ModelServiceTests(unittest.TestCase):
                 new_model.scaffold("006-example", "example", "sglang", "image",
                                    "org/model", "a" * 40, "example/image:tag")
 
+    def test_scaffold_defaults_to_native_modal_image(self):
+        from tools import new_model
+        with tempfile.TemporaryDirectory() as directory, patch.object(new_model, "ROOT", Path(directory)):
+            with self.assertRaises(ValueError):
+                new_model.scaffold("006-invalid", "invalid", "vllm", "image", "org/model", "main")
+            self.assertFalse((Path(directory) / "models/006-invalid").exists())
+            target = new_model.scaffold("006-native", "native", "vllm", "image", "org/model", "main",
+                                        uv_packages=["vllm==0.32.0", "vllm-omni==0.32.0"],
+                                        uv_torch_backend="cu130")
+            spec = discover(directory)["native.t2i"]
+            self.assertEqual(spec["image"], "debian_slim")
+            self.assertEqual(spec["python_version"], "3.12")
+            self.assertEqual(spec["uv_torch_backend"], "cu130")
+            self.assertEqual(spec["uv_packages"], ["vllm==0.32.0", "vllm-omni==0.32.0"])
+            self.assertTrue((target / "app.py").is_file())
+
     def test_discovery_validation_and_signature(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "models/model/model.json"

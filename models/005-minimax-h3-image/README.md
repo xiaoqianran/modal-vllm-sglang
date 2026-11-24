@@ -30,7 +30,7 @@ run 没有同步/异步开关，统一异步登记；worker 才提交实际 GPU 
 新 Volume 不会自动包含旧盘权重；空盘使用普通准备命令，同盘旧清单才使用 --migrate-only。
 CPU 下载器默认仅输出计划，--execute --check-only 校验现有缓存，
 --execute --migrate-only 迁移同盘已有旧清单；统一入口不支持旧版 --refresh。
-真实生成、GPU 快照恢复和性能仍需部署后验收。
+原生 wheel 镜像已通过 1024x1024、6 步真实生图及 PNG/哈希校验；GPU 快照恢复和完整生产性能仍需部署前验收。
 详见 [统一工作流说明](../../docs/workflow-runner.md) 与 [根目录说明](../../README.md)。
 
 GPU 服务当前为 4 vCPU、32 GiB RAM、RTX PRO 6000；32 GiB 是待验证配置，不代表实测峰值。

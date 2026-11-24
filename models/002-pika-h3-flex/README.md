@@ -36,4 +36,4 @@ CPU 下载器 --check-only 检查缓存，--refresh 显式重新准备；三种�
 
 统一入口由 modal-benchmark 下载固定版本的 Pika Adapter、Overlay 元数据和 MiniMax-H3 基础组件，再由 SGLang 物化本地目录；不能跳过 Overlay 物化直接推理。Pika 的 download_model.py 已改为此入口的本地 CLI 包装器，不再使用旧版单容器 modal run 下载。
 使用 `--execute --check-only` 检查缓存；使用 `--execute --migrate-only` 转换同盘已有的旧清单。
-引擎端口为 30010，ZMQ Broker 为 30011，内部网关为 30020。镜像仍是 dev，生产固定 digest 前须先验收。
+引擎端口为 30010，ZMQ Broker 为 30011，内部网关为 30020。GPU 默认使用 Modal 原生镜像和固定 SHA-256 的官方 SGLang Nightly wheel，已通过 864x480 文生视频及音频、文件完整性验收；首尾帧、重新物化及 GPU Snapshot 恢复仍需单独验收。

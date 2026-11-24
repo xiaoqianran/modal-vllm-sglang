@@ -15,7 +15,14 @@
   "operation": "t2i",
   "kind": "image",
   "model": "OpenMOSS-Team/MOSS-Image-SFT",
-  "image": "vllm/vllm-omni@sha256:f713b909f16cf8c7901f17c3aee3f471cbee5fbde5603b7dbe2631630887d7c2",
+  "image": "debian_slim",
+  "python_version": "3.12",
+  "uv_packages": [
+    "vllm==0.32.0",
+    "vllm-omni==0.32.0"
+  ],
+  "uv_torch_backend": "cu130",
+  "build_commands": ["flashinfer install-cubin-wheel", "flashinfer install-jit-cache-wheel --cuda-version 13.0 --mode minimal --sm sm120"],
   "command": [
     "vllm",
     "serve",

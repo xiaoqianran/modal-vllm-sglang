@@ -17,21 +17,35 @@ def model_mounts(spec):
     return {VOLUME_MOUNT: model_volume().with_mount_options(sub_path=VOLUME_SUB_PATH)}
 
 
-def runtime_image(registry, *, env, files=(), commands=(), uv_packages=()):
-    """Mount lightweight Python sources after image configuration (copy=False)."""
+def runtime_image(base, *, env, files=(), commands=(), uv_packages=(),
+                  python_version=None, uv_torch_backend=None,
+                  uv_extra_index_url=None, uv_only_binary=False):
+    """Prefer native Modal images; registry images remain an explicit alternative."""
     environment = dict(env)
     paths = environment.get("PYTHONPATH", "")
     environment["PYTHONPATH"] = ":".join(filter(None, (paths, "/opt")))
-    image = modal.Image.from_registry(registry).entrypoint([])
+    if base == "debian_slim":
+        image = modal.Image.debian_slim(python_version=python_version)
+    else:
+        image = modal.Image.from_registry(base).entrypoint([])
     if uv_packages:
         # SGLang's optional Rust extensions are not needed by the image
         # diffusion runtime. The build flag must precede uv_pip_install:
         # otherwise building the pinned Git source can require Cargo.
-        if any("sglang[diffusion]" in package for package in uv_packages):
+        if any("sglang[diffusion]" in package and "git+" in package
+               for package in uv_packages):
             image = image.env({"SGLANG_BUILD_RUST_EXTS": "none"})
-        # Modal provides uv automatically and targets
-        # the first Python on PATH (the existing SGLang image environment).
-        image = image.uv_pip_install(*uv_packages)
+        # Explicit wheel/index policies preserve the same dependency layer
+        # across services and reject an unexpected source build.
+        flags = []
+        if uv_torch_backend:
+            flags.append(f"--torch-backend={uv_torch_backend}")
+        if uv_only_binary:
+            flags.append("--only-binary=:all:")
+        options = {"extra_options": " ".join(flags)} if flags else {}
+        if uv_extra_index_url:
+            options["extra_index_url"] = uv_extra_index_url
+        image = image.uv_pip_install(*uv_packages, **options)
     if commands:
         image = image.run_commands(*commands)
     image = image.env(environment)

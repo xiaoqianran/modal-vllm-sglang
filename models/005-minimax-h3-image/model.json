@@ -16,12 +16,14 @@
   "operation": "t2i",
   "kind": "image",
   "model": "MiniMaxAI/MiniMax-H3-Image",
-  "image": "lmsysorg/sglang@sha256:7d2f322fbe8eda16ee65f969f8c9c2be602ecb0a29bf3c8b219945432f3992b2",
+  "image": "debian_slim",
   "uv_packages": [
-    "sglang[diffusion] @ git+https://github.com/sgl-project/sglang.git@a9d721f36e16dab1835de0203b620256da1e612d#subdirectory=python"
+    "sglang[diffusion] @ https://github.com/sgl-project/whl/releases/download/nightly-2026-11-24-1173264b58/sglang-0.5.24.dev20261124%2Bg1173264b58-cp312-cp312-manylinux_2_39_x86_64.whl#sha256=3c4e8dfb13c18bf3bf685f9029c0143a9ae74fe5c4124e7076f558f0ed2e6596"
   ],
   "command": [
-    "sglang",
+    "python",
+    "-m",
+    "sglang.multimodal_gen.runtime.entrypoints.cli.main",
     "serve",
     "--model-path",
     "{model_path}",
@@ -93,5 +95,15 @@
   "cache_directory": "/data/models/005-minimax-h3-image",
   "endpoint_label": "005-minimax-h3-image-serve",
   "modal_class": "H3",
-  "service_directory": "005-minimax-h3-image"
+  "service_directory": "005-minimax-h3-image",
+  "python_version": "3.12",
+  "uv_torch_backend": "cu130",
+  "uv_extra_index_url": "https://docs.sglang.ai/whl/cu130/",
+  "uv_only_binary": true,
+  "env": {
+    "CUDA_HOME": "/usr/local/lib/python3.12/site-packages/nvidia/cu13"
+  },
+  "build_commands": [
+    "set -e; CUDA_ROOT=/usr/local/lib/python3.12/site-packages/nvidia/cu13; test -f \"$CUDA_ROOT/lib/libcudart.so.13\"; test -e \"$CUDA_ROOT/lib64\" || ln -s lib \"$CUDA_ROOT/lib64\"; test -e \"$CUDA_ROOT/lib/libcudart.so\" || ln -s libcudart.so.13 \"$CUDA_ROOT/lib/libcudart.so\"; test -f \"$CUDA_ROOT/lib64/libcudart.so\""
+  ]
 }

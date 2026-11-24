@@ -8,7 +8,7 @@
 从仓库根目录执行，将仓库、版本和镜像替换为真实值：
 
 ```powershell
-uv run python tools/new_model.py --directory 006-example-image --service example --engine sglang --kind image --model org/model --revision <模型commit> --image <镜像地址及digest>
+uv run python tools/new_model.py --directory 006-example-image --service example --engine vllm --kind image --model org/model --revision <commit> --uv-package "vllm==0.32.0" --uv-package "vllm-omni==0.32.0" --uv-torch-backend cu130
 ```
 
 生成 model.json、app.py、download_model.py、006-example-image.json、pyproject.toml 和 README.md，
@@ -22,7 +22,8 @@ uv run python tools/new_model.py --directory 006-example-image --service example
 | --- | --- |
 | service / operation / kind | 服务 ID、默认能力、image 或 video |
 | model / revision | 必填：仓库与版本；revision 支持 commit、分支（如 main）或标签，推荐固定完整 commit |
-| image / uv_packages / build_commands | 推荐固定引擎镜像 digest；Python 依赖优先使用可选 `uv_packages`（Modal 自动提供 uv），非 Python 构建操作才使用 `build_commands` |
+| image / python_version / uv_packages / uv_torch_backend / build_commands | Modal Debian Slim + Python 3.12 + 固定版本 wheel 优先；仅在无法通过原生运行验收时使用固定 digest 的 registry 镜像；build_commands 在安装后执行。 |
+| uv_extra_index_url / uv_only_binary | 可选官方 HTTPS wheel 索引、严格二进制安装策略；生成器支持 --uv-extra-index-url、--uv-only-binary。 |
 | command | 引擎 argv，支持 {model}、{model_path}、{port}、{encoder_path} 等组件占位符 |
 | defaults / options | 选填，省略分别等于 {}：默认请求参数、允许调整的参数与校验规则 |
 | operations | 多能力的输入与默认值覆盖；参考 Pika t2va/fl2va |
@@ -44,6 +45,10 @@ port 和 gpu 也可省略，默认分别为 8000 和 RTX-PRO-6000。
 引擎端口仅供容器内部使用，Modal HTTP 和 SDK 都访问网关端口。
 异步视频协议必须返回 id，并提供 completed / failed / cancelled 终态；SDK 单项调用持有推理锁直到执行结束。
 
+官方 Nightly wheel 使用不可变 release URL 和 SHA-256，不使用浮动 --pre。
+GPU 架构、PyTorch CUDA backend、CUDA 内核和模型实际推理必须匹配；成功安装不等于通过 GPU 验收。
+详细构建规范、实测及回退条件见 [Modal image build policy](image-build-policy.md)。
+
 ## 使用
 
 运行目录均为仓库根目录：
@@ -61,7 +66,7 @@ uv run python run.py run 006-example-image/006-example-image.json
 日常业务 task 保存到根目录 tasks/，素材放 inputs/，输出放 outputs/。
 两个部署/下载入口通常无需修改。CPU 下载器 --check-only 校验缓存；HF 权重 --refresh 显式重新下载。
 HF 分支引用在首次准备时解析并固定到缓存 snapshot，GPU 不联网补权重。
-CPU SGLang Overlay 物化和 GPU 加载必须使用同一引擎镜像，不能用普通 snapshot 下载替代 Overlay。
+CPU SGLang Overlay 物化与 GPU 加载必须保持权重布局及版本契约兼容，不能用普通 snapshot 下载替代 Overlay。Pika 的 CPU 物化器独立固定版本，已验证的新 GPU wheel 可复用现有物化权重；重新物化仍需单独验收。
 
 ## 接入 SDK 工作流
 
