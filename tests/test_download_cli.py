@@ -1,4 +1,4 @@
-"""Offline contracts for modal-benchmark v0.4.0 CLI."""
+"""Offline contracts for modal-benchmark v0.4.1 CLI."""
 from __future__ import annotations
 from contextlib import nullcontext
 from importlib import import_module
@@ -60,6 +60,25 @@ class DownloadCliTests(TestCase):
             }),
         )
         return downloader, app
+
+    def test_volume_v2_uses_persistent_writer_defaults(self):
+        from modal_benchmark.hf import create_downloader
+        from runtime.config.storage import VOLUME_MOUNT, VOLUME_VERSION, VOLUME_SUB_PATH
+        for name in ("models/001-moss-image", "models/002-pika-h3-flex",
+                     "models/005-minimax-h3-image"):
+            with self.subTest(name=name):
+                task = plan(self.spec(name))
+                downloader = create_downloader(
+                    volume_name=task["volume"], mount_path=VOLUME_MOUNT,
+                    sub_path=VOLUME_SUB_PATH, volume_version=VOLUME_VERSION,
+                    max_workers=task["workers"], verification_mode="xet",
+                )
+                config = downloader.config
+                self.assertEqual(config.scheduling, "persistent")
+                self.assertEqual(config.task_batch_bytes, 10 * 1024**3)
+                self.assertEqual(config.volume_version, 2)
+                self.assertEqual(config.sub_path, "/inference")
+                self.assertEqual(config.max_workers, task["workers"])
 
     def test_free_plan_has_no_legacy_directory(self):
         for name, kind in (("models/001-moss-image", "hf"),
