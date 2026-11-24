@@ -241,3 +241,35 @@ could not find qwen38-27b-model-store in the current main environment. No
 weights were downloaded and no Qwen GPU was allocated. The external
 backend's validated DFlash2/Pi LoRA image selection and the archived
 vLLM model.json remain unchanged.
+
+### Three-model native deployment acceptance (2026-11-25)
+
+After upgrading modal-benchmark to 0.4.2 (6844a17), all three media services
+passed three real GPU generations each on RTX PRO 6000 using the native
+Debian Slim / Python 3.12 image recipes and existing model-store weights.
+MOSS reused its verified deployment; Pika and MiniMax were deployed or
+updated after their deployment signatures were checked. No model weights
+were downloaded and no outputs were archived to Hugging Face.
+
+| Service | Execution 1 (s) | Execution 2 (s) | Execution 3 (s) | Client wall 1 (s) | Client wall 2 (s) | Client wall 3 (s) | Result |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| moss | 15.49 | 15.17 | 15.11 | 125.82 | 27.09 | 21.51 | 3/3 PASS |
+| pika | 25.54 | 25.36 | 25.98 | 320.92 | 32.38 | 31.40 | 3/3 PASS |
+| minimax | 68.49 | 7.33 | 7.52 | 296.61 | 18.33 | 17.65 | 3/3 PASS |
+
+- MOSS: three 1024x1024 PNG images, 50 steps.
+- MiniMax: three 2048x1152 PNG images, six steps.
+- Pika: three 864x480 MP4 videos, six steps, requested five seconds;
+  actual duration 5.167 s, H.264 at 24 FPS and AAC at 32 kHz.
+- Nine independent prompts with fixed seeds; all nine local outputs matched
+  the remote SHA-256 and byte counts. All six PNGs decoded with Pillow; all
+  three video and audio streams decoded end-to-end with FFmpeg.
+- Temporary PC2 outputs and per-request receipts: `outputs/temp-smoke-042-20261125/`.
+  Generated artifacts remain local and are not part of this commit.
+- Execution time includes generation and server-side result persistence;
+  client wall time also includes scheduling, initialization and transfer.
+  The first request is not an isolated cold-start measurement. GPU snapshots
+  were enabled and the scaledown window was 30 s; independent snapshot
+  restore timing and subjective output quality were not evaluated.
+- Acceptance applies to the deployments used in this run, not subsequent
+  uncommitted runtime changes or a full cold-cache model download.
