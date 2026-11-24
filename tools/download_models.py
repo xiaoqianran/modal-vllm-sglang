@@ -81,9 +81,8 @@ def run(spec: dict, *, workers: int | None = None) -> dict:
     }), flush=True)
 
     volume = downloader.volume
-    writable_volume = volume
     publish_mounts = {VOLUME_MOUNT: volume.with_mount_options(sub_path=VOLUME_SUB_PATH)}
-    publisher_image = downloader.image.add_local_python_source("runtime")
+    publisher_image = modal.Image.debian_slim(python_version="3.12").add_local_python_source("runtime")
 
     if task["strategy"] == "sglang_overlay":
         # A lightweight base image with uv-installed SGLang source replaces
@@ -92,40 +91,21 @@ def run(spec: dict, *, workers: int | None = None) -> dict:
             spec, modal_version=version("modal"),
         )
 
-    # Business publication is deliberately separate: generic HF Coordinator
-    # cannot know the inference-specific SGLang Overlay/cache contract.
-    @downloader.app.function(
-        image=publisher_image, cpu=4 if task["strategy"] == "sglang_overlay" else 1,
+    # Module-level source is imported by the remote interpreter. Never capture
+    # local Modal Volume objects or serialize a closure across Python versions.
+    from runtime.serving.remote_workers import publish_cache_entry
+
+    publish = downloader.app.function(
+        name="publish", image=publisher_image, cpu=4 if task["strategy"] == "sglang_overlay" else 1,
         memory=8192 if task["strategy"] == "sglang_overlay" else 2048,
         timeout=86400 if task["strategy"] == "sglang_overlay" else 3600,
-        volumes=publish_mounts, serialized=True,
-    )
-    def publish(spec, manifest, base, root, strategy):
-        from runtime.config.cache_publication import publish_cache
-        from runtime.config.model_cache import component_specs, verify_cache
-
-        volume.reload()
-        if strategy == "sglang_overlay":
-            # The publisher image mounts the model-owned implementation package.
-            from importlib import import_module
-            implementation = import_module(spec["cache_implementation"])
-            published = implementation.publish_cache(spec, manifest, base, root, writable_volume)
-        else:
-            by_repo = {model["repo_id"]: model for model in manifest["models"]}
-            models = {name: by_repo[item["model"]]
-                      for name, item in component_specs(spec).items()}
-            published = publish_cache(spec, models, base, root, writable_volume)
-        # Check inference-readiness in the same remote function, not a
-        # second container. The cache publishers already commit the marker.
-        paths, fingerprint = verify_cache(spec, phase="download_persisted")
-        return {**published, "fingerprint": fingerprint,
-                "paths": {name: str(path) for name, path in paths.items()}}
+        volumes=publish_mounts, serialized=False,
+    )(publish_cache_entry)
 
     with downloader.app.run():
         published = publish.remote(
-            spec, result["manifest"],
-            result["base"],
-            cache_directory(spec), task["strategy"],
+            spec, result["manifest"], result["base"], cache_directory(spec),
+            task["strategy"], task["volume"], VOLUME_VERSION,
         )
     return {"download": {"status": result["status"],
                           "files": result["files"], "bytes": result["bytes"],
@@ -140,20 +120,19 @@ def run_cache_maintenance(spec, *, migrate_only=False):
 
     image = (modal.Image.debian_slim(python_version="3.12")
              .env({"PYTHONPATH": "/opt"})
-             .add_local_dir(str(PROJECT_ROOT / "runtime"), "/opt/runtime", copy=False))
+             .add_local_dir(str(PROJECT_ROOT / "runtime"), "/opt/runtime", copy=False, ignore=['**/__pycache__/**', '**/*.pyc', '**/*.pyo']))
     app = modal.App("prepare-" + spec.get("service_directory", spec["service"]))
+    from runtime.serving.remote_workers import cache_maintenance_entry
 
-    @app.function(image=image, cpu=1, memory=2048, timeout=1800,
-                  serialized=True, max_containers=1, volumes=model_mounts(spec))
-    def maintenance(config, migrate):
-        from runtime.serving.modal_setup import model_volume
-        from runtime.config.model_cache import inspect_or_migrate_cache
-        volume = model_volume()
-        volume.reload()
-        return inspect_or_migrate_cache(config, volume, migrate_only=migrate)
+    maintenance = app.function(
+        name="maintenance", image=image, cpu=1, memory=2048, timeout=1800,
+        serialized=False, max_containers=1, volumes=model_mounts(spec),
+    )(cache_maintenance_entry)
 
     with app.run():
-        return maintenance.remote(spec, migrate_only)
+        return maintenance.remote(
+            spec, migrate_only, runtime_volume_name(), VOLUME_VERSION
+        )
 
 
 def main(argv: list[str] | None = None):

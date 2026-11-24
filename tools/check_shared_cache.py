@@ -10,6 +10,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from runtime.config.model_spec import validate
 from runtime.config.storage import shared_storage
+from runtime.serving.modal_setup import model_mounts
+from runtime.serving.remote_workers import check_shared_cache_entry
 from runtime.utils.files import read_json
 
 
@@ -17,21 +19,16 @@ def run(spec: dict) -> dict:
     if not shared_storage(spec):
         raise ValueError("This check requires model_storage=shared")
     import modal
-    from runtime.serving.modal_setup import model_mounts
 
     app = modal.App("check-shared-model-" + spec["service"])
-
-    @app.function(
-        image=modal.Image.debian_slim(python_version="3.12").add_local_python_source("runtime"),
-        cpu=1, memory=1024, timeout=300, volumes=model_mounts(spec), serialized=True,
+    image = (
+        modal.Image.debian_slim(python_version="3.12")
+        .add_local_python_source("runtime")
     )
-    def check(model_spec: dict):
-        from runtime.config.model_cache import verify_cache, command_argv
-        paths, fingerprint = verify_cache(model_spec, phase="fresh_cpu_start")
-        return {"ready": True, "fingerprint": fingerprint,
-                "paths": {name: str(value) for name, value in paths.items()},
-                "command": command_argv(model_spec, paths)}
-
+    check = app.function(
+        name="check", image=image, cpu=1, memory=1024, timeout=300,
+        volumes=model_mounts(spec), serialized=False,
+    )(check_shared_cache_entry)
     with app.run():
         return check.remote(spec)
 

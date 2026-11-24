@@ -81,3 +81,7 @@ run 登记后返回，worker 负责生成；所有模型使用同一种异步方
 先执行离线参数预览、测试和 Modal 本地注册检查，再准备权重、Deploy 和做单条真实推理。
 检查首尾帧传输、输出校验、网络中断恢复及模型实际支持的参数。
 通用模板复用生命周期与标准协议；新引擎的命令、模型依赖和实际显存仍需分别验收。
+
+## Python runtime independence
+
+Keep remote function and class definitions importable, use serialized=False, and select Python for the model wheel ABI. See [Python runtime independence](python-runtime.md) for the registration contract and cross-version verification.

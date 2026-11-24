@@ -58,5 +58,5 @@ def build_pika_materializer_image(spec, *, modal_version):
         })
     )
     return (image
-            .add_local_dir(str(ROOT / "model_impl"), "/opt/models/" + ROOT.name + "/model_impl", copy=False)
-            .add_local_dir(str(SHARED_ROOT), "/opt/runtime", copy=False))
+            .add_local_dir(str(ROOT / "model_impl"), "/opt/models/" + ROOT.name + "/model_impl", copy=False, ignore=['**/__pycache__/**', '**/*.pyc', '**/*.pyo'])
+            .add_local_dir(str(SHARED_ROOT), "/opt/runtime", copy=False, ignore=['**/__pycache__/**', '**/*.pyc', '**/*.pyo']))

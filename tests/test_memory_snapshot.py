@@ -30,6 +30,7 @@ class MemorySnapshotTests(unittest.TestCase):
         _, model = create_app(path)
         cls = model._get_user_cls()
         obj = cls()
+        stack.enter_context(patch.object(cls, '_load_spec', return_value=validate({**SPEC, 'memory_snapshot': mode})))
         return cls, obj, cache, popen, health, stop, monitor, resources
 
     def test_capture_has_no_runtime_threads_or_gateway_and_restore_reuses_engine(self):
@@ -51,7 +52,7 @@ class MemorySnapshotTests(unittest.TestCase):
 
     def test_disabled_snapshot_starts_engine_in_runtime_hook(self):
         cls, obj, cache, popen, health, stop, monitor, resources = self.lifecycle('off')
-        cls.capture_engine._get_raw_f()(obj)
+        self.assertFalse(hasattr(cls, 'capture_engine'))
         popen.assert_not_called()
         cls.start._get_raw_f()(obj)
         self.assertEqual(popen.call_count, 2)

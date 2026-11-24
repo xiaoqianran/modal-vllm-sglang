@@ -51,4 +51,4 @@ def runtime_image(base, *, env, files=(), commands=(), uv_packages=(),
     image = image.env(environment)
     for local_file, remote_file in files:
         image = image.add_local_file(str(local_file), remote_file, copy=False)
-    return image.add_local_dir(str(ROOT), "/opt/runtime", copy=False)
+    return image.add_local_dir(str(ROOT), "/opt/runtime", copy=False, ignore=['**/__pycache__/**', '**/*.pyc', '**/*.pyo'])

@@ -211,6 +211,7 @@ class DownloadCliTests(TestCase):
         d, app = self.setup_downloader(spec)
         with (
             patch("modal_benchmark.hf.create_downloader", return_value=d) as create,
+            patch("modal.Volume.from_name", return_value=d.volume),
             patch("runtime.config.cache_publication.publish_cache",
                   return_value={"ready": True, "fingerprint": "cache"}) as publish,
             patch("runtime.config.model_cache.verify_cache",
@@ -224,6 +225,7 @@ class DownloadCliTests(TestCase):
         self.assertEqual(result["download"]["status"], "VERIFIED")
         self.assertEqual(app.runs, 1)
         self.assertEqual(len(app.registered), 1)
+        self.assertFalse(app.registered[0]["serialized"])
         publish.assert_called_once()
         verify.assert_called_once()
         self.assertEqual(verify.call_args.kwargs["phase"], "download_persisted")
@@ -246,6 +248,7 @@ class DownloadCliTests(TestCase):
             return object()
         with (
             patch("modal_benchmark.hf.create_downloader", return_value=d),
+            patch("modal.Volume.from_name", return_value=d.volume),
             patch.object(import_module("models.002-pika-h3-flex.model_impl.materializer_image"),
                          "build_pika_materializer_image", side_effect=build) as image,
             patch.object(import_module("models.002-pika-h3-flex.model_impl.overlay"), "publish_pika_cache",
@@ -260,6 +263,7 @@ class DownloadCliTests(TestCase):
         self.assertEqual(sequence, ["download", "sglang_image"])
         self.assertEqual(app.runs, 1)
         self.assertEqual(len(app.registered), 1)
+        self.assertFalse(app.registered[0]["serialized"])
 
     def test_failed_pika_download_never_builds_sglang_image(self):
         spec = self.spec("models/002-pika-h3-flex")
