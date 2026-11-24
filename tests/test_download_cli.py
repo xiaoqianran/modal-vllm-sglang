@@ -1,4 +1,4 @@
-"""Offline contracts for modal-benchmark v0.4.1 CLI."""
+"""Offline contracts for modal-benchmark v0.4.2 CLI."""
 from __future__ import annotations
 from contextlib import nullcontext
 from importlib import import_module
@@ -63,6 +63,7 @@ class DownloadCliTests(TestCase):
 
     def test_volume_v2_uses_persistent_writer_defaults(self):
         from modal_benchmark.hf import create_downloader
+        self.assertEqual(version("modal-benchmark"), "0.4.2")
         from runtime.config.storage import VOLUME_MOUNT, VOLUME_VERSION, VOLUME_SUB_PATH
         for name in ("models/001-moss-image", "models/002-pika-h3-flex",
                      "models/005-minimax-h3-image"):
@@ -76,6 +77,12 @@ class DownloadCliTests(TestCase):
                 config = downloader.config
                 self.assertEqual(config.scheduling, "persistent")
                 self.assertEqual(config.task_batch_bytes, 10 * 1024**3)
+                self.assertEqual(config.commit_batch_files, 16)
+                self.assertEqual(config.commit_batch_bytes, 16 * 1024**3)
+                self.assertEqual(config.small_file_workers, 4)
+                self.assertTrue(config.coalesce_commits)
+                self.assertEqual(config.xet_concurrency, 8)
+                self.assertEqual(config.replacement_budget, 0)
                 self.assertEqual(config.volume_version, 2)
                 self.assertEqual(config.sub_path, "/inference")
                 self.assertEqual(config.max_workers, task["workers"])
