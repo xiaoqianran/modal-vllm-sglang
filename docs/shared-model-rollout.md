@@ -1,4 +1,4 @@
-> 历史试点方案：本文描述 0.3.0 时期的独立共享卷与旧部署路径，非当前默认配置。现行方案参见 `docs/model-download.md`：`model-store` Volume V2 与 `sub_path=/inference`，上层依赖 `modal-benchmark==0.3.1`。
+> 历史试点方案：本文描述 0.3.0 时期的独立共享卷与旧部署路径，非当前默认配置。现行方案参见 `docs/model-download.md`：`model-store` Volume V2 与 `sub_path=/inference`，上层依赖 `modal-benchmark==0.4.0`。
 
 # 共享模型 Volume V2：双卷迁移与回退
 
