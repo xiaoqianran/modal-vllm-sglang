@@ -9,8 +9,11 @@
   "proxy_port": 30020,
   "timeout": 14400,
   "startup_timeout": 3600,
-  "scaledown_window": 30,
+  "scaledown_window": 60,
   "memory_snapshot": "gpu",
+  "snapshot_warmup": {
+    "params": {"size": "2048x1152", "num_inference_steps": 6}
+  },
   "service": "minimax",
   "app_name": "005-minimax-h3-image",
   "operation": "t2i",

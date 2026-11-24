@@ -69,6 +69,9 @@ class ModelRuntime:
                 f"http://127.0.0.1:{spec.get('port', 8000)}/health",
                 timeout=startup - 60,
             )
+            if spec.get("memory_snapshot") == "gpu" and "snapshot_warmup" in spec:
+                from runtime.serving.snapshot_warmup import warm_image_engine
+                warm_image_engine(spec, timeout=max(1, startup - 60 - (time.perf_counter() - started)))
         except BaseException:
             if self.process is not None:
                 stop_process(self.process)
@@ -186,6 +189,7 @@ class ModelRuntime:
             "startup_measurement": "post_snapshot_hook" if gpu_snapshot else "full_initialization",
             "engine_initialization_seconds": self.engine_initialization_seconds,
             "memory_snapshot": spec.get("memory_snapshot", "off"),
+            "snapshot_capture_id": getattr(self, "snapshot_capture_id", None),
             "resources": self.resources.snapshot(),
         }), flush=True)
 
@@ -214,6 +218,7 @@ class ModelRuntime:
             "startup_measurement": "post_snapshot_hook" if gpu_snapshot else "full_initialization",
             "engine_initialization_seconds": self.engine_initialization_seconds,
             "memory_snapshot": spec.get("memory_snapshot", "off"),
+            "snapshot_capture_id": getattr(self, "snapshot_capture_id", None),
             "resources": self.resources.snapshot(),
         }
 
@@ -301,8 +306,13 @@ class SnapshotModelRuntime(ModelRuntime):
 
     @modal.enter(snap=True)
     def capture_engine(self):
+        from uuid import uuid4
         self.spec = self._load_spec()
         self._prepare_engine()
+        self.snapshot_capture_id = uuid4().hex
+        print(json.dumps({"event": "snapshot_capture_ready",
+                          "service": self.spec["service"],
+                          "capture_id": self.snapshot_capture_id}), flush=True)
 
 
 # The non-snapshot and snapshot variants retain the same deployed class tags.

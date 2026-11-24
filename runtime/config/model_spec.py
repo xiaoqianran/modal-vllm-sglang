@@ -189,6 +189,14 @@ def validate(spec):
         for key in ("allow_patterns", "required_files"):
             if key in config and (not isinstance(config[key], list) or not all(isinstance(p, str) and p and not Path(p).is_absolute() and ".." not in Path(p).parts for p in config[key])):
                 raise ValueError(f"{key} must contain relative file patterns")
+    if "snapshot_warmup" in spec:
+        warmup = spec["snapshot_warmup"]
+        if (spec["kind"] != "image"
+                or not isinstance(warmup, dict)
+                or set(warmup) != {"params"} or not isinstance(warmup["params"], dict)
+                or spec["operation"] != "t2i"):
+            raise ValueError("snapshot_warmup requires a text-to-image params object")
+        parameters(spec, warmup["params"])
     for name, config in operations(spec).items():
         if not IDENTIFIER.fullmatch(name) or not isinstance(config, dict):
             raise ValueError("Invalid operation declaration")

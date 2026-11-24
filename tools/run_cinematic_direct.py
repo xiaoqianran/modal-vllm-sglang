@@ -10,10 +10,9 @@ import re
 from urllib.parse import urlparse
 
 from runtime.config.model_spec import validate
-from runtime.config.storage import VOLUME_VERSION, runtime_volume_name
-from runtime.tasks.job_client import remote_cache_fingerprint
-from runtime.tasks.task_identity import intent_digest
-from runtime.tasks.task_spec import prepare, result_prefix
+from runtime.tasks.job_client import check_record, remote_record
+from runtime.tasks.task_spec import prepare, result_prefix, execution_signature
+from orchestration.sdk import Backend
 from runtime.delivery.config import normalize_delivery
 from runtime.archive.config import ASSET_APP_NAME
 from runtime.utils.files import atomic_json, read_json
@@ -63,11 +62,11 @@ def run(*, limit=12):
     records = read_json(path) if path.exists() else {}
     if set(records) - {item["id"] for item in task["items"]}:
         raise ValueError("Unrecognized archived image ID")
-    volume = modal.Volume.from_name(runtime_volume_name(), version=VOLUME_VERSION)
-    fingerprint = remote_cache_fingerprint(spec, volume)
-    model = modal.Cls.from_name(spec["app_name"], spec["modal_class"])()
+    backend = Backend()
+    fingerprint = backend.fingerprint(spec)
     archiver = modal.Function.from_name(ASSET_APP_NAME, "archive_asset")
     prefix = result_prefix(spec, PROJECT, SCENE, spec["operation"])
+    pending = []
     for item in task["items"][:limit]:
         shot_id = item["id"]
         _, signature = prepare(spec, item)
@@ -76,8 +75,30 @@ def run(*, limit=12):
                 raise ValueError(f"Archived image {shot_id} no longer matches immutable prompt/cache")
             print("REUSED_ARCHIVE",shot_id,records[shot_id]["url"],flush=True)
             continue
-        print("GENERATE_SUBMIT",shot_id,flush=True)
-        result = model.generate_one.remote(item, prefix, fingerprint, intent_digest(spec))
+        job = {"id": shot_id, "prefix": prefix, "intent_hash": signature,
+               "execution_hash": execution_signature(signature, fingerprint)}
+        result = remote_record(backend.volume, prefix, shot_id)
+        if result is not None:
+            check_record(job, result)
+        if not result or result.get("status") != "completed":
+            # A legacy direct call may have persisted a record without a ledger.
+            # Do not resubmit it when its acceptance is uncertain.
+            if result is not None:
+                receipt = backend.submission_ledger().lookup(prefix, shot_id, job["execution_hash"])
+                if not receipt or not receipt.get("call_id"):
+                    raise RuntimeError(f"Existing incomplete result {shot_id}; inspect before retrying")
+            # Backend.submit owns the durable, single-spawn ledger.
+            job["call_id"] = backend.submit(spec, item, prefix, fingerprint)
+            print("GENERATE_QUEUED", shot_id, job["call_id"], flush=True)
+            result = None
+        pending.append((job, result))
+
+    # Every independent call is queued before any GPU wait or HF transfer.
+    for job, result in pending:
+        shot_id, signature = job["id"], job["intent_hash"]
+        if result is None:
+            result = modal.FunctionCall.from_id(job["call_id"]).get()
+        check_record(job, result)
         if result.get("status") != "completed" or result.get("id") != shot_id:
             raise RuntimeError(f"GPU generation did not complete for {shot_id}")
         file_name = result["file"]
