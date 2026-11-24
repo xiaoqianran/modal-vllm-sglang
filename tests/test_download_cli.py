@@ -1,4 +1,4 @@
-"""Offline contracts for modal-benchmark v0.2.2 CLI."""
+"""Offline contracts for modal-benchmark v0.4.0 CLI."""
 from __future__ import annotations
 from contextlib import nullcontext
 from importlib import import_module
@@ -152,12 +152,25 @@ class DownloadCliTests(TestCase):
                 spec = self.spec(folder)
                 self.assertEqual(plan(spec)["workers"], workers)
                 self.assertEqual(plan(spec, 1)["workers"], 1)
-        for invalid in (True, 0, 6, 2.5, "3"):
+        for invalid in (True, 0, 9, 2.5, "3"):
             with self.subTest(invalid=invalid):
                 spec = self.spec("models/001-moss-image")
                 spec["download_workers"] = invalid
                 with self.assertRaisesRegex(ValueError, "download_workers"):
                     validate(spec)
+
+    def test_worker_override_precedence(self):
+        spec = self.spec("models/001-moss-image")
+        with patch.dict("os.environ", MODEL_HF_DOWNLOAD_WORKERS="8"):
+            self.assertEqual(plan(spec)["workers"], 8)
+            self.assertEqual(plan(spec, 2)["workers"], 2)
+        with patch.dict("os.environ", MODEL_HF_DOWNLOAD_WORKERS=""):
+            self.assertEqual(plan({k: v for k, v in spec.items() if k != "download_workers"})["workers"], 3)
+            self.assertEqual(plan(validate({**spec, "download_workers": 8}))["workers"], 8)
+        for value in ("0", "9", "bad"):
+            with patch.dict("os.environ", MODEL_HF_DOWNLOAD_WORKERS=value):
+                with self.assertRaises(ValueError):
+                    plan(spec)
 
     def test_model_names_match_directories(self):
         for folder in ("001-moss-image", "002-pika-h3-flex", "005-minimax-h3-image"):

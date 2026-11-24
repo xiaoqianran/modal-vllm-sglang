@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from importlib import import_module
 from importlib.metadata import version
@@ -28,9 +29,11 @@ def cache_implementation(spec):
 
 def plan(spec: dict, workers: int | None = None) -> dict:
     """Build a free, local download plan; never contact HF or Modal."""
-    workers = spec.get("download_workers", 2) if workers is None else workers
-    if type(workers) is not int or not 1 <= workers <= 5:
-        raise ValueError("workers must be an integer between 1 and 5")
+    if workers is None:
+        raw = os.getenv("MODEL_HF_DOWNLOAD_WORKERS", "").strip()
+        workers = int(raw) if raw else spec.get("download_workers", 3)
+    if type(workers) is not int or not 1 <= workers <= 8:
+        raise ValueError("workers must be an integer between 1 and 8")
     strategy = preparation_strategy(spec)
     if shared_storage(spec) and strategy != "hf":
         raise ValueError("Shared storage supports HF snapshots, not SGLang Overlay")
@@ -156,8 +159,8 @@ def run_cache_maintenance(spec, *, migrate_only=False):
 def main(argv: list[str] | None = None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("model_spec", help="Path to model.json")
-    parser.add_argument("--workers", type=int, choices=range(1, 6), default=None,
-                        help="Override model.json download_workers (default: 2)")
+    parser.add_argument("--workers", type=int, choices=range(1, 9), default=None,
+                        help="Override MODEL_HF_DOWNLOAD_WORKERS and model.json (fallback: 3)")
     parser.add_argument("--execute", action="store_true",
                         help="Explicitly allow paid Modal CPU execution (without this: plan only)")
     mode = parser.add_mutually_exclusive_group()
