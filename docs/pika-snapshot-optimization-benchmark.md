@@ -108,3 +108,36 @@ PC2 原始证据 outputs/028-pika-snapshot-lab-1125-052846/，含20个实际验�
 保持 A；G 可进一步采用随机化/分时多次采样验证生命周期收益。E 无可观测释放收益，不引入额外等待；F/I 需先定位退出根因再完成恢复与重复对照；H 即便 CPU 快照命中仍需要完整引擎初始化。本实验仅覆盖同一 prompt/seed 的 T2VA，不外推至所有内容、长视频或 FL2VA。
 
 参考：[Modal Memory snapshots](https://modal.com/docs/guide/memory-snapshots)、[Modal SGLang snapshot example](https://modal.com/docs/examples/sglang_snapshot)、[SGLang 固定版本](https://github.com/sgl-project/sglang/tree/1173264b58/python/sglang/multimodal_gen)。
+
+## 退出异常复核（2026-11-25）
+
+补查原始日志、平台分钟级分配指标与完整小时 Billing Report。结论：Sleep 组存在**容器生命周期状态回收延迟**，没有证据表明额外可见的约 5 分钟仍占用并计费 GPU；不能据此断定底层根因已经解决。
+
+| 首轮组别 | 热态 info 返回到容器消失（s） | HTTP shutdown complete 到容器消失（约 s） |
+| --- | ---: | ---: |
+| A | 147.36 | 26 |
+| E | 145.56 | 24 |
+| G | 138.96 | 29 |
+| H | 145.33 | 24 |
+| F | 399.40 | 290 |
+| I | 400.62 | 291 |
+
+F/I 均正常打印 `Application shutdown complete` 和 `Finished server process [4]`。05:40:00 UTC 分钟桶的 GPU 分配均值分别为 0.6055、0.6165；05:41 至 05:45 的 GPU、CPU 请求量、CPU 用量、内存请求量及用量均为 null（无样本，不是实测零值），但 live_containers_max 与 total_containers_max 均为 1；05:46 容器指标为 0。系统日志仅记录后续 CLI stop，没有底层清理阶段细节。
+
+源码复核：本项目退出钩子先关闭 sampler 与 telemetry writer，再通知 monitor 终止并 join(60s)；单个子进程 terminate/wait(20s)，必要时 kill/wait(5s)，monitor 最后尝试 Volume.commit。上游 HTTP lifespan 与 GPU scheduler 清理是不同路径。HTTP server 退出日志不能证明全部子进程已退出、Volume commit 已完成或平台清理完成。既有实验没有退出各步骤的独立计时、进程树或平台 checkpoint 清理日志，无法将异常归因到某一条代码；不以推测修改生产清理逻辑。若重启研究，应在隔离 App 记录进程退出码、监控线程及 commit 前后边界，并向 Modal 提供对应 task ID 追踪控制面回收。
+
+完整 05:00–06:00 UTC 小时账单（六个测试 App，美元）：
+
+| 组别 | 平台实际费用 |
+| --- | ---: |
+| A | 1.44162595 |
+| E | 1.67672104 |
+| F | 0.79301889 |
+| G | 1.36730379 |
+| I | 0.79400577 |
+| H | 1.40205293 |
+| 合计 | 7.47472837 |
+
+F/I GPU 费用分别为 0.56419547 / 0.56474849，与分钟桶积分一致，不支持额外近五分钟全部计费的解释。实际账单为上述 App 的资源费用，不是账户全部费用。归档新增 shutdown-billing-filtered.json、两组 shutdown-system.log。此次仅复核历史证据，没有新增 GPU 推理。
+
+最终选择 A：正式 GPU Snapshot + 864×480 / 5s 预热 + 60s 缩容，保留六步采样与业务 768p 支持；不启用 Sleep，不采用 CPU-only 快照，不引入额外等待。G 仍作为候选。本地 registry ready、expected/actual version 一致；Modal 正式 App ap-kkfo2cgrwE1nTNI9f3nUKR revision 2，版本探针标签与本地记录一致。此次不重新部署、不修改生产代码。
