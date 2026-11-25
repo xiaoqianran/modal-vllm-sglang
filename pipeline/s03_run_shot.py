@@ -58,11 +58,12 @@ def run(payload, identity, *, backend=None, root=Path("/data"), timeout=85000, p
         payload_hash = intent_digest(payload)
         last_committed = previous
 
-        def checkpoint(directory):
+        def checkpoint(directory, records=None):
             nonlocal last_committed
-            current = sdk.snapshot(directory)[1]
+            if records is None:
+                records = sdk.snapshot(directory)[1]["jobs"]
             record = {"version": VERSION, "payload_hash": payload_hash,
-                      "status": workflow_status, "jobs": current["jobs"]}
+                      "status": workflow_status, "jobs": records}
             if workflow_status != "running" and scheduler_manifest:
                 record["telemetry"] = scheduler_manifest
             if record != last_committed:
@@ -71,6 +72,7 @@ def run(payload, identity, *, backend=None, root=Path("/data"), timeout=85000, p
                 last_committed = record
 
         backend.checkpoint = checkpoint
+        backend.defer_checkpoint = True
         try:
             checkpoint(directory)
             while True:
@@ -82,6 +84,10 @@ def run(payload, identity, *, backend=None, root=Path("/data"), timeout=85000, p
                 if time.monotonic() - started >= timeout:
                     workflow_status = "uncertain"
                     break
+                # Non-admission updates are recoverable from the submission
+                # ledger/results. Publish once per round, before sleeping.
+                # Terminal rounds are published once in finally with telemetry.
+                checkpoint(directory, records)
                 time.sleep(poll)
         except BaseException:
             workflow_status = "uncertain"
@@ -97,6 +103,7 @@ def run(payload, identity, *, backend=None, root=Path("/data"), timeout=85000, p
                 checkpoint(directory)
             finally:
                 backend.checkpoint = None
+                backend.defer_checkpoint = False
                 if writer is not None:
                     writer.close()
         return read_json(destination)
@@ -106,8 +113,16 @@ def tick(directory, backend, downloads, pool, *, item=None, pinned_preparation=N
     """Advance independent jobs once; never wait for inference or local downloads."""
     directory = Path(directory)
     plan, current = snapshot(directory)
+    deferred = getattr(backend, "defer_checkpoint", False)
+    readiness_cache = {}
+
     def advance(key, **changes):
-        update(directory, key, checkpoint=getattr(backend, "checkpoint", None), **changes)
+        # A successful commit of the submitting intent is mandatory before
+        # EVERY spawn, even when several jobs become ready in the same round.
+        # Other updates still reach local state immediately.
+        checkpoint = (getattr(backend, "checkpoint", None)
+                      if not deferred or changes.get("status") == "submitting" else None)
+        update(directory, key, checkpoint=checkpoint, **changes)
     # Pair a shot's first/last images in the cloud queue to unlock its video early.
     order = {job["key"]: index for index, job in enumerate(plan["jobs"])}
     jobs = sorted(plan["jobs"], key=lambda job: (job["item"], order[job["key"]]))
@@ -173,7 +188,12 @@ def tick(directory, backend, downloads, pool, *, item=None, pinned_preparation=N
                 preparation = pinned_preparation
                 readiness = getattr(backend, "model_readiness", None)
                 if readiness is not None:
-                    preparation = readiness(service)
+                    # One read per pinned service in this round. Never reuse
+                    # readiness across rounds; the GPU invocation still checks
+                    # the pinned version and cache contract.
+                    if service not in readiness_cache:
+                        readiness_cache[service] = readiness(service)
+                    preparation = readiness_cache[service]
                     if preparation.get("status") == "failed":
                         advance(key, status="failed", error="Model preparation failed: " + preparation.get("error", "unknown"))
                         continue

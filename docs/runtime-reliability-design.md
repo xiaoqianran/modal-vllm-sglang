@@ -213,3 +213,12 @@ uv run python tools/gc_workflow_inputs.py apply --volume model-store --plan outp
 - 退休分镜 a0536898a2c94760f4c56518769daca68b95dae8e22b71cad6d503f4af621266 持有3个托管输入（红、蓝、黄），活动分镜共享蓝色；另保留未登记绿色托管对象、同内容旧CAS、历史状态记录和模型权重夹具。首次预览候选为红色1766B与黄色1767B；预览后发布新分镜引用黄色，旧计划重扫拒绝且实际删除0次。新计划精确候选1个，验证完整SHA-256并再次重扫后以非递归remove_file真实删除红色1766B（c7bd4a55a44f7b7b776f66aed59686f6ac261e42d745a8fd139b180bbab26842）。
 - 删除后再次扫描：3份云端计划、1份历史状态、候选0、错误0；13份保留文件逐字节一致（含旧CAS、未登记对象、模型权重夹具、执行状态及结果文件/回执），2个仍被引用的托管输入通过实际帧内容验证。退休分镜的1张PNG与3个MP4重新交付，SHA-256及完整解码均通过；已完成resume不派发。此次验证空间收益仅为小型夹具，不是生产GC容量估算。
 - 全量回归362项测试、211项子测试通过（新增11项专项，18条已有SDK弃用警告）。证据保存在 outputs/managed-gc-lab-1125/（initial-plan.json、apply-plan.json、after-plan.json、summary.json、evidence.jsonl、regression.log、redelivery）。生产服务未重部署，生产数据未执行删除。
+
+
+## 8. CPU 编排提交合并与接受回执复用（2026-11-25）
+
+每次生成调用前仍同步提交 submitting 意图；queued、completed、blocked 等普通状态合并至下一意图屏障或调度轮次结束，终态与 telemetry 一起持久化。同轮相同服务的准备记录仅查询一次，不跨轮缓存。丢失回执时，仅缓存已接受的 Call ID（按 prefix、id、execution_hash 隔离，最多512项），未知接受状态仍逐次查询权威账本。任何意图 Commit 失败均禁止派发。
+
+真实隔离 CPU/Volume V2 对照（基线5aae014，合成媒体生成端）：三阶段分镜 Commit 12→7，累计等待27.881→13.344秒，编排墙钟43.258→27.567秒；模型准备查询4→3，生成结果读取3→3，提交3→3。四次已接受但缺失本地回执轮询：Dict读取4→1，Volume读取4→4，耗时6.375→4.500秒。单次控制面样本，不代表GPU推理加速。
+
+另在独立 Modal App ap-ksqsHklBgduVIUxLpMgewV、Volume vo-6VYI2l1I8XnZQWe25MH5gk 真实故障注入：原始本地任务及未来输入文件删除后，在本地 queued 已更新但轮次 Commit 尚未发生时，等待首帧结果提交并以 os._exit(73) 强制退出。云端仍为 submitting，回执未落入 checkpoint。活动所有者拒绝接管；新控制器验证旧调用终态后接管，复用首帧并推进视频。两个生成端调用、零重复，最终 PNG/MP4 哈希通过。未使用真实GPU。全量367项测试、211项子测试通过（新增5项，18条已有SDK警告）。实验记录位于 outputs/commit-lab-1125/ 和 outputs/commit-fault-lab-1125/。生产部署未修改。

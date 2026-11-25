@@ -124,12 +124,17 @@ class Backend:
         # The Volume ledger remains authoritative. Check on first observation,
         # every bounded interval while pending, and immediately on call exit
         # or error. Unknown acceptance always checks the ledger first.
-        call_id = record.get("call_id")
-        identity = (record["prefix"], record["id"], record["execution_hash"], call_id)
-        if not call_id or record.get("status") == "uncertain" or self.session.ledger_due(identity, _LEDGER_INTERVAL):
+        persisted_call = record.get("call_id")
+        submission = (record["prefix"], record["id"], record["execution_hash"])
+        # A positive receipt from SubmissionLedger is immutable under the
+        # reservation protocol. Never cache absence or a mutable job status.
+        call_id = persisted_call or self.session.accepted_call(submission)
+        identity = (*submission, persisted_call)
+        if not persisted_call or record.get("status") == "uncertain" or self.session.ledger_due(identity, _LEDGER_INTERVAL):
             committed = self._committed_result(record)
             if committed is not None:
                 self.session.forget_ledger(identity)
+                self.session.forget_accepted_call(submission)
                 if call_id:
                     self.session.forget_handle(("call", call_id))
                 return committed
@@ -138,9 +143,13 @@ class Backend:
             entry = self.submission_ledger().lookup(record["prefix"], record["id"], record["execution_hash"])
             if entry and entry.get("call_id"):
                 call_id = entry["call_id"]
-                record = {**record, "call_id": call_id}
+                if not isinstance(call_id, str):
+                    raise ValueError("Invalid accepted submission call ID")
+                self.session.remember_accepted_call(submission, call_id)
         if not call_id:
             return None
+        if not persisted_call:
+            record = {**record, "call_id": call_id}
         from modal.exception import TimeoutError as ModalTimeoutError
         try:
             result = self.call_handle(call_id).get(timeout=0)
@@ -151,6 +160,7 @@ class Backend:
             self.session.forget_ledger(identity)
             committed = self._committed_result(record)
             if committed is not None:
+                self.session.forget_accepted_call(submission)
                 return committed
             raise
         except Exception:
@@ -158,16 +168,19 @@ class Backend:
             self.session.forget_ledger(identity)
             committed = self._committed_result(record)
             if committed is not None:
+                self.session.forget_accepted_call(submission)
                 return committed
             raise
         self.session.forget_handle(("call", call_id))
         self.session.forget_ledger(identity)
         committed = self._committed_result(record)
         if committed is not None:
+            self.session.forget_accepted_call(submission)
             return committed
         check_record(record, result)
         if result.get("status") != "completed":
             raise ValueError("Cloud call returned an incomplete result")
+        self.session.forget_accepted_call(submission)
         return result
 
     def download(self, directory, job, record, plan):

@@ -297,3 +297,41 @@ def test_sdk_v2_invalid_error_conflict_only_for_exact_path(tmp_path, artifact, m
         with pytest.raises(InvalidError):
             stage_input(vol, session, tmp_path, artifact)
         assert not session.inputs
+
+def test_recovered_positive_receipt_reused_but_unknown_acceptance_reads_fresh_ledger():
+    vol = Volume()
+    b = backend(vol)
+    job = record(call_id=None, status="uncertain")
+    ledger = Mock()
+    ledger.lookup.side_effect = [None, {"status": "submitting"}, {"call_id": "fc-recovered"}]
+    b.submission_ledger = lambda: ledger
+    call = b.modal.FunctionCall.from_id.return_value
+    call.get.side_effect = TimeoutError()
+    for _ in range(5):
+        assert b.poll(job) is None
+    assert ledger.lookup.call_count == 3
+    assert len(vol.reads) == 5
+    assert call.get.call_count == 3
+    b.modal.FunctionCall.from_id.assert_called_once_with("fc-recovered")
+    put_record(vol, job, completed(job))
+    assert b.poll(job) == completed(job)
+    assert len(vol.reads) == 6
+    assert not b.session.accepted_calls
+    assert ledger.lookup.call_count == 3
+
+
+def test_recovered_receipt_is_execution_scoped_and_bounded():
+    vol = Volume()
+    b = backend(vol)
+    job = record(call_id=None, status="uncertain")
+    ledger = Mock()
+    ledger.lookup.side_effect = [{"call_id": "fc-old"}, {"call_id": "fc-new"}]
+    b.submission_ledger = lambda: ledger
+    b.modal.FunctionCall.from_id.return_value.get.side_effect = TimeoutError()
+    assert b.poll(job) is None
+    assert b.poll({**job, "execution_hash": "different"}) is None
+    assert ledger.lookup.call_count == 2
+    for i in range(600):
+        b.session.remember_accepted_call(("test", i), "fc-test")
+    assert len(b.session.accepted_calls) == 512
+    assert b.session.accepted_call((job["prefix"], job["id"], job["execution_hash"])) is None

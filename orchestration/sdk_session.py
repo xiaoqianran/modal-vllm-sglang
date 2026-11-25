@@ -11,6 +11,7 @@ class SDKSession:
         self.handles = OrderedDict()
         self.inputs = OrderedDict()
         self.observed = OrderedDict()
+        self.accepted_calls = OrderedDict()
 
     def keyed_lock(self, key):
         return self.stripes[hash(key) % len(self.stripes)]
@@ -45,6 +46,21 @@ class SDKSession:
     def remember_input(self, key):
         with self.lock:
             self._remember(self.inputs, key, True, 512)
+
+    def accepted_call(self, key):
+        with self.lock:
+            value = self.accepted_calls.get(key)
+            if value is not None:
+                self.accepted_calls.move_to_end(key)
+            return value
+
+    def remember_accepted_call(self, key, call_id):
+        with self.lock:
+            self._remember(self.accepted_calls, key, call_id, 512)
+
+    def forget_accepted_call(self, key):
+        with self.lock:
+            self.accepted_calls.pop(key, None)
 
     def ledger_due(self, key, interval):
         with self.lock:

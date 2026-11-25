@@ -114,6 +114,81 @@ class CloudTests(unittest.TestCase):
         backend.submit = checked
         cloud.run(payload, identity, backend=backend, root=self.remote, poll=0.001)
 
+    def test_round_coalesces_checkpoints_but_preserves_every_spawn_barrier(self):
+        backend = FakeBackend()
+        backend.videos_complete = True
+        plan = sdk.snapshot(self.directory)[0]
+        payload = cloud_client.payload_for(self.directory, plan, "001", backend)
+        identity = protocol.run_id(plan, "001")
+        destination = self.remote / protocol.state_path(identity)
+        committed = []
+        backend.volume.commit.side_effect = lambda: committed.append(copy.deepcopy(read_json(destination)))
+        submit = backend.submit
+        def checked(spec, item, prefix, fingerprint):
+            key = item["_telemetry"]["job_key"]
+            self.assertEqual(committed[-1]["jobs"][key]["status"], "submitting")
+            if spec["kind"] == "video":
+                self.assertEqual(committed[-1]["jobs"]["first/001"]["status"], "completed")
+                self.assertEqual(committed[-1]["jobs"]["last/001"]["status"], "completed")
+            return submit(spec, item, prefix, fingerprint)
+        backend.submit = checked
+        backend.model_readiness = Mock(return_value={"status": "ready"})
+        result = cloud.run(payload, identity, backend=backend, root=self.remote, poll=0.001)
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(len(backend.submissions), 3)
+        # Initial, 3 per-job intent barriers, 2 round-end snapshots,
+        # and final completed (not a separate running/completed pair).
+        self.assertEqual(len(committed), 7)
+        self.assertEqual(backend.model_readiness.call_count, 3)
+        self.assertEqual(committed[-1], result)
+        self.assertFalse(backend.defer_checkpoint)
+
+    def test_failed_intent_commit_prevents_spawn(self):
+        backend = FakeBackend()
+        plan = sdk.snapshot(self.directory)[0]
+        payload = cloud_client.payload_for(self.directory, plan, "001", backend)
+        identity = protocol.run_id(plan, "001")
+        backend.volume.commit.side_effect = [None, OSError("intent not committed"), None]
+        with self.assertRaisesRegex(OSError, "intent not committed"):
+            cloud.run(payload, identity, backend=backend, root=self.remote, poll=0.001)
+        self.assertFalse(backend.submissions)
+        self.assertIsNone(backend.checkpoint)
+        self.assertFalse(backend.defer_checkpoint)
+
+    def test_spawn_receipt_lost_before_round_commit_remains_observable(self):
+        backend = FakeBackend()
+        backend.videos_complete = True
+        plan = sdk.snapshot(self.directory)[0]
+        payload = cloud_client.payload_for(self.directory, plan, "001", backend)
+        identity = protocol.run_id(plan, "001")
+        destination = self.remote / protocol.state_path(identity)
+        committed = []
+        backend.volume.commit.side_effect = lambda: committed.append(copy.deepcopy(read_json(destination)))
+        submit = backend.submit
+        def lost(*args):
+            submit(*args)
+            raise OSError("accepted but caller lost reply")
+        backend.submit = lost
+        with self.assertRaisesRegex(OSError, "accepted"):
+            cloud.run(payload, identity, backend=backend, root=self.remote, poll=0.001)
+        self.assertEqual(len(backend.submissions), 1)
+        self.assertEqual(committed[-2]["jobs"]["first/001"]["status"], "submitting")
+        self.assertEqual(committed[-1]["jobs"]["first/001"]["status"], "uncertain")
+        self.assertEqual(committed[-1]["status"], "uncertain")
+        backend.submit = submit
+        # The local FakeBackend stands in for an authoritative completed result
+        # recovered by identity after the receipt has been lost.
+        poll = backend.poll
+        def observe(record):
+            if not record.get("call_id"):
+                record = {**record, "call_id": "fc-1"}
+            return poll(record)
+        backend.poll = observe
+        result = cloud.run(payload, identity, backend=backend, root=self.remote,
+                           durable=True, previous=committed[-1], poll=0.001)
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(len(backend.submissions), 3)
+
     def test_unchanged_polls_do_not_commit_again(self):
         backend = FakeBackend()
         plan = sdk.snapshot(self.directory)[0]
