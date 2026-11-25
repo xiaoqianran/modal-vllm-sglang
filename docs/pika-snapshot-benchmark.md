@@ -71,3 +71,5 @@ A 相比 B 分配 GPU 秒减少 24.1%，综合资源估算减少 20.6%。全实�
 ## 归档
 
 PC2 `outputs/027-pika-factorial-1125-045549/` 保存四组配置、12 条 MP4、evidence.jsonl、原始系统日志、调用记录、分钟资源指标、实际部分账单、解码哈希、comparison.json、实验与分析脚本。实验脚本包含本次配置、缓存身份校验和独立命名，不是可直接无条件重放的生产工具。生产配置未改动。
+
+后续六组快照瘦身、短预热、CPU-only 与 Sleep/Wake 对照见 [Pika 快照优化实测](pika-snapshot-optimization-benchmark.md)。
