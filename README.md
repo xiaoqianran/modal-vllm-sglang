@@ -283,7 +283,7 @@ uv run python run.py resume outputs/006-moss-pika-demo/001-main
 云端 artifacts 与本地 local_artifact 分开保存。提交结果不明时不自动重新生成。
 关闭 worker 不取消已提交的云端工作，但新的依赖任务需要 worker 恢复后才会提交。
 同模型持续排队通常能复用热容器；确实空闲后仍允许 30 秒缩容，并从快照恢复。
-详见 [工作流说明](docs/workflow-runner.md)。
+详见 [工作流说明](docs/workflow-runner.md)。 版本专属探针、跨平台源码身份及大文件恢复的设计与实测见 [运行时可靠性设计](docs/runtime-reliability-design.md)。
 
 ## 5. 新增模型
 
