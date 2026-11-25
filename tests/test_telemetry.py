@@ -131,6 +131,17 @@ class TelemetryTests(unittest.TestCase):
                 release.set()
                 self.assertTrue(writer.flush()["complete"])
 
+    def test_cloud_batching_flush_preserves_events(self):
+        writer = self.writer(cloud=True)
+        recorder = Recorder(writer)
+        with recorder.span("generate"):
+            time.sleep(0.02)
+        manifest = writer.flush()
+        self.assertTrue(manifest["complete"])
+        self.assertEqual(len(manifest["paths"]), 1)
+        records = list(writer.directory.glob("*.jsonl"))[0].read_text(encoding="utf-8").splitlines()
+        self.assertEqual(len(records), 2)
+
     def test_cloud_collection_validates_paths_size_and_checksum(self):
         volume = Mock()
         bad = {"path": "telemetry/../../secret", "sha256": "0" * 64, "bytes": 10}

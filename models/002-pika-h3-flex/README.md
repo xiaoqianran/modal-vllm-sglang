@@ -24,7 +24,7 @@ uv run python run.py resume outputs/004-pika-video-demo/001-main
 ```
 
 run 没有同步/异步开关，统一异步登记；worker 才提交实际 GPU 推理。
-同模型的 SDK 推理串行，不同模型容器可重叠工作。每个模型最多一个 GPU 容器，空闲窗口 30 秒。
+同模型的 SDK 推理串行，不同模型容器可重叠工作。每个模型最多一个 GPU 容器，空闲窗口 60 秒。预热限定 480p，真实 768p 16:9 请求保留六步采样；性能记录见 [Pika 性能验收](../../docs/pika-performance.md)。
 结果先写入 modal-vllm-sglang Volume，再独立下载到 outputs/<project>/<scene>/。
 同模型排队通常复用热容器，不能保证容器永不回收或多客户端严格 FIFO。
 

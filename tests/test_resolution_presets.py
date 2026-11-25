@@ -48,7 +48,13 @@ class ResolutionPresetTests(unittest.TestCase):
         plan = self.plan("480p", workflow="storyboard-to-video")
         self.assertEqual([j["params"]["size"] for j in plan["jobs"][:2]], ["864x480"] * 2)
         self.assertEqual(plan["jobs"][-1]["params"]["target"]["aspect_ratio"], "16:9")
-        for tier in ("256", "512", "1k", "2k", "4k", "768p"):
+        high = self.plan("768p", workflow="storyboard-to-video")
+        self.assertEqual([j["params"]["size"] for j in high["jobs"][:2]], ["1344x768"] * 2)
+        self.assertEqual(high["jobs"][-1]["params"]["target"]["short_edge"], 768)
+        self.assertEqual(high["jobs"][-1]["params"]["num_inference_steps"], 6)
+        with self.assertRaisesRegex(ValueError, "not a declared native canvas"):
+            self.plan("768p", ratio="9:16", workflow="storyboard-to-video")
+        for tier in ("256", "512", "1k", "2k", "4k"):
             with self.assertRaisesRegex(ValueError, "not a declared native canvas"):
                 self.plan(tier, workflow="storyboard-to-video")
         self.assertFalse((self.root / ".runtime").exists())

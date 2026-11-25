@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import queue
 import threading
+import time
 import uuid
 
 from runtime.telemetry.schema import validate
@@ -56,9 +57,13 @@ class Writer:
                 self.queue.task_done()
                 continue
             batch, control, has_control = [first], None, False
+            # Briefly coalesce cloud events; FIFO control/barrier messages
+            # bypass the batching window, so no synchronous publication waits
+            # for the timer. Local logs keep their immediate-write behavior.
+            deadline = time.monotonic() + (0.25 if self.relative else 0)
             while len(batch) < 128:
                 try:
-                    value = self.queue.get_nowait()
+                    value = self.queue.get(timeout=max(0, deadline - time.monotonic()))
                 except queue.Empty:
                     break
                 if not isinstance(value, dict):

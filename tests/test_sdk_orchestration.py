@@ -323,6 +323,40 @@ class CloudImageTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 resolve_frames({"first_frame_artifact": self.ref()}, volume)
 
+    def test_verified_mount_and_stale_mount_fallback(self):
+        volume = Mock()
+        volume.read_file.return_value = [PNG]
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            target = root / self.ref()["path"]
+            target.parent.mkdir(parents=True)
+            target.write_bytes(PNG)
+            payload = resolve_frames({"first_frame_artifact": self.ref()}, volume, mount_root=root)
+            self.assertEqual(base64.b64decode(payload["first_frame_base64"]), PNG)
+            volume.read_file.assert_not_called()
+            target.write_bytes(PNG + b"stale")
+            payload = resolve_frames({"first_frame_artifact": self.ref()}, volume, mount_root=root)
+            self.assertEqual(base64.b64decode(payload["first_frame_base64"]), PNG)
+            volume.read_file.assert_called_once_with("/inference/" + self.ref()["path"])
+            volume.read_file.return_value = [PNG + b"corrupt"]
+            with self.assertRaises(ValueError):
+                resolve_frames({"first_frame_artifact": self.ref()}, volume, mount_root=root)
+            volume.reload.assert_not_called()
+
+    def test_two_missing_frames_read_concurrently(self):
+        import threading
+        barrier = threading.Barrier(2)
+        volume = Mock()
+        def fetch(path):
+            barrier.wait(timeout=2)
+            return [PNG]
+        volume.read_file.side_effect = fetch
+        payload = resolve_frames({"first_frame_artifact": self.ref(),
+                                  "last_frame_artifact": self.ref("model-results/moss/last.png")}, volume)
+        self.assertEqual(base64.b64decode(payload["first_frame_base64"]), PNG)
+        self.assertEqual(base64.b64decode(payload["last_frame_base64"]), PNG)
+        self.assertEqual(volume.read_file.call_count, 2)
+
     def test_inline_and_cloud_inputs_are_mutually_exclusive(self):
         spec = read_json(runner.ROOT / "models/002-pika-h3-flex/model.json")
         item = {"id": "001", "operation": "fl2va", "prompt": "boat", "seed": 1,

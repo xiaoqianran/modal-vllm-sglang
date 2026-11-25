@@ -209,7 +209,7 @@ class ModelServiceTests(unittest.TestCase):
             with patch("runtime.serving.inference_api.SGLangVideoClient") as factory:
                 client = factory.return_value
                 client.submit.return_value = "job-1"
-                def failed(job, *, timeout, on_status):
+                def failed(job, *, timeout, poll, on_status):
                     on_status({"status": "failed"})
                     raise RuntimeError("Remote failed")
                 client.wait.side_effect = failed

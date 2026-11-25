@@ -203,6 +203,8 @@ class PikaRecoveryTests(unittest.TestCase):
         self.client.wait.side_effect = lambda *a, **kw: observations.append((self.volume.commit.call_count, read_json(self.metadata)['job_id']))
         self.run_batch()
         self.assertEqual(observations, [(1, 'submitting'), (2, 'existing-job')])
+        self.assertEqual(self.volume.commit.call_count, 4)
+        self.assertEqual(self.client.wait.call_args.kwargs["poll"], 0.5)
 
     def test_timeout_never_resubmits_unknown_job(self):
         self.client.submit.side_effect = TimeoutError('lost response')

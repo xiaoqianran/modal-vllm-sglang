@@ -3,7 +3,7 @@
 媒体服务的公共 `runtime/serving/model_runtime.py` 提供统一快照生命周期，无模型名称分支。
 MOSS、Pika、MiniMax 及新模型模板使用 `"memory_snapshot": "gpu"`；
 设为 `"off"` 可回退到普通初始化。旧配置省略此项时仍为 off。
-MiniMax 的 `scaledown_window` 为 60 秒，其他媒体模型仍为 30 秒；`min_containers` 保留 0。
+Pika 与 MiniMax 的 `scaledown_window` 为 60 秒，MOSS 仍为 30 秒；`min_containers` 保留 0。
 
 ## 生命周期
 
@@ -20,7 +20,7 @@ SGLang Diffusion 的实际快照兼容性必须分别实测，不能从语言模
 
 ## 预热与权重版本
 
-Pika 的内置预热会进入快照。MiniMax 关闭引擎内置预热，改用可选
+Pika 的内置预热会进入快照，显式限制 `--warmup-resolutions 864x480`，不缩减真实请求的画质或六步采样。第三次旧版冷启动实测命中第二份快照，详见 [Pika 性能验收](pika-performance.md)。MiniMax 关闭引擎内置预热，改用可选
 `snapshot_warmup.params` 在引擎健康后、快照捕获前执行一次真实的 2048×1152、6 步图像请求。
 预热图不发布、不进入任务队列；失败则拒绝就绪。关闭 GPU 快照时此配置不生效。预热和快照恢复是否加速仍须真实验证。
 没有配置此项的模型仍可能在首条请求延迟初始化。

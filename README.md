@@ -60,14 +60,14 @@ MOSS 仍须满足 16 像素对齐；MiniMax 仍须满足 32 像素对齐和 1–
 模型验证失败会在登记前报错，不静默改尺寸或降低档位。新增模型可在自己的 `model.json` 声明
 `resolution_profiles`，无需另建服务注册表。
 
-图生视频任务的 `render` 必须选择该模型声明的原生档位。当前 SGLang Pika 配置声明了 `480p`：
+图生视频任务的 `render` 必须选择该模型声明的原生档位。当前 SGLang Pika 配置声明了 `480p`，以及 16:9 的 `768p` 高画质档位：
 
 ```json
 "render": {"aspect_ratio": "16:9", "resolution": "480p"}
 ```
 
 当前仓库配置同步选择视频目标和 864×480 首尾帧；1K/2K/4K 不是这条视频链的原生预设。该画布是本地配置声明，不等同于上游保证的尺寸。
-`768p` 是识别的原生档位名称，但当前模型配置尚未声明对应 SGLang 画布，使用会明确报错。
+`render.resolution="768p"` 与 `aspect_ratio="16:9"` 同步选择 1344×768 首尾帧和视频目标；其他 768p 比例暂不声明。预热固定为 480p，不改变真实请求的分辨率、时长及六步采样。
 视频模型的原生画布以当前版本 `model.json` 中的映射为准，不直接套用其他后端的桶位表。
 当前没有接入自动超分或低档导出流程；不支持的预设不会冒充已支持。
 
@@ -132,7 +132,7 @@ CPU 下载器检查完整文件清单、复用有效缓存，自动路径会修�
 部署服务和异步编排器共同依赖它。所有业务任务统一通过 worker：单模型单步骤的独立场次直连 GPU SDK，复合依赖场次交给云端 run_shot；模型目录不再提供 run.py。
 旧单模型客户端 `run_jobs`、同步批处理 `run_task` / `generate_batch_stream` 和 HTTP 工作流执行器已移除；统一使用 `run` 登记任务，再由 `worker` 执行。私有 HTTP 推理服务保留。
 
-通用 GPU 快照：MOSS、Pika、MiniMax 共用拍摄与恢复生命周期，保留 30 秒缩容。
+通用 GPU 快照：MOSS、Pika、MiniMax 共用拍摄与恢复生命周期；Pika/MiniMax 空闲缩容 60 秒，MOSS 30 秒。
 配置、计时边界及逐引擎远程验收要求见 [快照说明](docs/memory-snapshots.md)。
 
 运行记录统一在 `runtime/telemetry/`：登记、提交、等待、启动、生成、保存、素材交接、下载使用固定阶段名。
@@ -282,7 +282,7 @@ uv run python run.py resume outputs/006-moss-pika-demo/001-main
 状态权威为 outputs/<project>/<scene>/state.json，plan.json 冻结原始计划。
 云端 artifacts 与本地 local_artifact 分开保存。提交结果不明时不自动重新生成。
 关闭 worker 不取消已提交的云端工作，但新的依赖任务需要 worker 恢复后才会提交。
-同模型持续排队通常能复用热容器；确实空闲后仍允许 30 秒缩容，并从快照恢复。
+同模型持续排队通常能复用热容器；空闲后按模型配置缩容，后续请求可能恢复已有快照，也可能在新 Worker 类型上重新捕获。
 详见 [工作流说明](docs/workflow-runner.md)。 版本专属探针、跨平台源码身份及大文件恢复的设计与实测见 [运行时可靠性设计](docs/runtime-reliability-design.md)。
 
 ## 5. 新增模型

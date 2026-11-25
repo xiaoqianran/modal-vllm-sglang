@@ -8,7 +8,7 @@
   "port": 30010,
   "timeout": 14400,
   "startup_timeout": 3600,
-  "scaledown_window": 30,
+  "scaledown_window": 60,
   "memory_snapshot": "gpu",
   "service": "pika",
   "app_name": "002-pika-h3-flex",
@@ -34,7 +34,9 @@
     "--layerwise-offload-components",
     "text_encoder,vae",
     "--layerwise-resident-layers",
-    "video_vae=36"
+    "video_vae=36",
+    "--warmup-resolutions",
+    "864x480"
   ],
   "defaults": {
     "task": "t2va",
@@ -115,6 +117,12 @@
       "1:1": [
         480,
         480
+      ]
+    },
+    "768p": {
+      "16:9": [
+        1344,
+        768
       ]
     }
   },

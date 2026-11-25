@@ -9,7 +9,7 @@ This catalog separates upstream published capabilities from settings and validat
 | Model | Upstream information | Repository default and accepted dimensions | Validation status |
 | --- | --- | --- | --- |
 | MOSS-Image-SFT | Model card describes image generation but does not establish definitive hard canvas bounds for this checkpoint. | Default `1024x1024`; positive width and height divisible by 16. Shared presets cover long edges 256, 512, 768, 1024, 2048, 4096 at five aspect ratios. | 2K/4K parameter-validated offline only; no GPU quality or memory acceptance. |
-| Pika H3 Flex | Upstream material references 480p and 768p modes. Published bucket dimensions may differ from repository mapping. | Only configured profile is 480p: 864x480 (16:9), 480x864 (9:16), 640x480 (4:3), 480x640 (3:4), 480x480 (1:1). | Mapping declared by `models/002-pika-h3-flex/model.json`; verify actual output. 768p is not enabled locally. |
+| Pika H3 Flex | Upstream material references 480p and 768p modes. Published bucket dimensions may differ from repository mapping. | 480p: 864x480 (16:9), 480x864 (9:16), 640x480 (4:3), 480x640 (3:4), 480x480 (1:1). 768p: 1344x768 (16:9 only). | Mapping declared by `models/002-pika-h3-flex/model.json`. See [Pika performance acceptance](pika-performance.md) for actual generation evidence. |
 | MiniMax H3 Image | Official materials describe a typical 4-20 MP range and common aspect ratios; guidance, not the repository validator lower bound. | Default `2048x2048`. Validator accepts 32-aligned dimensions with area 1-20 MP. | Request validation only; not proof of native generation or quality. |
 
 ## Shared Image Presets

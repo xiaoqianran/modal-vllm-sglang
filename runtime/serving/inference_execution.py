@@ -28,6 +28,15 @@ def execute(spec, items, prefix, volume, cache_fingerprint="unverified", recorde
         context = item.get("_telemetry", {})
         telemetry = (recorder or Recorder()).bind(**{key: context[key] for key in ("task_id", "job_key") if key in context})
         started = time.perf_counter()
+        commit_ms = {}
+
+        def commit_checkpoint(label):
+            before = time.perf_counter()
+            try:
+                volume.commit()
+            finally:
+                commit_ms[label] = (time.perf_counter() - before) * 1000
+
         metadata = folder / (item["id"] + ".json")
         old = read_json(metadata) if metadata.exists() else {}
         if old.get("intent_hash") not in (None, signature):
@@ -64,10 +73,10 @@ def execute(spec, items, prefix, volume, cache_fingerprint="unverified", recorde
             from runtime.tasks.artifacts import resolve_frames
             if any(key.endswith("_artifact") for key in payload):
                 with telemetry.span("transfer", operation="read_frames"):
-                    payload = resolve_frames(payload, volume)
+                    payload = resolve_frames(payload, volume, mount_root=Path("/data"))
             # Persist before submit: a lost response never causes automatic resubmission.
             atomic_json(metadata, {"status": "submitting", "intent_hash": signature, "execution_hash": execution_hash})
-            volume.commit()
+            commit_checkpoint("submitting")
             try:
                 if spec["kind"] == "image":
                     with telemetry.span("generate", operation="image"):
@@ -77,7 +86,7 @@ def execute(spec, items, prefix, volume, cache_fingerprint="unverified", recorde
                         job = client.submit(payload, timeout=spec.get("timeout", 3600))
                         fields["engine_job_id"] = job
                     atomic_json(metadata, {"status": "running", "intent_hash": signature, "execution_hash": execution_hash, "job_id": job})
-                    volume.commit()
+                    commit_checkpoint("running")
             except SubmissionRejected:
                 atomic_json(metadata, {"status": "pending", "intent_hash": signature, "execution_hash": execution_hash})
                 volume.commit()
@@ -91,7 +100,7 @@ def execute(spec, items, prefix, volume, cache_fingerprint="unverified", recorde
                     atomic_json(metadata, record)
                     volume.commit()
             with telemetry.span("generate", operation="video_wait"):
-                client.wait(job, timeout=spec.get("timeout", 3600), on_status=remember_failure)
+                client.wait(job, timeout=spec.get("timeout", 3600), poll=0.5, on_status=remember_failure)
             with telemetry.span("generate", operation="video_fetch"):
                 data = client.content(job)
         suffix = media_suffix(data, spec["kind"])
@@ -106,15 +115,16 @@ def execute(spec, items, prefix, volume, cache_fingerprint="unverified", recorde
             record["job_id"] = job
         if telemetry.writer is not None:
             record["telemetry"] = telemetry.writer.reference()
-        with telemetry.span("save", bytes=len(data)):
+        with telemetry.span("save", bytes=len(data)) as fields:
+            fields["commit_ms"] = commit_ms
             atomic_json(metadata, record)
-            volume.commit()
+            commit_checkpoint("collecting")
             from runtime.utils.files import atomic_write
             if not target.exists():
                 atomic_write(target, data)
             record["status"] = "completed"
             atomic_json(metadata, record)
-            volume.commit()
+            commit_checkpoint("completed")
         publish_telemetry(telemetry, metadata, record, volume, background=background_telemetry)
         yield record
 
