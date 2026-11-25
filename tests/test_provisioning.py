@@ -159,7 +159,7 @@ class ProvisioningTests(unittest.TestCase):
             p = self.provisioner(path)
             p.deployed = Mock(return_value=False)
             p.wait_deployed = Mock(return_value=False)
-            p.deployed_version = Mock(side_effect=lambda app: p.registry["key"]["expected_version"])
+            p.deployed_version = Mock(side_effect=lambda app, expected=None: p.registry["key"]["expected_version"])
             with patch("orchestration.provisioning.source_version", return_value="source"), \
                  patch("orchestration.provisioning.remote_cache_fingerprint", return_value="weights"):
                 p.prepare(validate(SPEC), "key")

@@ -45,6 +45,7 @@ class Provisioner:
         self.registry = backend.modal.Dict.from_name(REGISTRY, create_if_missing=True)
         self.pool = ThreadPoolExecutor(max_workers=2)
         self.verified = {}
+        self.probe_revisions = {}
         self.closing = threading.Event()
         self.futures = {}
         self.lock = threading.Lock()
@@ -93,6 +94,13 @@ class Provisioner:
                     cache_matches = False
                 app = APP_NAME if spec is None else spec.get("app_name", "modal-model-" + spec["service"])
                 if cache_matches and persisted.get("version") and self.deployed(app, persisted["version"]):
+                    # The source/cache hash may be republished as another Modal
+                    # revision. Keep new submissions pinned to the verified one.
+                    revision = self.probe_revision(app, persisted["version"])
+                    if revision is not None and revision != persisted.get("app_revision"):
+                        self.publish(key, {"app_revision": revision}, spec)
+                        updated = self.registry[key]
+                        stamp = (updated["updated_at"], updated["version"])
                     verified[key, batch] = stamp
                     return key
                 if not self.registry.get("admitted:" + key):
@@ -312,14 +320,45 @@ class Provisioner:
                 return False
         return False
 
-    def deployed_version(self, app):
+    def deployed_version(self, app, expected=None):
+        from runtime.serving.deployment_probe import probe_name
+        modal = self.backend.modal
+        # The current App manifest is checked before starting any CPU probe.
+        # A missing hash-specific tag is a mismatch, not a reason to warm
+        # the previous deployment's stable probe. Pin to the active revision.
+        tag = probe_name(expected)
+        call = None
         try:
-            return self.backend.modal.Function.from_name(app, "provision_info").remote()
-        except self.backend.modal.exception.NotFoundError:
+            info = modal.App.lookup(app).info()
+            revision = info.lifecycle.version
+            if not revision or tag not in info.functions:
+                return None
+            call = modal.Function.from_name(app, tag, version=revision).spawn()
+            actual = call.get(timeout=35)
+            # A rollback/rollout racing this probe must not certify an old app.
+            current = modal.App.lookup(app).info()
+            if current.lifecycle.version != revision or tag not in current.functions:
+                return None
+            if actual == expected and expected is not None:
+                if not hasattr(self, "probe_revisions"):
+                    self.probe_revisions = {}
+                self.probe_revisions[app, expected] = revision
+            return actual
+        except modal.exception.NotFoundError:
+            return None
+        except TimeoutError:
+            if call is not None:
+                try:
+                    call.cancel()
+                except Exception:
+                    pass
             return None
 
+    def probe_revision(self, app, version):
+        return getattr(self, "probe_revisions", {}).get((app, version))
+
     def deployed(self, app, version):
-        return self.deployed_version(app) == version
+        return self.deployed_version(app, version) == version
 
     def wait_deployed(self, app, version, *, timeout=180, interval=3):
         """A rolling deployment may resolve the previous version briefly."""
@@ -371,6 +410,7 @@ class Provisioner:
                     if spec is not None:
                         self.registry["active:" + app] = key
                     self.publish(key, {"status": "ready", "version": version, "actual_version": version,
+                                       "app_revision": self.probe_revision(app, version),
                                        "error": None, "error_code": None, "retryable": None,
                                        "last_failed_stage": None, "failed_stage": None,
                                        "spec_hash": intent_digest(spec) if spec is not None else None,
@@ -481,10 +521,17 @@ class Provisioner:
                             if not self.wait_deployed(app, version):
                                 # Do not replay a deployment whose rollout is uncertain.
                                 try:
-                                    actual = self.deployed_version(app)
+                                    actual = self.deployed_version(app, version)
                                 except Exception as exc:
                                     actual = f"unavailable ({type(exc).__name__})"
                                 if actual != version:
+                                    # Stable probe is diagnostic only; it cannot
+                                    # certify the managed version after a timeout.
+                                    if actual is None:
+                                        try:
+                                            actual = self.deployed_version(app)
+                                        except Exception as exc:
+                                            actual = f"unavailable ({type(exc).__name__})"
                                     self.publish(key, {"actual_version": actual}, spec)
                                     raise RuntimeError(
                                         f"Deployment version verification failed after rollout wait: "
@@ -494,6 +541,7 @@ class Provisioner:
                     if spec is not None:
                         self.registry["active:" + app] = key
                     self.publish(key, {"status": "ready", "version": version, "error": None,
+                                       "app_revision": self.probe_revision(app, version),
                                        "last_failed_stage": None, "actual_version": version,
                                        "spec_hash": intent_digest(spec) if spec is not None else None,
                                        "cache_fingerprint": fingerprint if spec is not None else None}, spec)

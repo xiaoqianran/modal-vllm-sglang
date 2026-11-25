@@ -18,7 +18,7 @@ from runtime.config.model_spec import ROOT, validate
 from runtime.config.model_cache import cache_directory, verify_cache, command_argv
 from runtime.telemetry.recorder import Recorder
 from runtime.serving.inference_execution import execute, publish_telemetry
-from runtime.serving.remote_workers import provision_info_entry
+from runtime.serving.deployment_probe import register_probes
 
 
 def build_image(spec, *, offline):
@@ -359,11 +359,7 @@ def create_app(config_path):
         })
         .add_local_python_source("runtime")
     )
-    app.function(
-        name="provision_info", image=provision_image, serialized=False,
-        env={"MODEL_DEPLOY_VERSION": deployment_version},
-        cpu=0.25, memory=512, timeout=60,
-    )(provision_info_entry)
+    register_probes(app, provision_image, deployment_version)
 
     startup = spec.get("startup_timeout", 3600)
     proxy_port = spec.get("proxy_port", spec.get("port", 8000) + 1)

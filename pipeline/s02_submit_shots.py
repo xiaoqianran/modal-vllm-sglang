@@ -18,8 +18,9 @@ from runtime.utils.files import read_json
 
 
 class Backend(sdk.Backend):
-    def submit_workflow(self, payload, identity):
-        return self.modal.Function.from_name(APP_NAME, "run_shot").spawn(payload, identity).object_id
+    def submit_workflow(self, payload, identity, *, app_revision=None):
+        pin = {"version": app_revision} if app_revision is not None else {}
+        return self.modal.Function.from_name(APP_NAME, "run_shot", **pin).spawn(payload, identity).object_id
 
     def poll_workflow(self, receipt):
         try:
@@ -175,6 +176,7 @@ def tick_shot(directory, item, backend, downloads, pool):
                 return collect_outputs(directory, backend, downloads, pool, item=item)
             provisioner = getattr(backend, "provisioner", None)
             preparation = None
+            orchestration_revision = None
             if provisioner is not None:
                 cloud_key = provisioner.start(batch=plan["hash"])
                 preparation = provisioner.batch_keys(plan["services"], plan["hash"])
@@ -187,6 +189,7 @@ def tick_shot(directory, item, backend, downloads, pool):
                     return
                 if readiness.get("status") != "ready":
                     return
+                orchestration_revision = readiness.get("app_revision")
             for job in jobs:
                 if current["jobs"][job["key"]]["status"] not in {"pending", "blocked"}:
                     continue
@@ -214,7 +217,8 @@ def tick_shot(directory, item, backend, downloads, pool):
             try:
                 recorder = local_recorder(state.telemetry_directory(directory), task_id=f"{plan['project']}/{plan['scene']}")
                 with recorder.span("submit", operation="workflow", item=item) as fields:
-                    call_id = backend.submit_workflow(payload, receipt["id"])
+                    pin = {"app_revision": orchestration_revision} if orchestration_revision is not None else {}
+                    call_id = backend.submit_workflow(payload, receipt["id"], **pin)
                     fields["call_id"] = call_id
                 save_receipt(directory, item, status="queued", call_id=call_id)
             except BaseException:

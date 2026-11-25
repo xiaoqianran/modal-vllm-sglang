@@ -44,9 +44,10 @@ def create_download_app(config_path):
         .env({"MODEL_DEPLOY_VERSION": deployment_version})
         .add_local_python_source("runtime")
     )
+    from runtime.serving.deployment_probe import PROBE_OPTIONS
     app.function(
         name="provision_info", image=provision_image, serialized=False,
-        cpu=0.25, memory=512, timeout=60,
+        **PROBE_OPTIONS,
     )(provision_info_entry)
 
     image = (

@@ -30,11 +30,9 @@ for config in root.glob("models/*/model.json"):
 app = modal.App(APP_NAME)
 
 
-@app.function(image=image, env={"MODEL_DEPLOY_VERSION": deployment_version},
-              cpu=0.25, memory=512, timeout=60)
-def provision_info():
-    """Check the same image and module import as run_shot, without GPU work."""
-    return os.environ["MODEL_DEPLOY_VERSION"]
+from runtime.serving.deployment_probe import register_probes
+
+register_probes(app, image, deployment_version)
 
 
 volume = model_volume()

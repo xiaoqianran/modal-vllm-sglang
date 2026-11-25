@@ -39,9 +39,19 @@ def sha256_file(path):
 
 
 def download_volume_file(volume, remote_path, destination, *, expected_sha256=None, kind=None, refuse_existing=False, max_bytes=None):
+    # Modal Volume V2 supports independently verified blocks. Keep the
+    # public streaming path for small files, test doubles and other backends.
+    if expected_sha256 is not None and max_bytes is not None and max_bytes >= 8 * 1024 * 1024:
+        from runtime.utils.volume_download import resumable_download
+        result = resumable_download(volume, remote_path, destination,
+                                    expected_sha256=expected_sha256, kind=kind,
+                                    refuse_existing=refuse_existing, max_bytes=max_bytes)
+        if result is not None:
+            return result
     started = time.perf_counter()
     first_chunk_seconds = None
     size = 0
+    digest = hashlib.sha256() if expected_sha256 is not None else None
     destination = Path(destination)
     destination.parent.mkdir(parents=True, exist_ok=True)
     fd, temporary = tempfile.mkstemp(prefix=destination.name + ".", suffix=".part", dir=destination.parent)
@@ -54,8 +64,10 @@ def download_volume_file(volume, remote_path, destination, *, expected_sha256=No
                 if first_chunk_seconds is None:
                     first_chunk_seconds = time.perf_counter() - started
                 stream.write(chunk)
+                if digest is not None:
+                    digest.update(chunk)
                 size += len(chunk)
-        if expected_sha256 is not None and sha256_file(temp) != expected_sha256:
+        if digest is not None and digest.hexdigest() != expected_sha256:
             raise ValueError("Downloaded content checksum mismatch")
         if kind is not None:
             from runtime.utils.media import media_suffix

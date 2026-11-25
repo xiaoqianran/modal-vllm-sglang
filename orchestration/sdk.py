@@ -79,13 +79,17 @@ class Backend:
             batch.put_file(str(path), volume_key("/" + ref["path"]))
         return ref
 
-    def submit(self, spec, item, prefix, fingerprint):
+    def submit(self, spec, item, prefix, fingerprint, *, app_revision=None):
         key = intent_digest(spec)
-        if key not in self.models:
-            self.models[key] = self.modal.Cls.from_name(spec.get("app_name", "modal-model-" + spec["service"]), spec.get("modal_class", "Model"))()
+        handle_key = (key, app_revision)
+        if handle_key not in self.models:
+            pin = {"version": app_revision} if app_revision is not None else {}
+            self.models[handle_key] = self.modal.Cls.from_name(
+                spec.get("app_name", "modal-model-" + spec["service"]),
+                spec.get("modal_class", "Model"), **pin)()
         execution_hash = execution_signature(prepare(spec, item)[1], fingerprint)
         return self.submission_ledger().submit(prefix, item["id"], execution_hash,
-            lambda: self.models[key].generate_one.spawn(item, prefix, fingerprint, key).object_id)
+            lambda: self.models[handle_key].generate_one.spawn(item, prefix, fingerprint, key).object_id)
 
     def submission_ledger(self):
         from orchestration.protocol import SUBMISSION_REGISTRY

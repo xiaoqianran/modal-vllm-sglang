@@ -159,6 +159,7 @@ def tick(directory, backend, downloads, pool, *, item=None, pinned_preparation=N
                 if any(records[dep]["status"] == "failed" for dep in dependencies):
                     advance(key, status="failed", error="Dependency failed")
                     continue
+                preparation = pinned_preparation
                 readiness = getattr(backend, "model_readiness", None)
                 if readiness is not None:
                     preparation = readiness(service)
@@ -188,8 +189,9 @@ def tick(directory, backend, downloads, pool, *, item=None, pinned_preparation=N
                     continue
                 request = item_for(directory, job, records, spec, backend)
                 signature = prepare(spec, request)[1]
-                fingerprint = (pinned_preparation["cache_fingerprint"] if pinned_preparation is not None
-                               else backend.fingerprint(spec))
+                fingerprint = (preparation["cache_fingerprint"] if preparation is not None
+                               and preparation.get("cache_fingerprint") else backend.fingerprint(spec))
+                revision = preparation.get("app_revision") if preparation is not None else None
                 prefix = result_prefix(spec, plan["project"], plan["scene"], request["operation"])
                 receipt = {"id": request["id"], "prefix": prefix, "intent_hash": signature,
                            "cache_fingerprint": fingerprint,
@@ -200,7 +202,8 @@ def tick(directory, backend, downloads, pool, *, item=None, pinned_preparation=N
                     if before_submit is not None:
                         before_submit(receipt)
                     with recorder.span("submit") as fields:
-                        call_id = backend.submit(spec, request, prefix, fingerprint)
+                        pin = {"app_revision": revision} if revision is not None else {}
+                        call_id = backend.submit(spec, request, prefix, fingerprint, **pin)
                         fields["call_id"] = call_id
                     advance(key, status="queued", call_id=call_id, submitted_at=utc_now(),
                            dependency_wait_started_at=None)

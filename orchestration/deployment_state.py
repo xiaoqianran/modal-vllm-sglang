@@ -1,12 +1,13 @@
 """Deployment dependency versions and durable preparation diagnostics."""
 import ast
+import hashlib
 from contextlib import contextmanager
 from pathlib import Path
 import time
 
 from runtime.config.model_spec import ROOT
 from runtime.tasks.task_identity import intent_digest
-from runtime.utils.files import atomic_json, read_json, sha256_file
+from runtime.utils.files import atomic_json, read_json
 
 
 def dependency_files(root, modules):
@@ -37,7 +38,16 @@ def dependency_files(root, modules):
 
 
 def digest_files(root, paths):
-    return intent_digest([(path.relative_to(root).as_posix(), sha256_file(path)) for path in sorted(paths)])
+    # Git checkout line endings differ between Windows and Linux. Hash the
+    # same text bytes on both hosts, but retain every other source change.
+    def digest(path):
+        data = path.read_bytes()
+        if path.suffix in {".py", ".json"}:
+            data = data.replace(b"\r\n", b"\n")
+        return hashlib.sha256(data).hexdigest()
+    # Sort POSIX relative names explicitly: WindowsPath ordering is case-insensitive.
+    entries = sorted((path.relative_to(root).as_posix(), digest(path)) for path in paths)
+    return intent_digest(entries)
 
 
 def source_version(root=ROOT):
