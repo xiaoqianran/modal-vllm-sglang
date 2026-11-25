@@ -123,3 +123,28 @@ SDK 升级必须重新测试真实传输、超时、损坏块、断点恢复以�
 | [专项测试](../tests/test_probe_volume_recovery.py) | 版本与断点恢复回归 |
 
 复用这些设计时应优先消除错误的等待依赖、保留不可变身份与可验证证据，再考虑增加并发、延长超时或扩大资源。
+
+## 5. SDK 会话复用与不可变首尾帧输入（2026-11-25）
+
+- Runner 以进程内 SDKSession 管理有界 Call 句柄（256）、已验证输入及最近账本检查时间（各512）。模型句柄及缓存指纹按原身份复用，并发首次创建按键加锁；有完整部署哈希的工作流函数按专属 tag 复用，旧式未固定版本的函数仍逐次解析。部署版本保护、SubmissionLedger 原子保留和已提交任务不重放的原则不变。
+- 已知在途 Call 的账本首查、每6秒复查，以及 Call 返回/异常后即时复查；无 call_id 或 uncertain 状态仍逐次读取权威账本。Call.get(timeout=0) 轮询频率不变。只缓存检查时间，不缓存可变执行状态。若结果在 Call 结束前写入，常规发现延迟可能增加至6秒加调度/网络耗时；Call 终止或异常不受该间隔限制。
+- 首尾帧按原 SHA-256 路径 staging：先读取并校验本地快照，已存在对象验证大小及完整哈希，缺失才以 force=False 上传。并发冲突时仅接受 FileExistsError 或 SDK 1.6.4 针对精确目标路径的 InvalidError（真实返回 path "<key>" already exists），再校验获胜对象；不覆盖损坏对象。一次会话内相同已验证对象不重复传输，其他进程第一次复用仍校验字节。相同路径、摘要、大小的两帧在 GPU 输入解析只读取/编码一次；不同路径即使内容相同仍独立校验。
+- 注意本仓库的 /inference/workflow-inputs 与模型及 model-results 共用 model-store；历史执行记录只有 intent_hash/execution_hash，没有完整持久化输入引用清单，也不能穷尽其他工作区或历史云端提交。因此先做只读依赖审计，未实现删除：
+
+  ```powershell
+  uv run python tools/audit_workflow_inputs.py --volume model-store --task-root .runtime/tasks --out outputs/workflow-input-audit.json
+  ```
+
+  可重复 --task-root 输入其他已知工作区任务目录。仅列举 /inference/workflow-inputs，校验同卷计划哈希，识别已扫描计划的未来/当前输入引用、未出现引用的对象、未上传的本地输入、缺失的显式云端输入及异常。unobserved_by_scanned_plans 不等于无依赖或可回收；deletion_allowed 永远为 false。不扫描权重、不下载媒体、不删除文件，不应将报告用于自动删除。真正的 GC 需要完整的持久化根清单、旧任务迁移、显式退休协议及独占维护/写入协调机制。
+
+### 真实 SDK 隔离验收
+
+基线为 ba55375；隔离 Volume V2（vo-gI4qbhcoiKrmsUvKKUEFEm）与 CPU App ap-ur67D4uvfvsEk3D3F2ZMKi。使用真实512×512 PNG及真实在途 CPU Call，未启动 GPU。
+
+| 测试 | 优化前 | 优化后 |
+| --- | --- | --- |
+| 同帧4次 staging | batch_upload 4；2.781 s | batch_upload 1、首次 read_file 1；1.000 s |
+| 同一在途Call 4次轮询 | read_file 4、from_id 4、get 4；4.985 s | read_file 1、from_id 1、get 4；2.078 s |
+| 新会话已有输入 | 强制覆盖 | read_file 1，上传0 |
+
+以上为单次实测 SDK 方法计数与墙钟耗时，不代表底层 RPC 数完全等同，也不是 GPU 生成或整体任务加速比例。真实并发争抢同一内容对象通过（首次发现 InvalidError 后修复并重验）；相同帧读取1次；只读依赖审计对3个对象列举1次、媒体读取0次，未来未上传输入正确报告。CPU Call 未退出时提交模拟结果与媒体，Runner 恢复已完成证据。最终334项测试和209项子测试通过（15项新增，18条现有SDK弃用警告）；实验App停止、容器0、隔离卷删除，生产卷和生产部署不变。实验记录保留在 outputs/sdk-input-lab-1125/。未做真实GPU推理、端到端媒体吞吐、Qwen LLM/KV Cache调参或历史工作流安全回收。

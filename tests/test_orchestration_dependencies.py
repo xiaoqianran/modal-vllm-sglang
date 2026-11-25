@@ -17,7 +17,10 @@ class DependencyTests(unittest.TestCase):
     def test_lower_layers_do_not_import_upper_layers(self):
         allowed = {
             "protocol": set(),
-            "sdk": {"model_capabilities", "state", "protocol", "submissions"},
+            "sdk": {"model_capabilities", "state", "protocol", "submissions", "sdk_session", "input_store"},
+            "sdk_session": set(),
+            "input_store": {"state"},
+            "input_audit": set(),
             "s03_run_shot": {"sdk", "state", "protocol", "model_capabilities"},
             "s02_submit_shots": {"sdk", "state", "protocol", "provisioning", "monitor"},
             "provisioning": {"protocol", "state", "deployment_state", "leases"},
@@ -72,7 +75,9 @@ class DependencyTests(unittest.TestCase):
                 self[key] = value
                 return True
 
-        backend = sdk.Backend.__new__(sdk.Backend)
+        from unittest.mock import patch
+        with patch("runtime.serving.modal_setup.model_volume", return_value=Mock()):
+            backend = sdk.Backend()
         backend.modal = Mock()
         backend.modal.Dict.from_name.return_value = Registry()
         backend.models = {}

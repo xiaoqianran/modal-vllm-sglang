@@ -66,6 +66,11 @@ def resolve_frames(payload, volume, *, mount_root=None):
     if len(refs) == 1:
         field, ref = next(iter(refs.items()))
         payload[field + "_base64"] = _read_frame(ref, volume, mount_root)
+    elif refs and refs["first_frame"] == refs["last_frame"]:
+        # Identical path AND digest AND size: verify once and reuse the same
+        # encoded bytes. Distinct source paths still validate independently.
+        frame = _read_frame(refs["first_frame"], volume, mount_root)
+        payload["first_frame_base64"] = payload["last_frame_base64"] = frame
     elif refs:
         with ThreadPoolExecutor(max_workers=2) as pool:
             futures = {field: pool.submit(_read_frame, ref, volume, mount_root)

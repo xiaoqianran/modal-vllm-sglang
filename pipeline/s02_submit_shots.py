@@ -22,7 +22,10 @@ class Backend(sdk.Backend):
         from runtime.serving.deployment_probe import versioned_name
         tag = versioned_name("run_shot", deployment_version)
         guard = {"expected_deployment_version": deployment_version} if deployment_version is not None else {}
-        return self.modal.Function.from_name(APP_NAME, tag).spawn(payload, identity, **guard).object_id
+        lookup = lambda: self.modal.Function.from_name(APP_NAME, tag)
+        function = (self.session.handle(("workflow", APP_NAME, tag, deployment_version), lookup)
+                    if deployment_version is not None else lookup())
+        return function.spawn(payload, identity, **guard).object_id
 
     def poll_workflow(self, receipt):
         try:
@@ -35,12 +38,21 @@ class Backend(sdk.Backend):
         except FileNotFoundError:
             if not receipt.get("call_id"):
                 return None
+            from modal.exception import TimeoutError as ModalTimeoutError
             try:
-                result = self.modal.FunctionCall.from_id(receipt["call_id"]).get(timeout=0)
-            except TimeoutError:
-                return None
+                result = self.call_handle(receipt["call_id"]).get(timeout=0)
+            except (TimeoutError, ModalTimeoutError) as exc:
+                if type(exc) in (TimeoutError, ModalTimeoutError):
+                    return None
+                self.session.forget_handle(("call", receipt["call_id"]))
+                raise
+            except Exception:
+                self.session.forget_handle(("call", receipt["call_id"]))
+                raise
         if result.get("version") != VERSION or result.get("payload_hash") != receipt["payload_hash"]:
             raise ValueError("Workflow receipt/configuration mismatch")
+        if receipt.get("call_id") and result.get("status") in {"completed", "failed", "uncertain"}:
+            self.session.forget_handle(("call", receipt["call_id"]))
         return result
 
 

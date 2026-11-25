@@ -399,8 +399,9 @@ class CloudImageTests(unittest.TestCase):
 
     def test_backend_recovers_committed_result_without_call_id(self):
         import json
-        backend = sdk.Backend.__new__(sdk.Backend)
-        backend.volume, backend.modal = Mock(), Mock()
+        with patch("runtime.serving.modal_setup.model_volume", return_value=Mock()):
+            backend = sdk.Backend()
+        backend.modal = Mock()
         record = {"prefix": "model-results/moss/test", "id": "001", "intent_hash": "intent", "execution_hash": "execution"}
         result = {"id": "001", "file": "001.png", "status": "completed", "bytes": len(PNG),
                   "sha256": hashlib.sha256(PNG).hexdigest(), "intent_hash": "intent", "execution_hash": "execution"}

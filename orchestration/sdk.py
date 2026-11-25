@@ -8,14 +8,20 @@ from pathlib import Path
 import time
 
 from orchestration import model_capabilities, state
+from orchestration.sdk_session import SDKSession
+from orchestration.input_store import stage_input
 from runtime.tasks.task_identity import intent_digest
 from runtime.tasks.task_spec import prepare, result_prefix, execution_signature
 from runtime.tasks.job_client import remote_cache_fingerprint, remote_record, check_record
-from runtime.config.storage import volume_key
 from runtime.tasks.artifacts import image_reference
 from runtime.utils.files import read_json
 from runtime.telemetry.recorder import local_recorder
 from runtime.telemetry.schema import utc_now
+
+
+# Keep committed evidence discoverable while a known call is pending;
+# avoid a redundant Volume read on every 2-second scheduler tick.
+_LEDGER_INTERVAL = 6
 
 
 def model_specs():
@@ -62,30 +68,26 @@ class Backend:
         self.models = {}
         self.fingerprints = {}
         self.telemetry_manifests = {}
+        self.session = SDKSession()
 
     def fingerprint(self, spec):
         key = intent_digest(spec)
-        if key not in self.fingerprints:
-            self.fingerprints[key] = remote_cache_fingerprint(spec, self.volume)
-        return self.fingerprints[key]
+        with self.session.keyed_lock(("fingerprint", key)):
+            if key not in self.fingerprints:
+                self.fingerprints[key] = remote_cache_fingerprint(spec, self.volume)
+            return self.fingerprints[key]
 
     def upload(self, directory, artifact):
-        path = state.local_path(directory, artifact["path"])
-        if not state.valid(directory, artifact):
-            raise ValueError("Frozen input image changed")
-        ref = image_reference({"path": "workflow-inputs/" + artifact["sha256"],
-                               "sha256": artifact["sha256"], "size": artifact["size"]})
-        with self.volume.batch_upload(force=True) as batch:
-            batch.put_file(str(path), volume_key("/" + ref["path"]))
-        return ref
+        return stage_input(self.volume, self.session, directory, artifact)
 
     def submit(self, spec, item, prefix, fingerprint, *, deployment_version=None):
         key = intent_digest(spec)
         handle_key = (key, deployment_version)
-        if handle_key not in self.models:
-            self.models[handle_key] = self.modal.Cls.from_name(
-                spec.get("app_name", "modal-model-" + spec["service"]),
-                spec.get("modal_class", "Model"))()
+        with self.session.keyed_lock(("model", handle_key)):
+            if handle_key not in self.models:
+                self.models[handle_key] = self.modal.Cls.from_name(
+                    spec.get("app_name", "modal-model-" + spec["service"]),
+                    spec.get("modal_class", "Model"))()
         execution_hash = execution_signature(prepare(spec, item)[1], fingerprint)
         # A stable class tag can still receive an old rolling container.
         # Guard the invocation itself, without paid version-pinned lookup.
@@ -96,12 +98,15 @@ class Backend:
     def submission_ledger(self):
         from orchestration.protocol import SUBMISSION_REGISTRY
         from orchestration.submissions import SubmissionLedger
-        if not hasattr(self, "_submission_ledger"):
-            self._submission_ledger = SubmissionLedger(self.modal.Dict.from_name(SUBMISSION_REGISTRY, create_if_missing=True))
-        return self._submission_ledger
+        with self.session.lock:
+            if not hasattr(self, "_submission_ledger"):
+                self._submission_ledger = SubmissionLedger(self.modal.Dict.from_name(SUBMISSION_REGISTRY, create_if_missing=True))
+            return self._submission_ledger
 
-    def poll(self, record):
-        # Committed metadata outlives Modal call result retention.
+    def call_handle(self, call_id):
+        return self.session.handle(("call", call_id), lambda: self.modal.FunctionCall.from_id(call_id))
+
+    def _committed_result(self, record):
         result = remote_record(self.volume, record["prefix"], record["id"])
         if result:
             check_record(record, result)
@@ -109,16 +114,53 @@ class Backend:
                 self.telemetry_manifests[record.get("call_id")] = result["telemetry"]
             if result.get("status") in {"completed", "failed", "cancelled"}:
                 return result
-        if not record.get("call_id") and record.get("prefix") and record.get("id"):
+        return None
+
+    def poll(self, record):
+        # The Volume ledger remains authoritative. Check on first observation,
+        # every bounded interval while pending, and immediately on call exit
+        # or error. Unknown acceptance always checks the ledger first.
+        call_id = record.get("call_id")
+        identity = (record["prefix"], record["id"], record["execution_hash"], call_id)
+        if not call_id or record.get("status") == "uncertain" or self.session.ledger_due(identity, _LEDGER_INTERVAL):
+            committed = self._committed_result(record)
+            if committed is not None:
+                self.session.forget_ledger(identity)
+                if call_id:
+                    self.session.forget_handle(("call", call_id))
+                return committed
+            self.session.note_ledger_read(identity)
+        if not call_id and record.get("prefix") and record.get("id"):
             entry = self.submission_ledger().lookup(record["prefix"], record["id"], record["execution_hash"])
             if entry and entry.get("call_id"):
-                record = {**record, "call_id": entry["call_id"]}
-        if not record.get("call_id"):
+                call_id = entry["call_id"]
+                record = {**record, "call_id": call_id}
+        if not call_id:
             return None
+        from modal.exception import TimeoutError as ModalTimeoutError
         try:
-            result = self.modal.FunctionCall.from_id(record["call_id"]).get(timeout=0)
-        except TimeoutError:
-            return None
+            result = self.call_handle(call_id).get(timeout=0)
+        except (TimeoutError, ModalTimeoutError) as exc:
+            if type(exc) in (TimeoutError, ModalTimeoutError):
+                return None
+            self.session.forget_handle(("call", call_id))
+            self.session.forget_ledger(identity)
+            committed = self._committed_result(record)
+            if committed is not None:
+                return committed
+            raise
+        except Exception:
+            self.session.forget_handle(("call", call_id))
+            self.session.forget_ledger(identity)
+            committed = self._committed_result(record)
+            if committed is not None:
+                return committed
+            raise
+        self.session.forget_handle(("call", call_id))
+        self.session.forget_ledger(identity)
+        committed = self._committed_result(record)
+        if committed is not None:
+            return committed
         check_record(record, result)
         if result.get("status") != "completed":
             raise ValueError("Cloud call returned an incomplete result")

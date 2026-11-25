@@ -56,8 +56,9 @@ class DeploymentProbeTests(unittest.TestCase):
     def test_gpu_handle_is_not_reused_across_source_versions_and_guards_execution(self):
         from orchestration.sdk import Backend
         from tests.test_model_service import SPEC
-        backend = Backend.__new__(Backend)
-        backend.modal, backend.models = Mock(), {}
+        with patch("runtime.serving.modal_setup.model_volume", return_value=Mock()):
+            backend = Backend()
+        backend.modal = Mock()
         backend.submission_ledger = Mock()
         backend.submission_ledger.return_value.submit.side_effect = (
             lambda prefix, item, digest, spawn: spawn())
@@ -103,7 +104,8 @@ class DeploymentProbeTests(unittest.TestCase):
     def test_workflow_version_uses_unique_tag_without_retention(self):
         from pipeline.s02_submit_shots import Backend
         from orchestration.protocol import APP_NAME
-        backend = Backend.__new__(Backend)
+        with patch("runtime.serving.modal_setup.model_volume", return_value=Mock()):
+            backend = Backend()
         backend.modal = Mock()
         backend.submit_workflow({}, "id", deployment_version="a" * 64)
         backend.modal.Function.from_name.assert_called_once_with(APP_NAME, "run_shot_" + "a" * 32)
