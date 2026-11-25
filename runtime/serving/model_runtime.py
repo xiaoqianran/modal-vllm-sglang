@@ -18,7 +18,7 @@ from runtime.config.model_spec import ROOT, validate
 from runtime.config.model_cache import cache_directory, verify_cache, command_argv
 from runtime.telemetry.recorder import Recorder
 from runtime.serving.inference_execution import execute, publish_telemetry
-from runtime.serving.deployment_probe import register_probes
+from runtime.serving.deployment_probe import assert_deployment_version, register_probes
 
 
 def build_image(spec, *, offline):
@@ -230,7 +230,9 @@ class ModelRuntime:
     )(serve)
 
     @modal.method()
-    def generate_one(self, item, prefix, expected_cache_fingerprint, expected_spec_hash):
+    def generate_one(self, item, prefix, expected_cache_fingerprint, expected_spec_hash,
+                     expected_deployment_version=None):
+        assert_deployment_version(expected_deployment_version)
         spec = self.spec
         requested = time.perf_counter()
         if expected_spec_hash != intent_digest(spec):

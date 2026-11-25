@@ -30,7 +30,7 @@ for config in root.glob("models/*/model.json"):
 app = modal.App(APP_NAME)
 
 
-from runtime.serving.deployment_probe import register_probes
+from runtime.serving.deployment_probe import assert_deployment_version, register_probes, versioned_name
 
 register_probes(app, image, deployment_version)
 
@@ -39,10 +39,8 @@ volume = model_volume()
 claims = modal.Dict.from_name(APP_NAME + "-claims", create_if_missing=True)
 
 
-@app.function(image=image, env={"MODEL_DEPLOY_VERSION": deployment_version},
-              cpu=0.25, memory=512, volumes={VOLUME_MOUNT: volume.with_mount_options(sub_path=VOLUME_SUB_PATH)},
-              timeout=86400, retries=0, max_containers=32)
-def run_shot(payload, identity):
+def run_shot(payload, identity, expected_deployment_version=None):
+    assert_deployment_version(expected_deployment_version)
     # Check durable state first, then use an atomic distributed claim. Volume file
     # locks alone cannot exclude owners running in different Modal containers.
     try:
@@ -56,3 +54,15 @@ def run_shot(payload, identity):
     if not claims.put(identity, intent_digest(payload), skip_if_exists=True):
         raise RuntimeError("Workflow is already claimed; inspect its state instead of replaying")
     return run(payload, identity)
+
+# Keep the stable endpoint for legacy callers, but new managed workflows use
+# their exact version tag. Both refer to the same source-imported function.
+_workflow_options = dict(image=image, env={"MODEL_DEPLOY_VERSION": deployment_version},
+                         cpu=0.25, memory=512,
+                         volumes={VOLUME_MOUNT: volume.with_mount_options(sub_path=VOLUME_SUB_PATH)},
+                         timeout=86400, retries=0, max_containers=32)
+_workflow_entry = run_shot
+run_shot = app.function(name="run_shot", **_workflow_options)(_workflow_entry)
+_workflow_tag = versioned_name("run_shot", deployment_version)
+if _workflow_tag != "run_shot":
+    app.function(name=_workflow_tag, **_workflow_options)(_workflow_entry)

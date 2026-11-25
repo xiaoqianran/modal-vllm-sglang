@@ -35,10 +35,10 @@ class DeploymentProbeTests(unittest.TestCase):
         self.assertFalse(self.p.deployed("model", self.version))
         self.modal.Function.from_name.assert_not_called()
 
-    def test_versioned_probe_is_pinned_and_checked_against_active_revision(self):
+    def test_versioned_probe_uses_current_tag_without_paid_revision_retention(self):
         self.info.return_value = self.app(3, self.tag)
         self.assertTrue(self.p.deployed("model", self.version))
-        self.modal.Function.from_name.assert_called_once_with("model", self.tag, version=3)
+        self.modal.Function.from_name.assert_called_once_with("model", self.tag)
         self.call.get.assert_called_once_with(timeout=35)
         self.assertEqual(self.info.call_count, 2)
         self.assertEqual(self.p.probe_revision('model', self.version), 3)
@@ -53,7 +53,7 @@ class DeploymentProbeTests(unittest.TestCase):
         self.assertFalse(self.p.deployed("model", self.version))
         self.call.cancel.assert_called_once_with()
 
-    def test_gpu_handle_is_pinned_and_not_reused_across_revisions(self):
+    def test_gpu_handle_is_not_reused_across_source_versions_and_guards_execution(self):
         from orchestration.sdk import Backend
         from tests.test_model_service import SPEC
         backend = Backend.__new__(Backend)
@@ -63,12 +63,15 @@ class DeploymentProbeTests(unittest.TestCase):
             lambda prefix, item, digest, spawn: spawn())
         spec = {**SPEC, "app_name": "test-app", "modal_class": "Model"}
         backend.submit(spec, {"id": "one", "prompt": "lake", "seed": 1},
-                       "prefix", "cache", app_revision=3)
+                       "prefix", "cache", deployment_version="a" * 64)
         backend.submit(spec, {"id": "two", "prompt": "lake", "seed": 2},
-                       "prefix", "cache", app_revision=3)
+                       "prefix", "cache", deployment_version="a" * 64)
         backend.submit(spec, {"id": "three", "prompt": "lake", "seed": 3},
-                       "prefix", "cache", app_revision=4)
-        self.assertEqual([c.kwargs["version"] for c in backend.modal.Cls.from_name.call_args_list], [3, 4])
+                       "prefix", "cache", deployment_version="b" * 64)
+        self.assertEqual([c.kwargs for c in backend.modal.Cls.from_name.call_args_list], [{}, {}])
+        spawn = backend.modal.Cls.from_name.return_value.return_value.generate_one.spawn
+        self.assertEqual([c.kwargs["expected_deployment_version"] for c in spawn.call_args_list],
+                         ["a" * 64, "a" * 64, "b" * 64])
         self.assertEqual(len(backend.models), 2)
 
     def test_source_identity_is_invariant_under_checkout_line_endings(self):
@@ -85,6 +88,27 @@ class DeploymentProbeTests(unittest.TestCase):
             self.assertEqual(digest_files(root, [spec, source]), original)
             source.write_bytes(b"def version():\r\n    return 2\r\n")
             self.assertNotEqual(digest_files(root, [source, spec]), original)
+
+    def test_stale_gpu_version_rejected_before_accessing_engine(self):
+        from runtime.serving.deployment_probe import assert_deployment_version
+        from runtime.serving.model_runtime import ModelRuntime
+        with patch.dict("os.environ", {"MODEL_DEPLOY_VERSION": "a" * 64}):
+            assert_deployment_version("a" * 64)
+            assert_deployment_version(None)
+            with self.assertRaisesRegex(RuntimeError, "Deployment source version mismatch"):
+                # No model state or GPU has been initialized.
+                ModelRuntime.generate_one._get_raw_f()(ModelRuntime(), {}, "prefix", "cache", "spec",
+                                          expected_deployment_version="b" * 64)
+
+    def test_workflow_version_uses_unique_tag_without_retention(self):
+        from pipeline.s02_submit_shots import Backend
+        from orchestration.protocol import APP_NAME
+        backend = Backend.__new__(Backend)
+        backend.modal = Mock()
+        backend.submit_workflow({}, "id", deployment_version="a" * 64)
+        backend.modal.Function.from_name.assert_called_once_with(APP_NAME, "run_shot_" + "a" * 32)
+        backend.modal.Function.from_name.return_value.spawn.assert_called_once_with(
+            {}, "id", expected_deployment_version="a" * 64)
 
     def test_probe_contract(self):
         app = Mock()

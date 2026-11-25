@@ -7,11 +7,22 @@ PROBE_OPTIONS = {
 }
 
 
-def probe_name(version):
-    """A new source/cache identity must never call the old probe tag."""
+def versioned_name(name, version):
+    """A new source/cache identity must never call the old function tag."""
     if isinstance(version, str) and re.fullmatch(r"[0-9a-f]{64}", version):
-        return "provision_info_" + version[:32]
-    return "provision_info"
+        return name + "_" + version[:32]
+    return name
+
+
+def probe_name(version):
+    return versioned_name("provision_info", version)
+
+
+def assert_deployment_version(expected):
+    """Reject stale runtime execution before any inference or workflow claim."""
+    import os
+    if expected is not None and os.environ.get("MODEL_DEPLOY_VERSION", "manual") != expected:
+        raise RuntimeError("Deployment source version mismatch; refusing execution")
 
 
 def register_probes(app, image, version):

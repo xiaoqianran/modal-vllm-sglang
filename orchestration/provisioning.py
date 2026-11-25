@@ -325,7 +325,8 @@ class Provisioner:
         modal = self.backend.modal
         # The current App manifest is checked before starting any CPU probe.
         # A missing hash-specific tag is a mismatch, not a reason to warm
-        # the previous deployment's stable probe. Pin to the active revision.
+        # the previous deployment's stable probe. The tag isolates deployments
+        # without requiring a paid workspace version retention window.
         tag = probe_name(expected)
         call = None
         try:
@@ -333,11 +334,12 @@ class Provisioner:
             revision = info.lifecycle.version
             if not revision or tag not in info.functions:
                 return None
-            call = modal.Function.from_name(app, tag, version=revision).spawn()
+            call = modal.Function.from_name(app, tag).spawn()
             actual = call.get(timeout=35)
             # A rollback/rollout racing this probe must not certify an old app.
             current = modal.App.lookup(app).info()
-            if current.lifecycle.version != revision or tag not in current.functions:
+            if (current.lifecycle.version != revision
+                    or current.functions.get(tag) != info.functions[tag]):
                 return None
             if actual == expected and expected is not None:
                 if not hasattr(self, "probe_revisions"):

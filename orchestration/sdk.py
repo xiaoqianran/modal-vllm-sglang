@@ -79,17 +79,19 @@ class Backend:
             batch.put_file(str(path), volume_key("/" + ref["path"]))
         return ref
 
-    def submit(self, spec, item, prefix, fingerprint, *, app_revision=None):
+    def submit(self, spec, item, prefix, fingerprint, *, deployment_version=None):
         key = intent_digest(spec)
-        handle_key = (key, app_revision)
+        handle_key = (key, deployment_version)
         if handle_key not in self.models:
-            pin = {"version": app_revision} if app_revision is not None else {}
             self.models[handle_key] = self.modal.Cls.from_name(
                 spec.get("app_name", "modal-model-" + spec["service"]),
-                spec.get("modal_class", "Model"), **pin)()
+                spec.get("modal_class", "Model"))()
         execution_hash = execution_signature(prepare(spec, item)[1], fingerprint)
+        # A stable class tag can still receive an old rolling container.
+        # Guard the invocation itself, without paid version-pinned lookup.
+        guard = {"expected_deployment_version": deployment_version} if deployment_version is not None else {}
         return self.submission_ledger().submit(prefix, item["id"], execution_hash,
-            lambda: self.models[handle_key].generate_one.spawn(item, prefix, fingerprint, key).object_id)
+            lambda: self.models[handle_key].generate_one.spawn(item, prefix, fingerprint, key, **guard).object_id)
 
     def submission_ledger(self):
         from orchestration.protocol import SUBMISSION_REGISTRY

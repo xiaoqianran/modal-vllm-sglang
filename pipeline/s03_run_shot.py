@@ -136,6 +136,7 @@ def tick(directory, backend, downloads, pool, *, item=None, pinned_preparation=N
                         if isinstance(exc, RuntimeError) and (
                             "Local configuration differs from deployed model.json" in str(exc)
                             or "Prepared model changed; restart with the current cache" in str(exc)
+                            or "Deployment source version mismatch; refusing execution" in str(exc)
                         ):
                             advance(key, status="failed", error=str(exc))
                         else:
@@ -191,7 +192,9 @@ def tick(directory, backend, downloads, pool, *, item=None, pinned_preparation=N
                 signature = prepare(spec, request)[1]
                 fingerprint = (preparation["cache_fingerprint"] if preparation is not None
                                and preparation.get("cache_fingerprint") else backend.fingerprint(spec))
-                revision = preparation.get("app_revision") if preparation is not None else None
+                # Legacy already-pinned batches predate the deployment guard.
+                deployment_version = (preparation.get("version") if preparation is not None
+                                      and preparation.get("app_revision") else None)
                 prefix = result_prefix(spec, plan["project"], plan["scene"], request["operation"])
                 receipt = {"id": request["id"], "prefix": prefix, "intent_hash": signature,
                            "cache_fingerprint": fingerprint,
@@ -202,7 +205,7 @@ def tick(directory, backend, downloads, pool, *, item=None, pinned_preparation=N
                     if before_submit is not None:
                         before_submit(receipt)
                     with recorder.span("submit") as fields:
-                        pin = {"app_revision": revision} if revision is not None else {}
+                        pin = {"deployment_version": deployment_version} if deployment_version is not None else {}
                         call_id = backend.submit(spec, request, prefix, fingerprint, **pin)
                         fields["call_id"] = call_id
                     advance(key, status="queued", call_id=call_id, submitted_at=utc_now(),
