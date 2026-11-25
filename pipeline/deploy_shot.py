@@ -30,7 +30,8 @@ for config in root.glob("models/*/model.json"):
 app = modal.App(APP_NAME)
 
 
-@app.function(image=image, cpu=0.25, memory=512, timeout=60)
+@app.function(image=image, env={"MODEL_DEPLOY_VERSION": deployment_version},
+              cpu=0.25, memory=512, timeout=60)
 def provision_info():
     """Check the same image and module import as run_shot, without GPU work."""
     return os.environ["MODEL_DEPLOY_VERSION"]
@@ -40,7 +41,8 @@ volume = model_volume()
 claims = modal.Dict.from_name(APP_NAME + "-claims", create_if_missing=True)
 
 
-@app.function(image=image, cpu=0.25, memory=512, volumes={VOLUME_MOUNT: volume.with_mount_options(sub_path=VOLUME_SUB_PATH)},
+@app.function(image=image, env={"MODEL_DEPLOY_VERSION": deployment_version},
+              cpu=0.25, memory=512, volumes={VOLUME_MOUNT: volume.with_mount_options(sub_path=VOLUME_SUB_PATH)},
               timeout=86400, retries=0, max_containers=32)
 def run_shot(payload, identity):
     # Check durable state first, then use an atomic distributed claim. Volume file

@@ -203,6 +203,7 @@ class ModelRuntime:
             "service": spec["service"],
             "container_id": os.environ.get("MODAL_TASK_ID"),
             "spec_hash": intent_digest(spec),
+            "deployment_version": os.environ.get("MODEL_DEPLOY_VERSION", "manual"),
             "volume": volume_name,
             "model_volume": volume_name,
             "cache_fingerprint": self.cache_fingerprint,
@@ -360,12 +361,14 @@ def create_app(config_path):
     )
     app.function(
         name="provision_info", image=provision_image, serialized=False,
+        env={"MODEL_DEPLOY_VERSION": deployment_version},
         cpu=0.25, memory=512, timeout=60,
     )(provision_info_entry)
 
     startup = spec.get("startup_timeout", 3600)
     proxy_port = spec.get("proxy_port", spec.get("port", 8000) + 1)
     runtime_env = {"MODEL_VOLUME_NAME": volume_name,
+                   "MODEL_DEPLOY_VERSION": deployment_version,
                    "MODEL_RUNTIME_WEB_PORT": str(proxy_port),
                    "MODEL_RUNTIME_WEB_TIMEOUT": str(startup)}
     image = build_image(spec, offline=True).add_local_file(

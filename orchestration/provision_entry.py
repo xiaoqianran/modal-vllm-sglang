@@ -13,4 +13,7 @@ if os.environ.get("MODEL_PREPARE") == "1":
     def main():
         print(download.remote(repair=True))
 else:
+    version = os.environ.get("MODEL_DEPLOY_VERSION", "")
+    if len(version) != 64 or any(c not in "0123456789abcdef" for c in version):
+        raise ValueError("Managed deployment requires a source/cache version hash")
     app, Model = create_app(config)

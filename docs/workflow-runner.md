@@ -3,6 +3,12 @@
 跨模型编排默认使用 Modal SDK，本机只负责调度，不需要 MOSS_ENDPOINT、PIKA_ENDPOINT 或 HTTP Proxy Token。
 单模型与组合任务都使用同一个入口；各模型 run.py 已移除，run 只有异步登记一种行为。
 
+独立场次（单模型、每镜头恰好一个步骤且无步骤依赖）由本机 worker 直接向 GPU App
+提交 detached generate_one，不部署或调用 CPU run_shot。已接受的调用在本机退出后仍继续；
+尚未提交的调用需要恢复 worker。批次固定部署版本及缓存指纹，提交账本防止重复生成，
+共享 admission 在确定终态前阻止滚动部署替换 GPU 服务。依赖工作流和已有 cloud_runs
+记录继续走原云端编排路径，避免中途切换。
+
 ## Task 006：图片在云端交给视频，本地下载独立进行
 
 ```text
@@ -81,7 +87,7 @@ uv run python run.py resume outputs/006-moss-pika-demo/001-main
 run 可一次登记多份 Task，登记后不等待执行。resume 也只写入恢复请求并返回，
 通知运行中的 worker 继续查询原调用、重新校验并补下载，不会将失败/未知生成重新提交。
 重启 worker 也会从持久化状态继续。不要把关闭客户端理解为取消云端调用。
-云端已提交工作可以继续运行，但没有 worker 时，新的依赖任务不会自动提交。
+云端已接受的 GPU 调用可继续运行；已接受的 run_shot 也会在云端继续调度其依赖。没有 worker 时，尚未提交的独立镜头不会自动入队。
 本地下载失败后可执行 resume，无需为了重试下载而重启 worker。
 
 计划位于 outputs/<project>/<scene>/plan.json，状态在 state.json。

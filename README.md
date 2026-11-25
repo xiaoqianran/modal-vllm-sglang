@@ -5,12 +5,12 @@
 | 阶段 | 位置 | 运行位置与职责 |
 | --- | --- | --- |
 | 01 | [构建计划](pipeline/s01_build_plan.py) | 本地读取任务和工作流，登记分镜 |
-| 02 | [提交分镜](pipeline/s02_submit_shots.py) | 本地 worker 提交云端任务并保存调用回执 |
-| 03 | [执行分镜](pipeline/s03_run_shot.py) | 云端按依赖推进步骤，查询已有调用或发起推理 |
+| 02 | [提交分镜](pipeline/s02_submit_shots.py) | 本地 worker 选择直连 GPU 或云端依赖编排，并保存调用回执 |
+| 03 | [执行分镜](pipeline/s03_run_shot.py) | 复用步骤调度：独立任务在本地推进，依赖任务在云端推进 |
 | 04 | [收集产物](pipeline/s04_collect_outputs.py) | 本地 worker 下载已完成的产物并更新报告 |
 
 用 `uv run python run.py plan tasks/004-pika-frames-demo.json` 离线查看计划。
-`run` 登记任务，`worker` 负责推进。02 通过已部署的 Modal 函数启动 03，并在轮询时调用 04；多个分镜可以并行。
+`run` 登记任务，`worker` 负责推进。02 对独立任务直接调用 GPU SDK，对依赖任务启动云端 03，并在轮询时调用 04；多个分镜可以并行。
 
 ### 共享模型 Volume V2（渐进迁移）
 
@@ -115,12 +115,12 @@ worker 自动扫描 `*/model.json`，默认最多并行准备两个服务；新�
 每个模型按需使用同名 `prepare-<service>` CPU 服务；有效的 Volume 缓存可直接复用，无需重部署 CPU 下载服务；缓存失效时才更新同名服务，
 下载重试复用服务，不再通过 `modal run` 反复创建临时 App。每个准备服务最多一个下载容器。
 任务仍需在 workflow 中引用模型能力并描述输入依赖；特殊推理协议仍需相应适配代码。
-准备期间云端 job 显示 `blocked`、`wait_reason=model`，已经就绪的模型可以先生成。
+准备期间 job 显示 `blocked`、`wait_reason=model`，已经就绪的模型可以先生成。
 CPU 下载器检查完整文件清单、复用有效缓存，自动路径会修复校验失败的缓存；部署版本包含源码、配置和权重指纹，
 通过 CPU 元数据函数核对，GPU 随实际生成启动。首次接管手动部署会更新为受版本管理的部署。
 
 准备失败最多尝试三次，原因保存在 Modal Dict `modal-vllm-sglang-orchestration-provisioning`。
-失败记录在 worker 重启后仍保持，避免无休止重试；确认根因已经解决后，通过 `Provisioner.start(spec, retry=True)` 显式重新准备。
+失败记录在 worker 重启后仍保持，避免无休止重试；版本校验超时例外：新批次可以核对源码、缓存指纹、远端版本及旧版本排空状态，完全一致时恢复 Ready，不重新部署。其他失败确认根因后通过 `run.py prepare --retry <service>` 显式重新准备。
 完成准备前需保持 worker 运行；正常退出会等待后台准备结束。准备完成后云端生成可独立继续。
 共享锁防止多 worker 同时准备同一应用；强制杀进程或机器掉电可能遗留 `lock:<app_name>`，
 需确认原准备进程及其云端下载已停止后清理该锁再重启，系统不会按超时强抢锁。
@@ -129,7 +129,7 @@ CPU 下载器检查完整文件清单、复用有效缓存，自动路径会修�
 004 分镜的 `tasks/004-pika-frames-demo.json` 是独立维护的多模型工作流任务；`tools/generate_storyboard.py` 只维护 `docs/004-before-rain/` 下的四份提示词文档与图片清单，不会覆盖任务 JSON。后续编辑镜头须分别检查任务与文档的一致性。
 
 `pipeline/s01_build_plan.py` 统一加载任务并构建执行计划；`runtime/tasks/task_spec.py` 负责推理条目校验、签名与远端结果前缀。
-部署服务和异步编排器共同依赖它。所有业务任务统一交给 orchestration，模型目录不再提供 run.py。
+部署服务和异步编排器共同依赖它。所有业务任务统一通过 worker：单模型单步骤的独立场次直连 GPU SDK，复合依赖场次交给云端 run_shot；模型目录不再提供 run.py。
 旧单模型客户端 `run_jobs`、同步批处理 `run_task` / `generate_batch_stream` 和 HTTP 工作流执行器已移除；统一使用 `run` 登记任务，再由 `worker` 执行。私有 HTTP 推理服务保留。
 
 通用 GPU 快照：MOSS、Pika、MiniMax 共用拍摄与恢复生命周期，保留 30 秒缩容。

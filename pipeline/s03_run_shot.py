@@ -92,7 +92,7 @@ def run(payload, identity, *, backend=None, root=Path("/data"), timeout=85000, p
         return read_json(destination)
 
 
-def tick(directory, backend, downloads, pool):
+def tick(directory, backend, downloads, pool, *, item=None, pinned_preparation=None, before_submit=None):
     """Advance independent jobs once; never wait for inference or local downloads."""
     directory = Path(directory)
     plan, current = snapshot(directory)
@@ -102,6 +102,8 @@ def tick(directory, backend, downloads, pool):
     order = {job["key"]: index for index, job in enumerate(plan["jobs"])}
     jobs = sorted(plan["jobs"], key=lambda job: (job["item"], order[job["key"]]))
     for job in jobs:
+        if item is not None and job["item"] != item:
+            continue
         key = job["key"]
         try:
             with state.lock(directory / ".runner", filename=".job-" + intent_digest(key) + ".lock"):
@@ -133,6 +135,7 @@ def tick(directory, backend, downloads, pool):
                         # but do not leave it polling as an ambiguous request.
                         if isinstance(exc, RuntimeError) and (
                             "Local configuration differs from deployed model.json" in str(exc)
+                            or "Prepared model changed; restart with the current cache" in str(exc)
                         ):
                             advance(key, status="failed", error=str(exc))
                         else:
@@ -183,18 +186,21 @@ def tick(directory, backend, downloads, pool):
                 if any((state.media_directory(directory) / (stem + suffix)).exists() for suffix in suffixes):
                     advance(key, status="failed", error="Untracked local output; refusing GPU submission. Import frames explicitly instead.")
                     continue
-                item = item_for(directory, job, records, spec, backend)
-                signature = prepare(spec, item)[1]
-                fingerprint = backend.fingerprint(spec)
-                prefix = result_prefix(spec, plan["project"], plan["scene"], item["operation"])
-                receipt = {"id": item["id"], "prefix": prefix, "intent_hash": signature,
+                request = item_for(directory, job, records, spec, backend)
+                signature = prepare(spec, request)[1]
+                fingerprint = (pinned_preparation["cache_fingerprint"] if pinned_preparation is not None
+                               else backend.fingerprint(spec))
+                prefix = result_prefix(spec, plan["project"], plan["scene"], request["operation"])
+                receipt = {"id": request["id"], "prefix": prefix, "intent_hash": signature,
                            "cache_fingerprint": fingerprint,
                            "execution_hash": execution_signature(signature, fingerprint)}
                 # Durable intent precedes the one and only spawn attempt.
                 advance(key, **receipt, status="submitting", wait_reason=None)
                 try:
+                    if before_submit is not None:
+                        before_submit(receipt)
                     with recorder.span("submit") as fields:
-                        call_id = backend.submit(spec, item, prefix, fingerprint)
+                        call_id = backend.submit(spec, request, prefix, fingerprint)
                         fields["call_id"] = call_id
                     advance(key, status="queued", call_id=call_id, submitted_at=utc_now(),
                            dependency_wait_started_at=None)
@@ -209,4 +215,4 @@ def tick(directory, backend, downloads, pool):
     if not getattr(backend, "collect_outputs", True):
         from orchestration.protocol import report
         return report(plan, snapshot(directory)[1]["jobs"])
-    return collect_outputs(directory, backend, downloads, pool)
+    return collect_outputs(directory, backend, downloads, pool, item=item)

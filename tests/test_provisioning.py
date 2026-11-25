@@ -167,6 +167,64 @@ class ProvisioningTests(unittest.TestCase):
             self.assertEqual(p.registry["key"]["expected_version"], p.registry["key"]["actual_version"])
             p.command.assert_called_once()
 
+    def test_late_rollout_reconciles_without_download_or_redeploy(self):
+        from runtime.tasks.task_identity import intent_digest
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "model.json"
+            atomic_json(path, SPEC)
+            spec = validate(SPEC)
+            p = self.provisioner(path)
+            p.lock, p.pool, p.futures = threading.Lock(), Mock(), {}
+            key = key_for(spec, p.version)
+            app = "modal-model-example"
+            version = intent_digest([p.version, spec, "weights"])
+            p.registry[key] = {"status": "failed", "error_code": "deployment_verification",
+                               "expected_version": version, "actual_version": "manual"}
+            p.registry["switching:" + app] = key
+            p.registry["active:" + app] = "old"
+            p.deployed = Mock(return_value=True)
+            with patch("orchestration.provisioning.remote_cache_fingerprint", return_value="weights"), \
+                 patch("orchestration.provisioning.source_version", return_value="source"):
+                self.assertEqual(p.start(spec, batch="new-batch"), key)
+                self.assertEqual(p.start(spec, batch="new-batch"), key)
+            self.assertEqual(p.registry[key]["status"], "ready")
+            self.assertEqual(p.registry[key]["version"], version)
+            self.assertTrue(p.registry[key]["recovered_after_rollout"])
+            self.assertEqual(p.registry["active:" + app], key)
+            self.assertNotIn("switching:" + app, p.registry)
+            p.deployed.assert_called_once_with(app, version)
+            p.command.assert_not_called()
+            p.command_benchmark.assert_not_called()
+            p.pool.submit.assert_not_called()
+
+    def test_late_rollout_rejects_wrong_cache_or_undrained_previous_version(self):
+        from runtime.tasks.task_identity import intent_digest
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "model.json"
+            atomic_json(path, SPEC)
+            spec = validate(SPEC)
+            p = self.provisioner(path)
+            app = "modal-model-example"
+            key = key_for(spec, p.version)
+            version = intent_digest([p.version, spec, "weights"])
+            p.registry[key] = {"status": "failed", "error_code": "deployment_verification",
+                               "expected_version": version}
+            p.registry["switching:" + app] = key
+            p.registry["active:" + app] = "old"
+            p.deployed = Mock(return_value=True)
+            p.drained = Mock(return_value=False)
+            with patch("orchestration.provisioning.source_version", return_value="source"), \
+                 patch("orchestration.provisioning.remote_cache_fingerprint", return_value="different"):
+                self.assertFalse(p.reconcile_deployment(spec, key))
+            p.deployed.assert_not_called()
+            with patch("orchestration.provisioning.source_version", return_value="source"), \
+                 patch("orchestration.provisioning.remote_cache_fingerprint", return_value="weights"):
+                self.assertFalse(p.reconcile_deployment(spec, key))
+            self.assertEqual(p.registry[key]["status"], "failed")
+            self.assertEqual(p.registry["active:" + app], "old")
+            self.assertEqual(p.registry["switching:" + app], key)
+            p.command.assert_not_called()
+
     def test_version_verification_failure_is_not_redeployed_blindly(self):
         result = classify_error(RuntimeError("Deployment version verification failed after rollout wait"))
         self.assertEqual(result["error_code"], "deployment_verification")

@@ -56,8 +56,8 @@ class Provisioner:
 
     def assert_sources_unchanged(self, spec, expected):
         """Fail before a costly deployment if the worker's inputs changed."""
-        current = (model_source_version(spec) if spec is not None and hasattr(self, "model_versions")
-                   else source_version())
+        current = (model_source_version(spec, root=self.root) if spec is not None and hasattr(self, "model_versions")
+                   else source_version(root=self.root))
         if current != expected:
             raise RuntimeError("Sources changed during preparation; restart worker")
 
@@ -65,10 +65,20 @@ class Provisioner:
         key = key_for(spec, self.version_for(spec))
         with self.lock:
             persisted = self.registry.get(key, {})
-            if not retry and persisted.get("status") == "failed":
-                # Respect terminal failure even after a worker restart.
-                return key
             future = self.futures.get(key)
+            if not retry and persisted.get("status") == "failed":
+                # A verification timeout is not proof that a rolling deployment
+                # failed. Reconcile once per batch, without another deployment.
+                stamp = (persisted.get("updated_at"), persisted.get("expected_version"))
+                token = ("rollout", key, batch)
+                if (persisted.get("error_code") == "deployment_verification"
+                        and (future is None or future.done())
+                        and self.verified.get(token) != stamp):
+                    if self.reconcile_deployment(spec, key):
+                        ready = self.registry[key]
+                        self.verified[key, batch] = (ready["updated_at"], ready["version"])
+                    self.verified[token] = stamp
+                return key
             if not retry and persisted.get("status") == "ready" and (future is None or future.done()):
                 verified = self.verified
                 stamp = (persisted.get("updated_at"), persisted.get("version"))
@@ -190,10 +200,47 @@ class Provisioner:
                     entries.setdefault(receipt["id"], []).append(job["key"])
         return entries
 
+    @staticmethod
+    def direct_proof_key(key, identity):
+        return "direct-proof:" + key + ":" + identity
+
+    def record_direct(self, key, identity, job, record):
+        """Reserve immutable intent; never overwrite another worker's accepted call."""
+        name = self.direct_proof_key(key, identity)
+        value = {"job": job, **record}
+        if record["status"] in {"completed", "failed"} and (record.get("call_id") or record.get("result")):
+            self.registry[name] = {"job": job, "status": record["status"]}
+            return True
+        if self.registry.put(name, value, skip_if_exists=True):
+            return True
+        existing = self.registry.get(name, {})
+        if record["status"] == "submitting" and existing != value:
+            raise RuntimeError("Direct submission already finalized or intent changed")
+        return existing == value
+
+    def direct_drained(self, key, identity, jobs):
+        from runtime.tasks.job_client import check_record, remote_record
+        proof = self.registry.get(self.direct_proof_key(key, identity), {})
+        if len(jobs) != 1 or proof.get("job") != jobs[0]:
+            return False
+        if proof.get("status") in {"completed", "failed"}:
+            return True
+        if not all(proof.get(field) for field in ("prefix", "id", "intent_hash", "execution_hash")):
+            return False
+        result = remote_record(self.backend.volume, proof["prefix"], proof["id"])
+        if result is None:
+            return False
+        check_record(proof, result)
+        return result.get("status") in {"completed", "failed", "cancelled"}
+
     def drained(self, key):
         name = "admitted:" + key
         remaining = self.registry.get(name, {})
         for identity, jobs in list(remaining.items()):
+            if identity.startswith("direct:"):
+                if self.direct_drained(key, identity, jobs):
+                    del remaining[identity]
+                continue
             try:
                 record = json.loads(b"".join(self.backend.volume.read_file(volume_key("/" + state_path(identity)))))
             except FileNotFoundError:
@@ -274,7 +321,7 @@ class Provisioner:
     def deployed(self, app, version):
         return self.deployed_version(app) == version
 
-    def wait_deployed(self, app, version, *, timeout=90, interval=3):
+    def wait_deployed(self, app, version, *, timeout=180, interval=3):
         """A rolling deployment may resolve the previous version briefly."""
         deadline = time.monotonic() + timeout
         while True:
@@ -283,6 +330,56 @@ class Provisioner:
             if time.monotonic() >= deadline:
                 return False
             time.sleep(interval)
+
+    def reconcile_deployment(self, spec, key):
+        """Promote an exactly verified late rollout; never download, deploy or spawn."""
+        if key != key_for(spec, self.version_for(spec)):
+            return False
+        app = APP_NAME if spec is None else spec.get("app_name", "modal-model-" + spec["service"])
+        try:
+            with Lease(self.registry, "lock:" + app, key=key, proof=self.lease_proof) as lease:
+                previous = self.registry.get(key, {})
+                if previous.get("status") == "ready":
+                    return True
+                if (previous.get("status") != "failed"
+                        or previous.get("error_code") != "deployment_verification"):
+                    return False
+                base = self.version_for(spec)
+                self.assert_sources_unchanged(spec, base)
+                try:
+                    fingerprint = (remote_cache_fingerprint(spec, self.backend.volume)
+                                   if spec is not None else None)
+                except RuntimeError as exc:
+                    if str(exc).startswith(("Remote cache manifest missing", "Remote cache differs")):
+                        return False
+                    raise
+                version = intent_digest([base, spec, fingerprint]) if spec is not None else base
+                if version != previous.get("expected_version") or not self.deployed(app, version):
+                    return False
+                self.assert_sources_unchanged(spec, base)
+                with ExitStack() as gates:
+                    if spec is not None:
+                        gate = gates.enter_context(Lease(self.registry, "admission:" + app, key=key,
+                                                         proof=self.lease_proof))
+                        if self.registry.get("switching:" + app) != key:
+                            return False
+                        active = self.registry.get("active:" + app)
+                        if active and active != key and not self.drained(active):
+                            return False
+                        gate.assert_owned()
+                    lease.assert_owned()
+                    if spec is not None:
+                        self.registry["active:" + app] = key
+                    self.publish(key, {"status": "ready", "version": version, "actual_version": version,
+                                       "error": None, "error_code": None, "retryable": None,
+                                       "last_failed_stage": None, "failed_stage": None,
+                                       "spec_hash": intent_digest(spec) if spec is not None else None,
+                                       "cache_fingerprint": fingerprint, "recovered_after_rollout": True}, spec)
+                    if spec is not None:
+                        self.registry.pop("switching:" + app, None)
+                    return True
+        except LeaseBusy:
+            return False
 
     def prepare(self, spec, key):
         # Atomic shared claim prevents two hosts mutating the same app/cache.

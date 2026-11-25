@@ -80,11 +80,95 @@ def save_receipt(directory, item, **changes):
         state.save(directory / "state.json", current)
 
 
+def direct_scene(plan, current):
+    jobs = plan["jobs"]
+    return (not current.get("cloud_runs") and len(plan["services"]) == 1
+            and len({job["item"] for job in jobs}) == len(jobs)
+            and not any(isinstance(value, dict) and "job" in value
+                        for job in jobs for value in job["inputs"].values()))
+
+
+def tick_direct(directory, plan, current, job, backend, downloads, pool):
+    """Submit a detached GPU call, preserving deployment pinning and replay protection."""
+    from pipeline.s03_run_shot import tick
+
+    item, job_key = job["item"], job["key"]
+    service = job["uses"].rsplit(".", 1)[0]
+    provisioner = getattr(backend, "provisioner", None)
+    record = current["jobs"][job_key]
+    receipt = current.get("direct_runs", {}).get(item)
+    ready = None
+    before_submit = None
+    try:
+        if provisioner is not None and record["status"] in {"pending", "blocked"}:
+            pinned = provisioner.batch_keys(plan["services"], plan["hash"])[service]
+            key = receipt["preparation"] if receipt else pinned
+            ready = provisioner.registry.get(key, {})
+            if ready.get("status") == "failed":
+                sdk.update(directory, job_key, status="failed",
+                           error="Model preparation failed: " + ready.get("error", "unknown"))
+                return
+            if ready.get("status") != "ready":
+                return
+            # Freeze every outstanding shot before batch admission. Appending a
+            # scene must not strand reserved shots on a newer deployment key.
+            with state.lock(directory, timeout=10):
+                saved = read_json(directory / "state.json")
+                if saved["plan_hash"] != plan["hash"]:
+                    return
+                runs = saved.setdefault("direct_runs", {})
+                changed = False
+                for step in plan["jobs"]:
+                    if (step["item"] not in runs and
+                            saved["jobs"][step["key"]]["status"] not in {"completed", "failed"}):
+                        runs[step["item"]] = {
+                            "id": "direct:" + run_id(plan, step["item"]),
+                            "preparation": pinned,
+                        }
+                        changed = True
+                receipt = runs[item]
+                members = {runs[step["item"]]["id"]: [step["key"]] for step in plan["jobs"]
+                           if step["item"] in runs
+                           and runs[step["item"]]["preparation"] == receipt["preparation"]
+                           and saved["jobs"][step["key"]]["status"] not in {"completed", "failed"}}
+                if changed:
+                    state.save(directory / "state.json", saved)
+            if key != receipt["preparation"]:
+                key = receipt["preparation"]
+                ready = provisioner.registry.get(key, {})
+                if ready.get("status") != "ready":
+                    return
+            if not ready.get("cache_fingerprint"):
+                raise RuntimeError("Ready model has no verified cache fingerprint")
+            if not provisioner.admit_batch(plan["services"], {service: key}, {service: members}, receipt["id"]):
+                return
+            before_submit = lambda intent: provisioner.record_direct(
+                key, receipt["id"], job_key, {**intent, "status": "submitting"})
+
+        return tick(directory, backend, downloads, pool, item=item,
+                    pinned_preparation=ready, before_submit=before_submit)
+    finally:
+        # A deterministic terminal outcome releases the admission. The durable
+        # GPU result can also prove completion after a local worker crash.
+        if provisioner is not None and receipt and not receipt.get("terminal_published"):
+            latest = sdk.snapshot(directory)[1]["jobs"][job_key]
+            if latest["status"] in {"completed", "failed"}:
+                proof = {k: latest[k] for k in ("status", "call_id", "result") if k in latest}
+                published = provisioner.record_direct(receipt["preparation"], receipt["id"], job_key, proof)
+                if published:
+                    with state.lock(directory, timeout=10):
+                        saved = read_json(directory / "state.json")
+                        saved["direct_runs"][item]["terminal_published"] = True
+                        state.save(directory / "state.json", saved)
+
+
 def tick_shot(directory, item, backend, downloads, pool):
     directory = Path(directory)
     with state.lock(directory / ".runner", filename=".shot-" + intent_digest(item) + ".lock"):
         plan, current = sdk.snapshot(directory)
         jobs = [job for job in plan["jobs"] if job["item"] == item]
+        if direct_scene(plan, current) and len(jobs) == 1:
+            return tick_direct(directory, plan, current, jobs[0], backend, downloads, pool)
         receipt = current.get("cloud_runs", {}).get(item)
         if receipt is None:
             if all(current["jobs"][job["key"]]["status"] in {"completed", "failed"} for job in jobs):
