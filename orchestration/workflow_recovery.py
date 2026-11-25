@@ -9,6 +9,7 @@ import json
 import re
 
 from orchestration import model_capabilities
+from orchestration.input_store import LIFECYCLE, MANAGED_PREFIX
 from orchestration.protocol import VERSION, run_id, state_path
 from runtime.config.storage import VOLUME_SUB_PATH, volume_key
 from runtime.tasks.artifacts import image_reference
@@ -28,6 +29,14 @@ class ControllerBusy(RuntimeError):
 
 def plan_path(identity):
     return state_path(identity).rsplit("/", 1)[0] + "/plan.json"
+
+
+def retirement_path(identity):
+    return state_path(identity).rsplit("/", 1)[0] + "/retired.json"
+
+
+def read_retirement(volume, manifest):
+    return _read(volume, retirement_path(manifest["identity"]))
 
 
 def owner_path(identity, parent=None):
@@ -71,6 +80,8 @@ def validate_payload(payload, identity, volume_name):
     if (not isinstance(payload, dict) or payload.get("recovery_schema") != SCHEMA
             or payload.get("version") != VERSION):
         raise ValueError("Unsupported durable workflow plan")
+    if payload.get("input_lifecycle") not in (None, LIFECYCLE):
+        raise ValueError("Unsupported input lifecycle")
     plan = payload["plan"]
     if (plan.get("transport") != "sdk" or plan.get("volume") != volume_name
             or plan.get("volume_sub_path") != VOLUME_SUB_PATH
@@ -105,7 +116,11 @@ def validate_payload(payload, identity, volume_name):
             else:
                 if binding.get("storage") != "volume" or binding.get("type") != "image":
                     raise ValueError("Workflow input has not been persisted")
-                image_reference({k: binding[k] for k in ("path", "sha256", "size")})
+                ref = image_reference({k: binding[k] for k in ("path", "sha256", "size")})
+                if ref["path"].startswith(MANAGED_PREFIX) and (
+                        payload.get("input_lifecycle") != LIFECYCLE
+                        or ref["path"] != MANAGED_PREFIX + ref["sha256"]):
+                    raise ValueError("Invalid managed workflow input reference")
         prior[job["key"]] = cap["output"]
     initial = payload["initial_jobs"]
     if set(initial) != set(prior):
@@ -307,6 +322,8 @@ def execute(volume, manifest, modal_api, runner, *, recover=False, claim_registr
     previous = read_state(volume, manifest)
     if previous is not None and previous["status"] in TERMINAL:
         return previous
+    if read_retirement(volume, manifest) is not None:
+        raise ControllerBusy("Retired workflow cannot resume execution")
     acquire_owner(volume, manifest, modal_api, recover=recover, claim_registry=claim_registry)
     # Never use a mount's cached state from before the previous owner exited.
     previous = read_state(volume, manifest)

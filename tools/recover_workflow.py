@@ -16,7 +16,8 @@ from runtime.serving.deployment_probe import versioned_name
 def status(volume, manifest, modal_api):
     record = recovery.read_state(volume, manifest)
     owner = recovery.latest_owner(volume, manifest)
-    return {"workflow_id": manifest["identity"], "volume": manifest["volume"],
+    retired = recovery.read_retirement(volume, manifest)
+    return {"inputs_retired": retired is not None, "workflow_id": manifest["identity"], "volume": manifest["volume"],
             "payload_hash": manifest["payload_hash"],
             "status": record["status"] if record else "prepared",
             "owner": owner, "owner_terminal": bool(recovery.terminal_evidence(volume, manifest, owner)
@@ -30,6 +31,8 @@ def resume(volume, manifest, modal_api, deployment_version):
     record = recovery.read_state(volume, manifest)
     if record and record["status"] in recovery.TERMINAL:
         return {"workflow_id": manifest["identity"], "status": record["status"], "call_id": None}
+    if recovery.read_retirement(volume, manifest) is not None:
+        raise recovery.ControllerBusy("Retired workflow cannot resume execution")
     owner = recovery.latest_owner(volume, manifest)
     if owner and not recovery.seal_terminal(volume, manifest, modal_api, owner):
         raise recovery.ControllerBusy("Previous controller not proven terminal; no recovery dispatched")

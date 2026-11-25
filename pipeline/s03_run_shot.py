@@ -5,6 +5,7 @@ import tempfile
 import time
 
 from orchestration import model_capabilities, sdk, state
+from orchestration.input_store import LIFECYCLE
 from orchestration.sdk import cloud_artifact, item_for, snapshot, update
 from pipeline.s04_collect_outputs import collect_outputs
 from runtime.tasks.task_spec import execution_signature, prepare, result_prefix
@@ -28,6 +29,7 @@ def run(payload, identity, *, backend=None, root=Path("/data"), timeout=85000, p
         registry = backend.modal.Dict.from_name(PROVISION_REGISTRY)
         backend.model_readiness = lambda service: registry.get(payload["provisioning"][service], {})
     backend.collect_outputs = False
+    backend.managed_workflow = durable and payload.get("input_lifecycle") == LIFECYCLE
     destination = Path(root) / state_path(identity)
     if not durable and destination.exists():
         raise RuntimeError("Workflow already started; inspect its durable state, never replay")

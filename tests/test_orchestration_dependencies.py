@@ -21,9 +21,10 @@ class DependencyTests(unittest.TestCase):
             "sdk_session": set(),
             "input_store": {"state"},
             "input_audit": set(),
-            "s03_run_shot": {"sdk", "state", "protocol", "model_capabilities", "workflow_recovery"},
-            "s02_submit_shots": {"sdk", "state", "protocol", "provisioning", "monitor", "workflow_recovery"},
-            "workflow_recovery": {"model_capabilities", "protocol"},
+            "s03_run_shot": {"sdk", "state", "protocol", "model_capabilities", "workflow_recovery", "input_store"},
+            "s02_submit_shots": {"sdk", "state", "protocol", "provisioning", "monitor", "workflow_recovery", "input_store"},
+            "workflow_recovery": {"model_capabilities", "protocol", "input_store"},
+            "storage_gc": {"workflow_recovery", "input_store"},
             "provisioning": {"protocol", "state", "deployment_state", "leases"},
         }
         for module, dependencies in allowed.items():

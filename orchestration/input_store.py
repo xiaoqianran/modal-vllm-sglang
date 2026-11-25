@@ -7,6 +7,11 @@ from runtime.config.storage import volume_key
 from runtime.tasks.artifacts import image_reference
 from runtime.utils.media import image_format
 
+# Only new dependency-managed workflows stage to this namespace.
+# Old CAS and direct submissions remain outside its lifecycle.
+LIFECYCLE = "managed-inputs-v1"
+MANAGED_PREFIX = "workflow-inputs/managed-v1/"
+
 
 def _verify(chunks, ref):
     size = 0
@@ -20,8 +25,9 @@ def _verify(chunks, ref):
         raise ValueError("Stored workflow input content mismatch")
 
 
-def stage_input(volume, session, directory, artifact):
-    ref = image_reference({"path": "workflow-inputs/" + artifact["sha256"],
+def stage_input(volume, session, directory, artifact, *, managed=False):
+    prefix = MANAGED_PREFIX if managed else "workflow-inputs/"
+    ref = image_reference({"path": prefix + artifact["sha256"],
                            "sha256": artifact["sha256"], "size": artifact["size"]})
     # Snapshot and validate the very bytes that will be uploaded; avoid a
     # validate-file then reopen race. Even a cache hit checks the local binding.

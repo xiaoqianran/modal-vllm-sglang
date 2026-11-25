@@ -9,7 +9,7 @@ import time
 
 from orchestration import model_capabilities, state
 from orchestration.sdk_session import SDKSession
-from orchestration.input_store import stage_input
+from orchestration.input_store import MANAGED_PREFIX, stage_input
 from runtime.tasks.task_identity import intent_digest
 from runtime.tasks.task_spec import prepare, result_prefix, execution_signature
 from runtime.tasks.job_client import remote_cache_fingerprint, remote_record, check_record
@@ -77,10 +77,14 @@ class Backend:
                 self.fingerprints[key] = remote_cache_fingerprint(spec, self.volume)
             return self.fingerprints[key]
 
-    def upload(self, directory, artifact):
-        return stage_input(self.volume, self.session, directory, artifact)
+    def upload(self, directory, artifact, *, managed=False):
+        return stage_input(self.volume, self.session, directory, artifact, managed=managed)
 
     def submit(self, spec, item, prefix, fingerprint, *, deployment_version=None):
+        for field in ("first_frame_artifact", "last_frame_artifact"):
+            ref = item.get(field)
+            if ref and ref["path"].startswith(MANAGED_PREFIX) and not getattr(self, "managed_workflow", False):
+                raise ValueError("Managed input requires a durable workflow controller")
         key = intent_digest(spec)
         handle_key = (key, deployment_version)
         with self.session.keyed_lock(("model", handle_key)):
@@ -243,5 +247,7 @@ def item_for(directory, job, records, spec, backend):
             recorder = local_recorder(state.telemetry_directory(directory), **item["_telemetry"])
             with recorder.span("transfer", operation="upload_frames"):
                 ref = backend.upload(directory, binding)
+        if ref["path"].startswith(MANAGED_PREFIX) and not getattr(backend, "managed_workflow", False):
+            raise ValueError("Managed input requires a durable workflow controller")
         item[field + "_artifact"] = ref
     return item

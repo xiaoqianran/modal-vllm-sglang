@@ -180,3 +180,36 @@ status 只读；resume 明确核验并封存上一任终态、检查版本专属
 - 新客户端核对精确平台 input 并封存 FAILURE 终态凭证，恢复 controller fc-01M89JMQTNXH37EBB32SXX5N33 取得唯一后继所有权；读取已提交首帧，不重复派发，再提交视频。两次生成端调用、两个完成结果、零重复；视频生成端实际验证旧首帧与未来输入的 SHA-256。最终 PNG 1771B（bdecf5059535a4d03dc966e52efe0c14aeb6e697909cbe252be28ac22eec3bfe）、MP4 2414B（5a522f7b83d006baf12135e146bb2011a340028a07652610c550a34e88cb0413）已在新目录交付并验证摘要。完成后的 resume 不再 spawn。
 - 实验初期出现辅助模块导入/夹具缺少 json 导入问题，未重放已经接受的失败调用；随后实测旧代码对 input ID 后缀判断不兼容，且删除旧版本 tag 后 get_call_graph 返回 Function not found。修复规范化、精确终态验证及持久凭证后，以独立新分镜在同一部署版本内成功复验。凭证在旧函数删除后的复用已通过单元测试，未再做跨版本真实恢复实验；无已封存证据时仍拒绝推断旧调用终态。
 - 最终 351 项测试、210 项子测试通过（新增17项专项，18条已有 SDK 弃用警告）。原始实验记录、终态证明、恢复及结果证据保留在 outputs/workflow-recovery-lab-1125/。不宣称生产 GPU 推理或真实 GPU 在途取消/恢复已经验收。
+
+## 7. 托管输入生命周期与离线依赖感知 GC（2026-11-25）
+
+### 回收边界
+
+- 新的依赖型分镜在原 `workflow-inputs/` 内使用专属 `workflow-inputs/managed-v1/<sha256>`，通过 `input_lifecycle=managed-inputs-v1` 标识完整云端计划。新托管分镜仍可按内容跨分镜共享图片；旧版和单步骤直连任务继续使用旧 CAS，保留兼容性。两种命名空间的相同内容可能分别存储，这是为了隔离历史依赖不完整的对象。托管输入不能通过普通本地 SDK direct 路径引用；它们属于工作流协议的保留命名空间，不支持外部代码绕过协议借用这些引用。GPU 现有 cloud image path 解析无需修改。
+- 托管计划发布前，依旧上传并验证所有未来阶段输入；云端计划、owner、terminal、state、retired 等记录一律不删除。原来只保存 state.json 的历史分镜、旧 CAS、所有 model-results 生成产物和账本、模型权重及缓存不进入删除候选。已有计划保持原格式，不自动迁移。
+- `retire` 是显式且不可逆的**释放已完成分镜的托管输入引用**，并非删除整个工作流。要求完整完成 checkpoint、精确 CPU owner 终态凭证、每个步骤可核验的云端完成结果回执。写入一次性 `retired.json`，绑定 Volume ID、payload、checkpoint、owner 和 terminal 证据摘要。退休时核验结果元数据，不下载生成媒体；生成结果与交付继续保留。未完成、失败、不确定或缺少终态证明的分镜不得退休。退休且 checkpoint 遗失时拒绝重新执行。
+- 新 GC 从 Volume 的完整 workflow-runs 根目录枚举云端计划，不依赖本地 task 目录。每个托管对象必须有至少一个经验证的退休引用，且没有任何未退休引用，才能列为候选。默认还须满足 24 小时对象年龄。未发布计划的暂存孤儿、未知对象及历史对象保留。活动引用缺少对象、计划/退休凭证损坏、同路径引用冲突及无法识别的根会使回收计划阻塞。旧版 `audit_workflow_inputs.py` 仍是只读的历史 CAS 辅助审计；新命令覆盖托管云端依赖。
+- 回收严格限定**独占离线维护**：停止所有本地 Runner、编排调用、GPU 任务和对托管命名空间的其他读写（包括持有旧输入会话缓存的进程）。`--confirm-quiescent` 是操作者声明，不是平台分布式锁；不得并发执行 GC、上传或恢复。直接使用底层 SDK/外部程序不受应用级协议保护，故不能借用托管路径。apply 绑定实际 Volume ID、候选、全部已发现依赖与快照摘要，重扫对比后校验每个候选字节的 SHA-256/size，再次重扫确认未变，最后仅对单文件执行非递归 remove_file。不存在在线原子删除保证；如中途失败，重新扫描规划，不使用已过时的计划。
+
+### 命令
+
+```powershell
+# 只读扫描所有云端分镜计划与托管输入（可在正常运行期间预览）
+uv run python tools/gc_workflow_inputs.py plan --volume model-store --out outputs/managed-gc-plan.json
+
+# 仅对确认已完成、不再需要保留其输入的分镜显式释放输入引用
+uv run python tools/gc_workflow_inputs.py retire --volume model-store --id WORKFLOW_ID --confirm-release-inputs
+
+# 进入独占维护窗口，重新生成预览，人工审核候选后执行
+uv run python tools/gc_workflow_inputs.py plan --volume model-store --out outputs/managed-gc-plan.json
+uv run python tools/gc_workflow_inputs.py apply --volume model-store --plan outputs/managed-gc-plan.json --confirm-quiescent
+```
+
+测试可指定 `--min-age-seconds 0`，生产默认保留 86400 秒对象年龄阈值。此阈值不是退休时间或执行状态证明。退休后 `recover_workflow.py status` 报告 inputs_retired，已完成工作流的 collect 仍可使用原结果，resume 返回已完成且不产生新调用。需要旧输入进行新推理时应重新登记新任务，由该新计划独立声明其输入依赖；不能复活旧工作流。未实现生成图片/视频的安全删除、历史 CAS 迁移、孤儿自动清理或在线 GC。
+
+### 真实 Modal Volume V2 隔离验收
+
+- 实验 App ap-NPdF0OOqDAhoFgXz4M62zA，Volume vo-ReYmAVzRmL2rblR4G9qYqm；不修改生产 model-store。真实 CPU Modal input 所有者 fc-01M89KAZRY9WCZB99GTKWBWKQ0 完成并封存 SUCCESS 终态。使用有效 PNG/MP4 夹具及合成完成结果回执验证退休，未启动 GPU。
+- 退休分镜 a0536898a2c94760f4c56518769daca68b95dae8e22b71cad6d503f4af621266 持有3个托管输入（红、蓝、黄），活动分镜共享蓝色；另保留未登记绿色托管对象、同内容旧CAS、历史状态记录和模型权重夹具。首次预览候选为红色1766B与黄色1767B；预览后发布新分镜引用黄色，旧计划重扫拒绝且实际删除0次。新计划精确候选1个，验证完整SHA-256并再次重扫后以非递归remove_file真实删除红色1766B（c7bd4a55a44f7b7b776f66aed59686f6ac261e42d745a8fd139b180bbab26842）。
+- 删除后再次扫描：3份云端计划、1份历史状态、候选0、错误0；13份保留文件逐字节一致（含旧CAS、未登记对象、模型权重夹具、执行状态及结果文件/回执），2个仍被引用的托管输入通过实际帧内容验证。退休分镜的1张PNG与3个MP4重新交付，SHA-256及完整解码均通过；已完成resume不派发。此次验证空间收益仅为小型夹具，不是生产GC容量估算。
+- 全量回归362项测试、211项子测试通过（新增11项专项，18条已有SDK弃用警告）。证据保存在 outputs/managed-gc-lab-1125/（initial-plan.json、apply-plan.json、after-plan.json、summary.json、evidence.jsonl、regression.log、redelivery）。生产服务未重部署，生产数据未执行删除。

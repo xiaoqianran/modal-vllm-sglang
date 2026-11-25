@@ -1,4 +1,4 @@
-"""Read-only inventory of content-addressed workflow inputs.
+"""Read-only inventory of the protected legacy workflow input namespace.
 
 Local plans are not a complete set of historical cloud dependency roots.
 Never label an unobserved object safe to delete, and never access model weights.
@@ -43,7 +43,8 @@ def audit(volume, volume_name, roots):
                             continue
                         if binding.get("storage") == "volume":
                             ref = image_reference({k: binding[k] for k in ("path", "sha256", "size")})
-                            if not ref["path"].startswith("workflow-inputs/"):
+                            if (not ref["path"].startswith("workflow-inputs/")
+                                    or ref["path"].startswith("workflow-inputs/managed-v1/")):
                                 continue
                             if ref["path"] != "workflow-inputs/" + ref["sha256"]:
                                 raise ValueError("Noncanonical CAS input path")
@@ -63,7 +64,7 @@ def audit(volume, volume_name, roots):
         for entry in volume.iterdir(prefix.rstrip("/"), recursive=False):
             path = entry.path.removeprefix("/")
             # SDK directory listings may return the directory itself.
-            if path == prefix.rstrip("/") and int(entry.type) == 2:
+            if path in {prefix.rstrip("/"), prefix + "managed-v1"} and int(entry.type) == 2:
                 continue
             digest = path.removeprefix(prefix)
             if (not path.startswith(prefix) or not re.fullmatch("[0-9a-f]{64}", digest)
@@ -88,4 +89,4 @@ def audit(volume, volume_name, roots):
             "referenced_bytes": sum(item["bytes"] for item in objects if item["references"]),
             "unobserved_bytes": sum(item["bytes"] for item in objects if not item["references"]),
             "deletion_allowed": False,
-            "limitation": "Local plans do not cover all cloud submissions, archived tasks, or other workspaces."}
+            "limitation": "Legacy-only advisory scan; local plans do not cover all cloud submissions. Use gc_workflow_inputs.py plan for managed cloud roots."}

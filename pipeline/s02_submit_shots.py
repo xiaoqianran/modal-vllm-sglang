@@ -8,6 +8,7 @@ from pathlib import Path
 import time
 
 from orchestration import sdk, state
+from orchestration.input_store import LIFECYCLE, MANAGED_PREFIX
 from pipeline.s04_collect_outputs import collect_outputs
 from orchestration.protocol import APP_NAME, VERSION, run_id, state_path
 from runtime.tasks.task_identity import intent_digest
@@ -80,6 +81,8 @@ def payload_for(directory, plan, item, backend, preparation=None):
             elif binding.get("storage") == "volume":
                 from runtime.tasks.artifacts import image_reference
                 ref = image_reference({k: binding[k] for k in ("path", "sha256", "size")})
+                if ref["path"].startswith(MANAGED_PREFIX):
+                    raise ValueError("Import managed inputs through local staging, not a borrowed cloud reference")
                 job["inputs"][field] = {**ref, "storage": "volume", "type": "image"}
             else:
                 digest = binding["sha256"]
@@ -87,14 +90,15 @@ def payload_for(directory, plan, item, backend, preparation=None):
                     recorder = local_recorder(state.telemetry_directory(directory),
                         task_id=f"{plan['project']}/{plan['scene']}", job_key=job["key"])
                     with recorder.span("transfer", operation="upload_frames"):
-                        uploaded[digest] = backend.upload(directory, binding)
+                        uploaded[digest] = backend.upload(directory, binding, managed=True)
                 job["inputs"][field] = {**uploaded[digest], "storage": "volume", "type": "image"}
     plan["imports"] = {}
     plan["hash"] = intent_digest({key: value for key, value in plan.items() if key != "hash"})
     current = sdk.snapshot(directory)[1]
     initial = {key: {k: v for k, v in current["jobs"][key].items()
                      if k not in {"local_artifact", "download_error", "local_collected_at", "cloud_archive", "archive_error", "archive_collected_at"}} for key in keys}
-    payload = {"version": VERSION, "recovery_schema": 1, "plan": plan, "initial_jobs": initial}
+    payload = {"version": VERSION, "recovery_schema": 1, "input_lifecycle": LIFECYCLE,
+               "plan": plan, "initial_jobs": initial}
     if preparation is not None:
         payload["provisioning"] = preparation
     return payload
