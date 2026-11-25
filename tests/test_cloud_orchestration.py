@@ -44,7 +44,10 @@ class CloudTests(unittest.TestCase):
             def __init__(inner):
                 inner.volume = model.volume
                 inner.accepted = []
-            def submit_workflow(inner, payload, identity):
+            def persist_workflow(inner, payload, identity):
+                inner.persisted = (payload, identity)
+            def submit_workflow(inner, payload, identity, *, persisted=False):
+                assert persisted and inner.persisted == (payload, identity)
                 inner.accepted.append((payload, identity))
                 return "fc-workflow"
             def poll_workflow(inner, receipt):
@@ -82,8 +85,8 @@ class CloudTests(unittest.TestCase):
         model.videos_complete = True
         local = self.local_backend(model)
         submit = local.submit_workflow
-        def lost(*args):
-            submit(*args)
+        def lost(*args, **kwargs):
+            submit(*args, **kwargs)
             raise OSError("reply lost")
         local.submit_workflow = lost
         with ThreadPoolExecutor(max_workers=2) as pool:

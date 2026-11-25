@@ -148,3 +148,35 @@ SDK 升级必须重新测试真实传输、超时、损坏块、断点恢复以�
 | 新会话已有输入 | 强制覆盖 | read_file 1，上传0 |
 
 以上为单次实测 SDK 方法计数与墙钟耗时，不代表底层 RPC 数完全等同，也不是 GPU 生成或整体任务加速比例。真实并发争抢同一内容对象通过（首次发现 InvalidError 后修复并重验）；相同帧读取1次；只读依赖审计对3个对象列举1次、媒体读取0次，未来未上传输入正确报告。CPU Call 未退出时提交模拟结果与媒体，Runner 恢复已完成证据。最终334项测试和209项子测试通过（15项新增，18条现有SDK弃用警告）；实验App停止、容器0、隔离卷删除，生产卷和生产部署不变。实验记录保留在 outputs/sdk-input-lab-1125/。未做真实GPU推理、端到端媒体吞吐、Qwen LLM/KV Cache调参或历史工作流安全回收。
+
+## 6. 云端分镜控制器的持久化与安全接管（2026-11-25）
+
+### 协议和恢复边界
+
+- 依赖型分镜由本地 worker 将所有已导入输入（包括未来步骤的帧）转成经过 SHA-256/size 校验的 Volume 引用；在本地提交回执及 CPU spawn 之前，发布 `/inference/workflow-runs/<workflow_id>/plan.json`。记录包含完整 per-shot payload、固定计划哈希、初始 Job 记录、准备版本键、Volume 名称和实际 Volume ID；以 force=False 写一次，重复发布必须完全一致。独立单步骤 GPU 直连路径不额外创建 CPU 分镜控制器。
+- `owners/initial.json` 记录首任控制器的 Modal Call ID 与 input ID，后任所有者按上一份所有权记录的完整摘要写入 `owners/<owner_hash>.json`。原 Dict 永久 claim 仍作为兼容保护，新控制器的排他性由 Volume V2 不覆盖写入保障；并发接管最多一位获胜。不会仅以本地时钟、租约过期、网络异常或调用不存在来认定旧控制器结束。
+- Modal SDK 1.6.4 的 current_input_id() 实测带有 `:timestamp-attempt` 后缀，get_call_graph() 返回基础 input ID；仅规范化该准确格式，Call ID 与基础 input ID 必须匹配唯一平台记录，且状态明确为 SUCCESS/FAILURE/INIT_FAILURE/TERMINATED/TIMEOUT。恢复前将经平台查询的终态封存在 `terminal/<owner_hash>.json`，后续同一授权 Volume 内验证此不可变记录。若滚动部署或平台保留期使旧调用图不可查询且没有封存凭证，则拒绝接管，不能把 NotFoundError 当成终态。所有权链有128条上限，历史账本不删除。
+- 新控制器通过 SDK 读取原 `state.json`，校验 payload 哈希、Job ID、execution signature、产物引用和状态后恢复临时工作目录。已提交及回执丢失的任务沿用原 GPU SubmissionLedger、Call 或已提交结果；未知提交绝不自动重放。完成步骤由已验证云端产物驱动后继；只派发仍未提交的步骤，保留原模型部署版本保护。提交前意图与提交后状态按原 checkpoint/commit 规则持久化，不因恢复减少安全屏障。
+- 旧版只有字符串 claim、没有完整 payload 或所有权记录的分镜不做自动迁移或接管。恢复控制器本身按需启动，未增加常驻 CPU 服务或无限自动重试。若模型准备身份失效、GPU 提交无法核实、平台终态证据不可用，仍需人工排查。当前恢复按分镜粒度，不重建整个尚未登记的本地批次；历史依赖 GC 仍仅审计，不删除生产数据。
+
+### 操作入口
+
+更新代码后按正常流程准备 CPU 编排部署（`uv run python run.py prepare orchestration`），或使用已部署的准确 source version。新分镜按原 `run` / `worker` 操作启动。workflow_id 可从原 state.json 的 cloud_runs 回执取得；新设备仅需仓库、Modal 授权、卷名和此 ID，不需要原始任务 JSON、工作流文件或输入图片。
+
+```powershell
+uv run python tools/recover_workflow.py status --volume model-store --id <workflow_id>
+uv run python tools/recover_workflow.py resume --volume model-store --id <workflow_id>
+uv run python tools/recover_workflow.py collect --volume model-store --id <workflow_id> --out outputs/recovered
+```
+
+status 只读；resume 明确核验并封存上一任终态、检查版本专属 resume_shot tag 后 spawn，服务端再次检查所有权。可传 `--deployment-version <64位source_hash>` 指定准确的已部署 CPU 版本。若已完成则返回完成状态、不 spawn。collect 仅交付已完整完成的分镜，复用现有哈希验证下载器并拒绝覆盖不一致的本地文件。对于仍在运行的控制器，不执行恢复。
+
+### 隔离真实 Modal 故障注入验收
+
+最终验收使用独立 App `vllm-workflow-recovery-lab-1125`（ap-87sBcSp2FZAqDhveXffiue）及 Volume V2 vo-o7i39vRCKawh1cwx30rgxO。实际 Modal CPU 控制器和 SDK 提交账本；用真实 PNG/MP4 夹具的 CPU 生成端替代 GPU 模型，未启动 GPU 或修改生产部署。
+
+- 工作流 356ec58aec57bf013227bcde2a0a364682b73a81ea62827db5608dd84fc1134b，发布后删除整个原始任务目录（含输入帧、task、workflow、local plan/state）。未来输入 SHA-256 b4721ac00a219855853cd6fb079b1f5a4b7fe76730fefa58c90553523fe9585b、1771B 已在云端验证。
+- 首任 controller fc-01M89JKECF1S6F7N1R3SQBV788 活动时恢复请求被拒绝；首帧 producer fc-01M89JKM6PEPR62CGM3NRAJEQE 写入真实结果后 controller 通过 os._exit(73) 硬退出。云端 checkpoint 仍为 first/003=submitting、video/003=pending，首帧 call_id 未写入 checkpoint。
+- 新客户端核对精确平台 input 并封存 FAILURE 终态凭证，恢复 controller fc-01M89JMQTNXH37EBB32SXX5N33 取得唯一后继所有权；读取已提交首帧，不重复派发，再提交视频。两次生成端调用、两个完成结果、零重复；视频生成端实际验证旧首帧与未来输入的 SHA-256。最终 PNG 1771B（bdecf5059535a4d03dc966e52efe0c14aeb6e697909cbe252be28ac22eec3bfe）、MP4 2414B（5a522f7b83d006baf12135e146bb2011a340028a07652610c550a34e88cb0413）已在新目录交付并验证摘要。完成后的 resume 不再 spawn。
+- 实验初期出现辅助模块导入/夹具缺少 json 导入问题，未重放已经接受的失败调用；随后实测旧代码对 input ID 后缀判断不兼容，且删除旧版本 tag 后 get_call_graph 返回 Function not found。修复规范化、精确终态验证及持久凭证后，以独立新分镜在同一部署版本内成功复验。凭证在旧函数删除后的复用已通过单元测试，未再做跨版本真实恢复实验；无已封存证据时仍拒绝推断旧调用终态。
+- 最终 351 项测试、210 项子测试通过（新增17项专项，18条已有 SDK 弃用警告）。原始实验记录、终态证明、恢复及结果证据保留在 outputs/workflow-recovery-lab-1125/。不宣称生产 GPU 推理或真实 GPU 在途取消/恢复已经验收。

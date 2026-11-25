@@ -7,7 +7,8 @@ import modal
 from pipeline.s03_run_shot import run
 from orchestration.protocol import APP_NAME, state_path
 from runtime.serving.modal_setup import model_volume
-from runtime.config.storage import VOLUME_MOUNT, VOLUME_SUB_PATH, volume_key
+from runtime.config.storage import VOLUME_MOUNT, VOLUME_SUB_PATH, volume_key, runtime_volume_name
+from orchestration import workflow_recovery
 from runtime.tasks.task_identity import intent_digest
 
 root = Path(__file__).resolve().parents[1]
@@ -41,6 +42,9 @@ claims = modal.Dict.from_name(APP_NAME + "-claims", create_if_missing=True)
 
 def run_shot(payload, identity, expected_deployment_version=None):
     assert_deployment_version(expected_deployment_version)
+    if payload.get("recovery_schema") == workflow_recovery.SCHEMA:
+        manifest = workflow_recovery.load_plan(volume, identity, runtime_volume_name(), intent_digest(payload))
+        return workflow_recovery.execute(volume, manifest, modal, run, claim_registry=claims)
     # Check durable state first, then use an atomic distributed claim. Volume file
     # locks alone cannot exclude owners running in different Modal containers.
     try:
@@ -51,13 +55,21 @@ def run_shot(payload, identity, expected_deployment_version=None):
         if existing["payload_hash"] != intent_digest(payload):
             raise ValueError("Cloud workflow configuration changed")
         return existing
+    if workflow_recovery._read(volume, workflow_recovery.plan_path(identity)) is not None:
+        raise RuntimeError("Durable workflow plan exists; use its recovery protocol")
     if not claims.put(identity, intent_digest(payload), skip_if_exists=True):
         raise RuntimeError("Workflow is already claimed; inspect its state instead of replaying")
     return run(payload, identity)
 
+def resume_shot(identity, payload_hash, expected_deployment_version=None):
+    assert_deployment_version(expected_deployment_version)
+    manifest = workflow_recovery.load_plan(volume, identity, runtime_volume_name(), payload_hash)
+    return workflow_recovery.execute(volume, manifest, modal, run, recover=True, claim_registry=claims)
+
 # Keep the stable endpoint for legacy callers, but new managed workflows use
 # their exact version tag. Both refer to the same source-imported function.
-_workflow_options = dict(image=image, env={"MODEL_DEPLOY_VERSION": deployment_version},
+_workflow_options = dict(image=image, env={"MODEL_DEPLOY_VERSION": deployment_version,
+                                            "MODEL_VOLUME_NAME": runtime_volume_name()},
                          cpu=0.25, memory=512,
                          volumes={VOLUME_MOUNT: volume.with_mount_options(sub_path=VOLUME_SUB_PATH)},
                          timeout=86400, retries=0, max_containers=32)
@@ -66,3 +78,8 @@ run_shot = app.function(name="run_shot", **_workflow_options)(_workflow_entry)
 _workflow_tag = versioned_name("run_shot", deployment_version)
 if _workflow_tag != "run_shot":
     app.function(name=_workflow_tag, **_workflow_options)(_workflow_entry)
+_resume_entry = resume_shot
+resume_shot = app.function(name="resume_shot", **_workflow_options)(_resume_entry)
+_resume_tag = versioned_name("resume_shot", deployment_version)
+if _resume_tag != "resume_shot":
+    app.function(name=_resume_tag, **_workflow_options)(_resume_entry)

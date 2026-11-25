@@ -18,8 +18,16 @@ from runtime.utils.files import read_json
 
 
 class Backend(sdk.Backend):
-    def submit_workflow(self, payload, identity, *, deployment_version=None):
+    def persist_workflow(self, payload, identity):
+        from orchestration.workflow_recovery import publish_plan
+        from runtime.config.storage import runtime_volume_name
+        if payload.get("recovery_schema") == 1:
+            return publish_plan(self.volume, payload, identity, runtime_volume_name())
+
+    def submit_workflow(self, payload, identity, *, deployment_version=None, persisted=False):
         from runtime.serving.deployment_probe import versioned_name
+        if not persisted:
+            self.persist_workflow(payload, identity)
         tag = versioned_name("run_shot", deployment_version)
         guard = {"expected_deployment_version": deployment_version} if deployment_version is not None else {}
         lookup = lambda: self.modal.Function.from_name(APP_NAME, tag)
@@ -69,6 +77,10 @@ def payload_for(directory, plan, item, backend, preparation=None):
             if "job" in binding:
                 if binding["job"] not in keys:
                     raise ValueError("Cross-shot dependency is not supported")
+            elif binding.get("storage") == "volume":
+                from runtime.tasks.artifacts import image_reference
+                ref = image_reference({k: binding[k] for k in ("path", "sha256", "size")})
+                job["inputs"][field] = {**ref, "storage": "volume", "type": "image"}
             else:
                 digest = binding["sha256"]
                 if digest not in uploaded:
@@ -82,7 +94,7 @@ def payload_for(directory, plan, item, backend, preparation=None):
     current = sdk.snapshot(directory)[1]
     initial = {key: {k: v for k, v in current["jobs"][key].items()
                      if k not in {"local_artifact", "download_error", "local_collected_at", "cloud_archive", "archive_error", "archive_collected_at"}} for key in keys}
-    payload = {"version": VERSION, "plan": plan, "initial_jobs": initial}
+    payload = {"version": VERSION, "recovery_schema": 1, "plan": plan, "initial_jobs": initial}
     if preparation is not None:
         payload["provisioning"] = preparation
     return payload
@@ -224,6 +236,7 @@ def tick_shot(directory, item, backend, downloads, pool):
                 if not provisioner.admit_batch(plan["services"], preparation, groups, identity):
                     return
             payload = payload_for(directory, plan, item, backend, preparation)
+            backend.persist_workflow(payload, identity)
             receipt = {"id": identity, "payload_hash": intent_digest(payload), "status": "submitting"}
             if preparation:
                 receipt["provisioning"] = preparation
@@ -232,7 +245,7 @@ def tick_shot(directory, item, backend, downloads, pool):
                 recorder = local_recorder(state.telemetry_directory(directory), task_id=f"{plan['project']}/{plan['scene']}")
                 with recorder.span("submit", operation="workflow", item=item) as fields:
                     pin = {"deployment_version": orchestration_version} if orchestration_version is not None else {}
-                    call_id = backend.submit_workflow(payload, receipt["id"], **pin)
+                    call_id = backend.submit_workflow(payload, receipt["id"], persisted=True, **pin)
                     fields["call_id"] = call_id
                 save_receipt(directory, item, status="queued", call_id=call_id)
             except BaseException:

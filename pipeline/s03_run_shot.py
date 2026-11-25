@@ -15,8 +15,9 @@ from runtime.tasks.task_identity import intent_digest
 from runtime.utils.files import read_json
 from runtime.telemetry.recorder import cloud_recorder
 
-def run(payload, identity, *, backend=None, root=Path("/data"), timeout=85000, poll=2):
-    """Single claimed owner. Every spawn intent and receipt is committed to Volume."""
+def run(payload, identity, *, backend=None, root=Path("/data"), timeout=85000, poll=2,
+        durable=False, previous=None):
+    """Single claimed owner. Restore only an authoritative checkpoint on takeover."""
     plan = payload["plan"]
     items = {job["item"] for job in plan["jobs"]}
     if len(items) != 1 or run_id(plan, next(iter(items))) != identity:
@@ -28,13 +29,20 @@ def run(payload, identity, *, backend=None, root=Path("/data"), timeout=85000, p
         backend.model_readiness = lambda service: registry.get(payload["provisioning"][service], {})
     backend.collect_outputs = False
     destination = Path(root) / state_path(identity)
-    if destination.exists():
+    if not durable and destination.exists():
         raise RuntimeError("Workflow already started; inspect its durable state, never replay")
+    if previous is not None:
+        from orchestration.workflow_recovery import validate_jobs
+        if not durable or previous["payload_hash"] != intent_digest(payload):
+            raise ValueError("Recovery checkpoint identity mismatch")
+        validate_jobs(plan, previous["jobs"])
+        if previous["status"] in {"completed", "failed"}:
+            return previous
     started = time.monotonic()
     with tempfile.TemporaryDirectory() as temporary:
         directory = Path(temporary) / plan["project"] / plan["scene"]
         state.save(directory / "plan.json", plan)
-        initial = payload["initial_jobs"]
+        initial = previous["jobs"] if previous is not None else payload["initial_jobs"]
         if set(initial) != {job["key"] for job in plan["jobs"]}:
             raise ValueError("Initial job identities mismatch")
         state.save(directory / "state.json", {
@@ -46,7 +54,7 @@ def run(payload, identity, *, backend=None, root=Path("/data"), timeout=85000, p
         scheduler_manifest = writer.reference() if writer is not None else None
 
         payload_hash = intent_digest(payload)
-        last_committed = None
+        last_committed = previous
 
         def checkpoint(directory):
             nonlocal last_committed
