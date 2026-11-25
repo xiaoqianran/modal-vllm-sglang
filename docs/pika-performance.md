@@ -97,3 +97,7 @@ revision 2，部署哈希 `b4323691a4242b9fe3cc73e3ad26b5a01f1d022cc23812ede84a2
 不宣称完整画质主观评测已完成。768p 仅验收 16:9、约 5 s，其他比例及更长时长不作结论。
 
 回归：PC2 全量 pytest 319 passed、206 subtests passed、18 warnings。
+
+## 快照与预热全因素对照
+
+2026-11-25 对同一 768p 任务执行四组共 12 条真实视频，分别验证 GPU Snapshot 与 480p 预热开关。详见 [快照与预热全因素实测](pika-snapshot-benchmark.md)。
