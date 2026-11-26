@@ -82,6 +82,23 @@ class ProvisioningTests(unittest.TestCase):
         self.assertTrue(uncertain_heartbeat["worker_finished"])
         self.assertEqual(uncertain_heartbeat["operation"]["kind"], "deploy")
 
+    def test_crashed_owner_can_recover_exact_completed_rollout(self):
+        p = self.provisioner(Path("unused.json"))
+        owner = {"host": "local", "pid": 12345}
+        heartbeat = {"operation": {"kind": "deploy", "app": "model", "version": "v2"}}
+        with patch("orchestration.leases.socket.gethostname", return_value="local"), \
+             patch("orchestration.leases.process_alive", return_value=False):
+            p.deployed = Mock(return_value=True)
+            self.assertTrue(p.lease_proof(owner, heartbeat))
+            p.deployed.assert_called_once_with("model", "v2")
+            p.deployed = Mock(return_value=False)
+            self.assertFalse(p.lease_proof(owner, heartbeat))
+        with patch("orchestration.leases.socket.gethostname", return_value="local"), \
+             patch("orchestration.leases.process_alive", return_value=True):
+            p.deployed.reset_mock()
+            self.assertFalse(p.lease_proof(owner, heartbeat))
+            p.deployed.assert_not_called()
+
     def test_uncertain_deployment_fails_closed_without_replaying_side_effect(self):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "model.json"

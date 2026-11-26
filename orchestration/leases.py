@@ -42,11 +42,15 @@ def process_alive(pid):
         return None
 
 
+def owner_stopped(owner, heartbeat, call_terminal=None):
+    return bool(heartbeat.get("worker_finished") or
+                (owner.get("call_id") and call_terminal and call_terminal(owner["call_id"])) or
+                (owner.get("host") == socket.gethostname() and process_alive(owner.get("pid")) is False))
+
+
 def terminal_proof(owner, heartbeat, call_terminal=None):
     operation = heartbeat.get("operation")
-    owner_stopped = heartbeat.get("worker_finished") or (owner.get("call_id") and call_terminal and call_terminal(owner["call_id"])) or (
-        owner.get("host") == socket.gethostname() and process_alive(owner.get("pid")) is False)
-    if not owner_stopped:
+    if not owner_stopped(owner, heartbeat, call_terminal):
         return False
     if operation:
         # A dead local CLI does not prove that a remote deployment RPC stopped.

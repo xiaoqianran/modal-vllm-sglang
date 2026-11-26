@@ -16,7 +16,7 @@ from runtime.config.storage import volume_key
 from runtime.utils.files import read_json
 from orchestration.protocol import APP_NAME, PROVISION_REGISTRY, state_path
 from orchestration.deployment_state import DeploymentState, source_version, model_source_version, classify_error
-from orchestration.leases import Lease, LeaseBusy, terminal_proof
+from orchestration.leases import Lease, LeaseBusy, owner_stopped, terminal_proof
 
 REGISTRY = PROVISION_REGISTRY
 
@@ -48,6 +48,7 @@ class Provisioner:
         self.probe_revisions = {}
         self.closing = threading.Event()
         self.futures = {}
+        self.wait_diagnostics = {}
         self.lock = threading.Lock()
 
     def version_for(self, spec):
@@ -312,7 +313,10 @@ class Provisioner:
         if terminal_proof(owner, heartbeat, self.call_terminal):
             return True
         operation = heartbeat.get("operation") or {}
-        if heartbeat.get("worker_finished") and operation.get("kind") == "deploy":
+        # A crash may prevent release() from writing worker_finished. An exact
+        # deployed-version probe plus a proven stopped owner is sufficient to
+        # recover a completed rollout, but not an unconfirmed deployment.
+        if operation.get("kind") == "deploy" and owner_stopped(owner, heartbeat, self.call_terminal):
             try:
                 return bool(operation.get("app") and operation.get("version") and
                             self.deployed(operation["app"], operation["version"]))
@@ -431,12 +435,20 @@ class Provisioner:
         while True:
             try:
                 lease.acquire().start_heartbeat()
+                getattr(self, "wait_diagnostics", {}).pop(key, None)
                 break
             except LeaseBusy:
                 owner = self.registry.get(claim, {})
+                heartbeat = (self.registry.get(Lease.heartbeat_key(claim, owner), {})
+                             if owner.get("owner") else {})
+                expired = heartbeat.get("expires_at", owner.get("acquired_at", time.time()) + 90) <= time.time()
+                if expired or heartbeat.get("worker_finished"):
+                    detail = "Expired deployment lease; remote outcome unconfirmed; inspect before retry"
+                else:
+                    detail = "Waiting for another model preparation owner"
+                getattr(self, "wait_diagnostics", {})[key] = detail
                 if not owner.get("owner") or not owner.get("key") or owner.get("key") == key:
                     return
-                heartbeat = self.registry.get(Lease.heartbeat_key(claim, owner), {})
                 if heartbeat.get("expires_at", 0) <= time.time() or self.closing.wait(1):
                     return
         deployment_requested = False

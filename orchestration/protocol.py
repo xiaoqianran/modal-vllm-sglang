@@ -39,6 +39,10 @@ def report(plan, records):
                 outputs.setdefault(job["item"], {})[name] = record["artifacts"][output]
     result = {"name": plan["name"], "counts": dict(Counter(r["status"] for r in records.values())),
               "outputs": outputs}
+    waiting = Counter(r.get("wait_detail") or r.get("wait_reason") for r in records.values()
+                      if r["status"] in {"pending", "blocked"} and (r.get("wait_detail") or r.get("wait_reason")))
+    if waiting:
+        result["waiting_reasons"] = dict(waiting)
     if plan.get("transport") == "sdk":
         result["download_errors"] = sum(bool(r.get("download_error")) for r in records.values())
         result["local_downloaded"] = sum(bool(r.get("local_artifact")) for r in records.values())

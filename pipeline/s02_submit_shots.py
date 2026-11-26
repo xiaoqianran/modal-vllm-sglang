@@ -169,6 +169,9 @@ def tick_direct(directory, plan, current, job, backend, downloads, pool):
                            error="Model preparation failed: " + ready.get("error", "unknown"))
                 return
             if ready.get("status") != "ready":
+                detail = getattr(provisioner, "wait_diagnostics", {}).get(key) or ready.get("status", "preparing")
+                sdk.update(directory, job_key, status="blocked", wait_reason="model", wait_detail=detail,
+                           model_wait_started_at=record.get("model_wait_started_at") or sdk.utc_now())
                 return
             # Freeze every outstanding shot before batch admission. Appending a
             # scene must not strand reserved shots on a newer deployment key.
@@ -201,7 +204,11 @@ def tick_direct(directory, plan, current, job, backend, downloads, pool):
             if not ready.get("cache_fingerprint"):
                 raise RuntimeError("Ready model has no verified cache fingerprint")
             if not provisioner.admit_batch(plan["services"], {service: key}, {service: members}, receipt["id"]):
+                sdk.update(directory, job_key, status="blocked", wait_reason="model", wait_detail="Waiting for deployment admission",
+                           model_wait_started_at=record.get("model_wait_started_at") or sdk.utc_now())
                 return
+            if record.get("wait_detail"):
+                sdk.update(directory, job_key, wait_detail=None)
             before_submit = lambda intent: provisioner.record_direct(
                 key, receipt["id"], job_key, {**intent, "status": "submitting"})
 

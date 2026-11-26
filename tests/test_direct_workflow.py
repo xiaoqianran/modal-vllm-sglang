@@ -68,6 +68,23 @@ class DirectWorkflowTests(unittest.TestCase):
             self.tick(f"{i:03}")
         self.assertEqual(self.backend.submit.call_count, 12)
 
+    def test_preparing_job_exposes_block_reason_then_submits_once(self):
+        self.provisioner.registry["model-key"] = {"status": "build_deploy"}
+        self.tick("001")
+        plan, current = sdk.snapshot(self.directory)
+        record = current["jobs"]["image/001"]
+        self.assertEqual(record["status"], "blocked")
+        self.assertEqual(record["wait_detail"], "build_deploy")
+        from orchestration.protocol import report
+        self.assertEqual(report(plan, current["jobs"])["waiting_reasons"], {"build_deploy": 1})
+        self.backend.submit.assert_not_called()
+        self.provisioner.registry["model-key"] = {"status": "ready", "cache_fingerprint": "verified"}
+        self.tick("001")
+        self.backend.submit.assert_called_once()
+        _, current = sdk.snapshot(self.directory)
+        self.assertEqual(current["jobs"]["image/001"]["status"], "queued")
+        self.assertIsNone(current["jobs"]["image/001"].get("wait_detail"))
+
     def test_failed_preparation_does_not_submit_or_provision_cpu(self):
         self.provisioner.registry["model-key"] = {"status": "failed", "error": "version mismatch"}
         self.tick("001")
