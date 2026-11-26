@@ -72,7 +72,7 @@ class DownloadCliTests(TestCase):
                 downloader = create_downloader(
                     volume_name=task["volume"], mount_path=VOLUME_MOUNT,
                     sub_path=VOLUME_SUB_PATH, volume_version=VOLUME_VERSION,
-                    max_workers=task["workers"], verification_mode="xet",
+                    max_workers=8 if task["workers"] == "auto" else task["workers"], verification_mode="xet",
                 )
                 config = downloader.config
                 self.assertEqual(config.scheduling, "persistent")
@@ -87,7 +87,7 @@ class DownloadCliTests(TestCase):
                 self.assertEqual(config.replacement_budget, 0)
                 self.assertEqual(config.volume_version, 2)
                 self.assertEqual(config.sub_path, "/inference")
-                self.assertEqual(config.max_workers, task["workers"])
+                self.assertEqual(config.max_workers, 8)
 
     def test_free_plan_has_no_legacy_directory(self):
         for name, kind in (("models/001-moss-image", "hf"),
@@ -172,9 +172,9 @@ class DownloadCliTests(TestCase):
             maintenance.assert_not_called()
 
     def test_per_model_worker_defaults_and_cli_override(self):
-        expected = {"models/001-moss-image": 5,
-                    "models/005-minimax-h3-image": 6,
-                    "models/002-pika-h3-flex": 8}
+        expected = {"models/001-moss-image": "auto",
+                    "models/005-minimax-h3-image": "auto",
+                    "models/002-pika-h3-flex": "auto"}
         for folder, workers in expected.items():
             with self.subTest(folder=folder):
                 spec = self.spec(folder)
@@ -195,6 +195,9 @@ class DownloadCliTests(TestCase):
         with patch.dict("os.environ", MODEL_HF_DOWNLOAD_WORKERS=""):
             self.assertEqual(plan({k: v for k, v in spec.items() if k != "download_workers"})["workers"], 3)
             self.assertEqual(plan(validate({**spec, "download_workers": 8}))["workers"], 8)
+        with patch.dict("os.environ", MODEL_HF_DOWNLOAD_WORKERS="auto"):
+            self.assertEqual(plan(spec)["workers"], "auto")
+            self.assertEqual(plan(spec, 2)["workers"], 2)
         for value in ("0", "9", "bad"):
             with patch.dict("os.environ", MODEL_HF_DOWNLOAD_WORKERS=value):
                 with self.assertRaises(ValueError):
@@ -285,7 +288,9 @@ class DownloadCliTests(TestCase):
         spec = self.spec("models/001-moss-image")
         d, app = self.setup_downloader(spec)
         d.download.return_value = {"status": "FAILED"}
-        with patch("modal_benchmark.hf.create_downloader", return_value=d):
+        with patch("modal_benchmark.hf.create_downloader", return_value=d) as create:
             with self.assertRaisesRegex(RuntimeError, "not verified"):
                 run(spec)
+        self.assertEqual(create.call_args.kwargs["max_workers"], 8)
+        self.assertEqual(d.download.call_args.kwargs["workers"], "auto")
         self.assertEqual(app.runs, 0)

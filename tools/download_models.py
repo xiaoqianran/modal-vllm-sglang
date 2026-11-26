@@ -27,13 +27,13 @@ def cache_implementation(spec):
     return import_module(name)
 
 
-def plan(spec: dict, workers: int | None = None) -> dict:
+def plan(spec: dict, workers: int | str | None = None) -> dict:
     """Build a free, local download plan; never contact HF or Modal."""
     if workers is None:
         raw = os.getenv("MODEL_HF_DOWNLOAD_WORKERS", "").strip()
-        workers = int(raw) if raw else spec.get("download_workers", 3)
-    if type(workers) is not int or not 1 <= workers <= 8:
-        raise ValueError("workers must be an integer between 1 and 8")
+        workers = ("auto" if raw == "auto" else int(raw)) if raw else spec.get("download_workers", 3)
+    if workers != "auto" and (type(workers) is not int or not 1 <= workers <= 8):
+        raise ValueError("workers must be auto or an integer between 1 and 8")
     strategy = preparation_strategy(spec)
     if shared_storage(spec) and strategy != "hf":
         raise ValueError("Shared storage supports HF snapshots, not SGLang Overlay")
@@ -52,7 +52,7 @@ def plan(spec: dict, workers: int | None = None) -> dict:
             "workers": workers, "sources": sources}
 
 
-def run(spec: dict, *, workers: int | None = None) -> dict:
+def run(spec: dict, *, workers: int | str | None = None) -> dict:
     """Download once, then publish exactly one inference-ready cache."""
     import modal
     from modal_benchmark.hf import create_downloader
@@ -63,7 +63,7 @@ def run(spec: dict, *, workers: int | None = None) -> dict:
         app=modal.App('download-' + spec.get('service_directory', spec['service'])),
         volume_name=task["volume"], mount_path=VOLUME_MOUNT,
         sub_path=VOLUME_SUB_PATH,
-        volume_version=VOLUME_VERSION, max_workers=workers, verification_mode="xet",
+        volume_version=VOLUME_VERSION, max_workers=8 if workers == "auto" else workers, verification_mode="xet",
     )
     # Complete the lightweight transfers before constructing the SGLang
     # publisher image. Otherwise Modal may eagerly build the large image
@@ -78,6 +78,7 @@ def run(spec: dict, *, workers: int | None = None) -> dict:
     print("DOWNLOAD_VERIFIED " + json.dumps({
         "service": spec["service"], "files": result["files"],
         "bytes": result["bytes"], "seconds": result["end_to_end_seconds"],
+        "worker_policy": result.get("statistics", {}).get("worker_policy"),
     }), flush=True)
 
     volume = downloader.volume
@@ -138,7 +139,8 @@ def run_cache_maintenance(spec, *, migrate_only=False):
 def main(argv: list[str] | None = None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("model_spec", help="Path to model.json")
-    parser.add_argument("--workers", type=int, choices=range(1, 9), default=None,
+    parser.add_argument("--workers", type=lambda value: "auto" if value == "auto" else int(value),
+                        choices=["auto", *range(1, 9)], default=None,
                         help="Override MODEL_HF_DOWNLOAD_WORKERS and model.json (fallback: 3)")
     parser.add_argument("--execute", action="store_true",
                         help="Explicitly allow paid Modal CPU execution (without this: plan only)")

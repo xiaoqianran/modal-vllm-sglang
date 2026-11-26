@@ -73,7 +73,7 @@ uv run python tools/download_models.py models/001-moss-image/model.json --execut
 uv run python tools/download_models.py models/005-minimax-h3-image/model.json --execute
 ```
 
-Worker 配置优先级：`--workers N` > `MODEL_HF_DOWNLOAD_WORKERS` > `model.json` 的 `download_workers` > 默认 3。均支持 1–8 个 Worker。速度优先模型配置（MOSS=5、MiniMax=6、Pika=8、Qwen=2），由 Modal 选择可用云区域。
+Worker 配置优先级：`--workers auto|N` > `MODEL_HF_DOWNLOAD_WORKERS` > `model.json` 的 `download_workers` > 默认 3。MOSS、MiniMax、Pika 默认 auto（每轮根据缺失文件规划 1–8 个 Worker），Qwen 保持 2。显式整数可覆盖自动模式，由 Modal 选择可用云区域。
 直接写入各服务的 `/data/<service-cache>/downloads/`，**不兼容或搬迁旧的 `azure/<digest>` 数据**。用户自行清理旧模型目录；若切换固定仓库清单，已有新目录与新清单不一致时应清除相应 `downloads` 目录再执行。
 模型下载完成后：MOSS/MiniMax 使用一次远程调用发布 `model-ready.json` 并复核就绪，Pika 单独使用一次 SGLang 容器物化和发布。
 下载器和运行时均只使用名为 `model-store` 的单个 Volume V2（`volume_version=2`），挂载在 `/data`；模型位于 `/data/models/<模型目录>`，运行缓存和输出共享同一卷但按目录区分。如果云端原资源仍为 V1，必须先完成云端数据迁移或重新下载；修改 SDK 的 version 参数不会自动转换现有 Volume，旧资源不会自动清理。需要 Modal 凭据及 `huggingface-secret` 的 `HF_TOKEN`。

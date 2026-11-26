@@ -62,9 +62,10 @@ def validate(spec):
     if spec.get("memory_snapshot", "off") not in ("off", "gpu"):
         raise ValueError("memory_snapshot must be off or gpu")
     if ("download_workers" in spec and
+            spec["download_workers"] != "auto" and
             (type(spec["download_workers"]) is not int
              or not 1 <= spec["download_workers"] <= 8)):
-        raise ValueError("download_workers must be an integer between 1 and 8")
+        raise ValueError("download_workers must be auto or an integer between 1 and 8")
     if spec.get("download_policy", "active") not in ("active", "archived"):
         raise ValueError("download_policy must be active or archived")
     for key in ("service", "operation"):
