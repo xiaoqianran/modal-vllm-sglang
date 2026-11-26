@@ -3,11 +3,12 @@ from __future__ import annotations
 
 import os
 import re
-import tempfile
+import hashlib
 from pathlib import Path
 from urllib.parse import quote
+from urllib.request import Request, urlopen
 
-from .operations import sha256_file
+from runtime.utils.files import sha256_file
 
 _BUCKET = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*$")
 _SAFE = re.compile(r"^[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*$")
@@ -47,20 +48,34 @@ class HuggingFaceBucket:
         batch_bucket_files(self.bucket, add=[(str(local_file), remote_path)], token=self.token)
         return public_url(self.bucket, remote_path)
 
-    def verify(self, local_file: Path, remote_path: str, mode: str) -> str:
-        from huggingface_hub import get_bucket_file_metadata
-        metadata = get_bucket_file_metadata(self.bucket, remote_path, token=self.token)
-        if metadata.size != local_file.stat().st_size:
-            raise RuntimeError("HF remote size differs from local media")
+    def verify(self, local_file: Path, remote_path: str, mode: str, *,
+               expected_sha256: str | None = None) -> str:
+        url = public_url(self.bucket, remote_path)
+        size = local_file.stat().st_size
         if mode == "size":
+            from huggingface_hub import get_bucket_file_metadata
+            metadata = get_bucket_file_metadata(self.bucket, remote_path, token=self.token)
+            if metadata.size != size:
+                raise RuntimeError("HF remote size differs from local media")
             return "size"
         if mode != "sha256":
             raise ValueError(f"Unsupported verification mode: {mode}")
-        from huggingface_hub import download_bucket_files
-        with tempfile.TemporaryDirectory(prefix="hf-archive-verify-") as directory:
-            restored = Path(directory) / "restored.bin"
-            download_bucket_files(self.bucket, files=[(remote_path, str(restored))],
-                                  token=self.token)
-            if sha256_file(restored) != sha256_file(local_file):
-                raise RuntimeError("HF remote SHA256 differs from local media")
+        # Read the same public URL as the HTML gallery. Never relay credentials
+        # to redirects or write a verification copy to disk.
+        expected = expected_sha256 or sha256_file(local_file)
+        digest = hashlib.sha256()
+        received = 0
+        request = Request(url, headers={"Accept-Encoding": "identity"})
+        with urlopen(request, timeout=60) as response:
+            if response.status != 200:
+                raise RuntimeError("HF verification requires a full response")
+            for chunk in iter(lambda: response.read(1024 * 1024), b""):
+                received += len(chunk)
+                if received > size:
+                    raise RuntimeError("HF remote size differs from local media")
+                digest.update(chunk)
+        if received != size:
+            raise RuntimeError("HF remote size differs from local media")
+        if digest.hexdigest() != expected:
+            raise RuntimeError("HF remote SHA256 differs from local media")
         return "sha256"

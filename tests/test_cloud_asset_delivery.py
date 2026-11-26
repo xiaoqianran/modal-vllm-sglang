@@ -31,7 +31,7 @@ def test_remote_cpu_reads_mount_not_pc2(tmp_path):
         factory.return_value.run.return_value = {"status": "archived", "url": "https://example.invalid"}
         result = archive_mounted_artifact(tmp_path, artifact, settings, "001-project")
     assert result["source_artifact"] == artifact
-    factory.return_value.run.assert_called_once_with(file.resolve(), upload=True)
+    factory.return_value.run.assert_called_once_with(file.resolve(), upload=True, expected_sha256=artifact["sha256"])
     assert factory.call_args.args[0].verify == "sha256"
 
 
@@ -87,3 +87,13 @@ def test_cpu_archiver_uses_official_pypi():
     assert len(calls) == 1
     keywords = {kw.arg: ast.literal_eval(kw.value) for kw in calls[0].keywords}
     assert keywords["index_url"] == "https://pypi.org/simple"
+
+
+def test_remote_cpu_rejects_same_size_corruption(tmp_path):
+    file, artifact, settings = fixture(tmp_path)
+    payload = file.read_bytes()
+    file.write_bytes(payload[:-1] + bytes([payload[-1] ^ 1]))
+    with patch("runtime.archive.pipeline.HuggingFaceBucket") as provider:
+        with pytest.raises(ValueError, match="checksum"):
+            archive_mounted_artifact(tmp_path, artifact, settings, "001-project")
+    provider.assert_not_called()

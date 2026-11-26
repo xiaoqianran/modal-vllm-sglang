@@ -13,7 +13,7 @@ from .operations import PreparedMedia, describe, prepare_media, write_record
 
 class ArchiveProvider(Protocol):
     def upload(self, local_file: Path, remote_path: str) -> str: ...
-    def verify(self, local_file: Path, remote_path: str, mode: str) -> str: ...
+    def verify(self, local_file: Path, remote_path: str, mode: str, *, expected_sha256: str | None = None) -> str: ...
 
 
 @dataclass(frozen=True)
@@ -36,11 +36,11 @@ class ArchivePipeline:
         self.provider = provider  # Fake provider for offline tests or HF on real upload.
 
     def run(self, source: str | Path, *, upload: bool = False,
-            manifest: str | Path | None = None) -> dict:
+            manifest: str | Path | None = None, expected_sha256: str | None = None) -> dict:
         """Prepare -> publish -> verify -> record; never mutate original outputs."""
         with tempfile.TemporaryDirectory(prefix="hf-archive-") as workdir:
             media = prepare_media(source, Path(workdir), self.settings.compression,
-                                  self.settings.min_saving)
+                                  self.settings.min_saving, expected_sha256=expected_sha256)
             remote_path = self.remote_path(media)
             url = public_url(self.settings.bucket, remote_path)
             verification = "not_uploaded"
@@ -48,7 +48,7 @@ class ArchivePipeline:
                 provider = self.provider or HuggingFaceBucket(self.settings.bucket)
                 url = provider.upload(media.upload_file, remote_path)
                 verification = provider.verify(media.upload_file, remote_path,
-                                               self.settings.verify)
+                                               self.settings.verify, expected_sha256=media.stored_sha256)
             record = describe(media, self.settings.bucket, remote_path, url,
                               verification, "archived" if upload else "planned")
             if manifest is not None:

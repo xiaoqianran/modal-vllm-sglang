@@ -52,7 +52,8 @@ def test_fake_upload_and_manifest(tmp_path):
         def upload(self, local_file, remote_path):
             self.calls.append(("upload", remote_path, local_file.stat().st_size))
             return "https://example.invalid/" + remote_path
-        def verify(self, local_file, remote_path, mode):
+        def verify(self, local_file, remote_path, mode, *, expected_sha256=None):
+            assert expected_sha256 == hashlib.sha256(local_file.read_bytes()).hexdigest()
             self.calls.append(("verify", remote_path, mode))
             return mode
     fake = FakeProvider()
@@ -89,3 +90,50 @@ def test_default_hf_bucket_cli_constant():
     from runtime.delivery import normalize_delivery
     assert DEFAULT_ASSET_BUCKET == "seachen/modal-vllm-sglang-assets"
     assert normalize_delivery({"provider": "huggingface"})["bucket"] == DEFAULT_ASSET_BUCKET
+
+
+def test_original_hashed_once_and_reused(tmp_path):
+    from unittest.mock import patch
+    from runtime.archive.operations import sha256_file
+    path = tmp_path / "clip.mp4"
+    path.write_bytes(b"media" * 100)
+    with patch("runtime.archive.operations.sha256_file", wraps=sha256_file) as digest:
+        media = prepare_media(path, tmp_path / "work", expected_sha256=sha256_file(path))
+        assert media.original_sha256 == media.stored_sha256
+        digest.assert_called_once_with(path.resolve())
+
+
+@pytest.mark.parametrize("payload,error", [(b"original", None), (b"tampered", "SHA256"),
+                                          (b"short", "size"), (b"original-extra", "size")])
+def test_public_remote_stream_verification(tmp_path, payload, error):
+    from io import BytesIO
+    from unittest.mock import patch
+    from runtime.archive.huggingface import HuggingFaceBucket
+    class Response(BytesIO):
+        status = 200
+        def read(self, size=-1):
+            assert size == 1024 * 1024
+            return super().read(size)
+    path = tmp_path / "clip.mp4"
+    path.write_bytes(b"original")
+    bucket = HuggingFaceBucket("example/art", token="test")
+    expected = hashlib.sha256(b"original").hexdigest()
+    with patch("runtime.archive.huggingface.urlopen", return_value=Response(payload)) as request, \
+         patch("runtime.archive.huggingface.sha256_file", side_effect=AssertionError("repeated hash")):
+        if error:
+            with pytest.raises(RuntimeError, match=error):
+                bucket.verify(path, "projects/example.mp4", "sha256", expected_sha256=expected)
+        else:
+            assert bucket.verify(path, "projects/example.mp4", "sha256", expected_sha256=expected) == "sha256"
+        assert request.call_args.args[0].get_header("Authorization") is None
+
+
+def test_source_checksum_rejected_before_upload(tmp_path):
+    from unittest.mock import Mock
+    path = tmp_path / "clip.mp4"
+    path.write_bytes(b"wrong")
+    provider = Mock()
+    pipeline = ArchivePipeline(ArchiveSettings("example/art", "p", compression="none"), provider=provider)
+    with pytest.raises(ValueError, match="checksum"):
+        pipeline.run(path, upload=True, expected_sha256=hashlib.sha256(b"right").hexdigest())
+    provider.upload.assert_not_called()

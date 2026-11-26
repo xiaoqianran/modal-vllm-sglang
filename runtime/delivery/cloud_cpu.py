@@ -7,7 +7,6 @@ from pathlib import Path
 import re
 
 from runtime.archive import ArchivePipeline, ArchiveSettings
-from runtime.utils.files import sha256_file
 from runtime.utils.media import media_suffix
 
 
@@ -32,7 +31,7 @@ def archive_mounted_artifact(root, artifact, settings, project):
     path = (data_root / relative).resolve()
     if not path.is_relative_to(data_root) or not path.is_file():
         raise FileNotFoundError("Committed artifact missing in cloud Volume")
-    if path.stat().st_size != artifact["size"] or sha256_file(path) != artifact["sha256"]:
+    if path.stat().st_size != artifact["size"]:
         raise ValueError("Cloud Volume artifact checksum/size mismatch")
     with path.open("rb") as source:
         media_suffix(source.read(32), artifact["type"])
@@ -40,5 +39,5 @@ def archive_mounted_artifact(root, artifact, settings, project):
         bucket=settings["bucket"], project=project,
         compression=settings["compression"], verify=settings["verify"],
         min_saving=settings["min_saving"]))
-    result = pipeline.run(path, upload=True)
+    result = pipeline.run(path, upload=True, expected_sha256=artifact["sha256"])
     return {**result, "source_artifact": artifact}

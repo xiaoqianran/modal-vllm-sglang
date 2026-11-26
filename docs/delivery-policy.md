@@ -70,3 +70,24 @@ uv run python -m modal deploy pipeline/deploy_assets.py
 
 登记 HF 新任务前，`uv run python run.py run` 会检查 HF 登录凭据，避免 Token 缺失后才花费 GPU 费用。
 `run.py plan` 始终离线；真实 Token 只允许保存在忽略的 `.env` 或用户自身的 Hugging Face 凭据中，不得提交到 `.env.example`。
+
+
+## SHA-256 streaming verification
+
+For new HF-only deliveries, the CPU archiver hashes the committed source once
+in 1 MiB blocks and compares it with the generation receipt before upload.
+If the stored encoding changes, hash the encoded file separately. The archive
+receipt reuses the verified stored digest. SHA-256 verification reads the
+public gallery URL in 1 MiB blocks, checks both byte count and digest, and
+does not write a full verification copy or transmit credentials to the URL.
+This still reads the entire remote object; it is not a metadata-only check.
+
+PC2 local I/O microbenchmark, 256 MiB synthetic source, five alternating runs:
+median old 1.4966 s, new 0.5200 s, single SHA-256 953 MiB/s. The test simulates
+remote readback using a local stream and excludes HF network time. The new
+path retains the full SHA-256 integrity check.
+
+2026-11-26 huaianer cloud smoke test: 12,602,631-byte synthetic PNG,
+Volume -> CPU -> HF upload and full SHA-256 readback, 10.802 s RPC wall.
+Independent anonymous PC2 readback 9.466 s; matching SHA-256. Both test
+objects cleaned. This is a single smoke test, not a network A/B benchmark.

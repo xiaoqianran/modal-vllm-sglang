@@ -1,23 +1,14 @@
 """Pure, local media preparation and manifest functions."""
 from __future__ import annotations
 
-import hashlib
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from runtime.utils.files import atomic_json
+from runtime.utils.files import atomic_json, sha256_file
 
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp"}
 VIDEO_EXTS = {".mp4"}
-
-
-def sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 @dataclass(frozen=True)
@@ -33,7 +24,7 @@ class PreparedMedia:
 
 
 def prepare_media(source: str | Path, workspace: Path, policy: str = "adaptive_lossless",
-                  min_saving: float = 0.05) -> PreparedMedia:
+                  min_saving: float = 0.05, *, expected_sha256: str | None = None) -> PreparedMedia:
     """Preserve the input. Only encode 8-bit RGB/RGBA files with no metadata."""
     path = Path(source).resolve()
     if not path.is_file():
@@ -48,6 +39,9 @@ def prepare_media(source: str | Path, workspace: Path, policy: str = "adaptive_l
         raise ValueError(f"Unsupported compression policy: {policy}")
     if not 0 <= min_saving < 1:
         raise ValueError("min_saving must be in [0, 1)")
+    original_sha256 = sha256_file(path)
+    if expected_sha256 is not None and original_sha256 != expected_sha256:
+        raise ValueError("Source artifact checksum mismatch")
     kind = "image" if suffix in IMAGE_EXTS else "video"
     selected = path
     encoding = "original"
@@ -64,7 +58,7 @@ def prepare_media(source: str | Path, workspace: Path, policy: str = "adaptive_l
                 with Image.open(candidate) as decoded:
                     if (decoded.size != image.size or
                             ImageChops.difference(image.convert("RGBA"),
-                                                  decoded.convert("RGBA")).getbbox() is not None):
+                                                  decoded.convert("RGBA")).getbbox(alpha_only=False) is not None):
                         raise RuntimeError("Decoded WebP pixels differ from source")
                 if candidate.stat().st_size < size * (1 - min_saving):
                     selected = candidate
@@ -73,7 +67,8 @@ def prepare_media(source: str | Path, workspace: Path, policy: str = "adaptive_l
     return PreparedMedia(
         source=path, upload_file=selected, kind=kind,
         original_size=size, stored_size=selected.stat().st_size,
-        original_sha256=sha256_file(path), stored_sha256=sha256_file(selected),
+        original_sha256=original_sha256,
+        stored_sha256=original_sha256 if selected == path else sha256_file(selected),
         encoding=encoding,
     )
 
