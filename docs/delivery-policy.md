@@ -91,3 +91,32 @@ path retains the full SHA-256 integrity check.
 Volume -> CPU -> HF upload and full SHA-256 readback, 10.802 s RPC wall.
 Independent anonymous PC2 readback 9.466 s; matching SHA-256. Both test
 objects cleaned. This is a single smoke test, not a network A/B benchmark.
+
+
+## Archive throughput screening (2026-11-26)
+
+Real huaianer CPU archive calls, four independently generated 1024x1024 PNGs
+(~12 MiB) per batch, no compression, full SHA-256 readback; six batches ordered
+1/2/4/4/2/1, different random bytes for each batch:
+- 1 concurrent: 11.527 / 13.722 s (median 12.624).
+- 2 concurrent: 5.587 / 8.732 s (median 7.160).
+- 4 concurrent: 4.814 / 6.096 s (median 5.455).
+All 24 archived and verified; all test HF objects removed and Volume cleanup
+completed without reported errors. Retain max_containers=4; eight was not tested.
+Timings include RPC, compression=none, upload, and anonymous SHA readback;
+they are not isolated upload throughput measurements.
+
+PC2 read-only PNG encoder screening (lossless, exact=True, pixels compared):
+old method=6 quality=80 vs candidate method=2 quality=20:
+- 1024x1024: 1.53975 -> 0.21687 s, 1043136 -> 1066524 bytes.
+- 2048x1152: 2.57329 -> 0.58521 s, 2738522 -> 2772334 bytes.
+- 5472x3072: 16.81873 -> 3.75917 s, 18624906 -> 18808806 bytes.
+Small samples, local CPU, not an isolated cloud A/B. Keep method=2 quality=20
+as a balanced candidate: near-original compression ratio, lower encode effort,
+no pixel loss. Skip existing WebP and animated PNG; decode and compare only
+if savings justify adopting the candidate. A changed encoder may generate a
+new content address for an image archived by the older encoder.
+
+Reuse is per project and stored-byte hash: verify the anonymous public URL
+by full SHA-256 before skipping upload. Only HTTP 404 permits creation;
+other errors fail closed. Concurrent first publications are not single-flight.

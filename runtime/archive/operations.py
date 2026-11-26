@@ -46,21 +46,26 @@ def prepare_media(source: str | Path, workspace: Path, policy: str = "adaptive_l
     selected = path
     encoding = "original"
 
-    if kind == "image" and suffix in {".png", ".webp"} and policy == "adaptive_lossless":
+    if suffix == ".png" and policy == "adaptive_lossless":
         from PIL import Image, ImageChops
 
-        workspace.mkdir(parents=True, exist_ok=True)
-        candidate = workspace / "compressed.webp"
         with Image.open(path) as image:
-            # Preserve files with metadata, palette, or high bit depth unchanged.
-            if image.mode in {"RGB", "RGBA"} and not image.info:
-                image.save(candidate, format="WEBP", lossless=True, method=6, exact=True)
-                with Image.open(candidate) as decoded:
-                    if (decoded.size != image.size or
-                            ImageChops.difference(image.convert("RGBA"),
-                                                  decoded.convert("RGBA")).getbbox(alpha_only=False) is not None):
-                        raise RuntimeError("Decoded WebP pixels differ from source")
+            # Never re-encode existing WebP, animated PNG, metadata, palette,
+            # or high-bit-depth originals. Lossless quality is encoder effort.
+            if image.mode in {"RGB", "RGBA"} and not image.info and not getattr(image, "is_animated", False):
+                workspace.mkdir(parents=True, exist_ok=True)
+                candidate = workspace / "compressed.webp"
+                image.save(candidate, format="WEBP", lossless=True, method=2,
+                           quality=20, exact=True)
                 if candidate.stat().st_size < size * (1 - min_saving):
+                    with Image.open(candidate) as decoded:
+                        if decoded.size != image.size:
+                            raise RuntimeError("Decoded WebP dimensions differ from source")
+                        # Avoid two RGBA copies when the modes already match.
+                        actual = decoded if decoded.mode == image.mode else decoded.convert("RGBA")
+                        expected = image if decoded.mode == image.mode else image.convert("RGBA")
+                        if ImageChops.difference(expected, actual).getbbox(alpha_only=False) is not None:
+                            raise RuntimeError("Decoded WebP pixels differ from source")
                     selected = candidate
                     encoding = "webp_lossless"
 

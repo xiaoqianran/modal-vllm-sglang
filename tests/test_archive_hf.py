@@ -168,3 +168,34 @@ def test_content_addressed_publish(tmp_path, case):
             else:
                 upload.assert_not_called()
                 assert verify.call_count == 1
+
+
+def test_existing_webp_is_not_reencoded(tmp_path):
+    from unittest.mock import patch
+    path = tmp_path / "image.webp"
+    Image.new("RGB", (64, 64), "red").save(path, lossless=True)
+    with patch("PIL.Image.open", side_effect=AssertionError("existing WebP must be preserved")):
+        media = prepare_media(path, tmp_path / "work")
+    assert media.upload_file == path
+    assert media.original_sha256 == media.stored_sha256
+
+
+def test_no_pixel_decode_for_rejected_candidate(tmp_path):
+    from unittest.mock import patch
+    path = tmp_path / "image.png"
+    fixture_png(path)
+    with patch("PIL.ImageChops.difference", side_effect=AssertionError("rejected candidate must not be decoded")):
+        media = prepare_media(path, tmp_path / "work", min_saving=0.9999)
+    assert media.upload_file == path
+
+
+def test_fast_lossless_rgba_preserves_all_channels(tmp_path):
+    path = tmp_path / "image.png"
+    image = Image.new("RGBA", (512, 512))
+    image.paste((200, 30, 70, 0), (0, 0, 256, 256))
+    image.paste((100, 200, 20, 255), (256, 256, 512, 512))
+    image.save(path, compress_level=0)
+    media = prepare_media(path, tmp_path / "work", min_saving=0)
+    assert media.encoding == "webp_lossless"
+    with Image.open(media.upload_file) as decoded:
+        assert image.tobytes() == decoded.convert("RGBA").tobytes()
