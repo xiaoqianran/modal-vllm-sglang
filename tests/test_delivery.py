@@ -42,6 +42,26 @@ class DeliveryTests(unittest.TestCase):
         return {"provider": provider, "bucket": "team/public",
                 "verify": "sha256", "compression": "adaptive_lossless"}
 
+    def test_archive_batch_uses_fresh_source_version(self):
+        from unittest.mock import Mock
+        from runtime.delivery.huggingface import ArchiveBatcher
+        modal = Mock()
+        request = {"artifact": {"storage": "volume", "path": "model-results/a.mp4", "type": "video", "size": 10, "sha256": "a" * 64},
+                   "delivery": normalize_delivery({"provider": "huggingface"}), "project": "test"}
+        def remote(items, version):
+            return {"archive_version": version, "results": [{"receipt": {"status": "archived", "verification": "sha256", "source_artifact": request["artifact"], "bucket": request["delivery"]["bucket"]}}]}
+        modal.Function.from_name.return_value.remote.side_effect = remote
+        with patch("runtime.delivery.huggingface.archive_source_version", return_value="old") as version:
+            batcher = ArchiveBatcher(modal, wait=0, lock_root=self.root / "locks")
+            batcher.archive(request)
+            version.return_value = "new"
+            batcher.archive(request)
+        self.assertEqual([c.args[1] for c in modal.Function.from_name.return_value.remote.call_args_list], ["old", "new"])
+        modal.Function.from_name.return_value.remote.side_effect = None
+        modal.Function.from_name.return_value.remote.return_value = {"archive_version": "wrong", "results": []}
+        with self.assertRaisesRegex(RuntimeError, "contract/version mismatch"):
+            batcher.archive(request)
+
     def test_policy_validation_and_frozen_plan(self):
         self.assertEqual(normalize_delivery(None), {"provider": "local"})
         for value in ({}, {"provider": "local", "bucket": "a/b"},

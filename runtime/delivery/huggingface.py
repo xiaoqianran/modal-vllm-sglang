@@ -34,7 +34,6 @@ class ArchiveBatcher:
 
     def __init__(self, modal_client, *, wait=None, lock_root=None):
         self.modal = modal_client
-        self.version = archive_source_version()
         self.wait = wait
         self.windows = {}
         self.targets = {}
@@ -109,8 +108,11 @@ class ArchiveBatcher:
             with ExitStack() as locks:
                 for stripe in stripes:
                     locks.enter_context(file_lock(self.lock_root / stripe, timeout=3600))
-                response = function.remote(requests, self.version)
-            if response.get("archive_version") != self.version or len(response.get("results", [])) != len(items):
+                # Pin each batch to the current on-disk CPU archive source, not
+                # the worker startup hash. The remote still verifies exact identity.
+                version = archive_source_version()
+                response = function.remote(requests, version)
+            if response.get("archive_version") != version or len(response.get("results", [])) != len(items):
                 raise RuntimeError("Archive batch contract/version mismatch")
             # Validate all envelopes before resolving any Future.
             rows = response["results"]

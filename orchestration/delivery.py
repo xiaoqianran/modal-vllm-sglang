@@ -69,8 +69,14 @@ def collect_finished_deliveries(directory, deliveries):
                 update(directory, key[1], local_artifact=None, download_error=
                        type(exc).__name__ + ": local collection failed; cloud output remains ready")
             else:
+                # Preserve known safe contract diagnostics without leaking URLs,
+                # credentials, or arbitrary provider exception messages.
+                detail = next((message for message in (
+                    "Archive deployment version mismatch", "Archive source version mismatch",
+                    "Archive batch contract/version mismatch", "Archive receipt mismatch",
+                    "Invalid archive result") if message in str(exc)), None)
                 update(directory, key[1], archive_error=
-                       type(exc).__name__ + ": cloud archive failed; cloud output remains ready")
+                       type(exc).__name__ + ": " + (detail or "cloud archive failed") + "; cloud output remains ready")
         delivery["reported"] = True
 
 
