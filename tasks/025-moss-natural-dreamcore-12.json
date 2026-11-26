@@ -1,0 +1,78 @@
+{
+  "version": 1,
+  "name": "025-moss-natural-dreamcore-12",
+  "project": "025-moss-natural-dreamcore-12",
+  "scene": "001-main",
+  "workflow": "moss-t2i",
+  "params": {
+    "size": "1536x864",
+    "num_inference_steps": 50,
+    "guidance_scale": 3
+  },
+  "delivery": {
+    "provider": "huggingface",
+    "bucket": "seachen/modal-vllm-sglang-assets"
+  },
+  "items": [
+    {
+      "id": "001",
+      "seed": 272501,
+      "prompt": "A childhood dream photographed in bright spring daylight. A single white wooden door stands open on the crest of an impossibly smooth, emerald-green hill, with no walls attached. In the rectangular opening, a small white cloud hangs against a deep midnight-blue sky, while the sky surrounding the door is pale daytime blue. The door's shadow falls naturally across the grass toward the lower right. A faint footpath climbs from the lower left and disappears just before the threshold. Seen from low on the slope with a 35mm lens, the hill fills the lower two thirds of the horizontal frame, and the door is a small, precise silhouette against the sky. Tiny daisies, uneven grass blades, sun-bleached paint and a gentle breeze give this impossible place the texture of an ordinary summer photograph."
+    },
+    {
+      "id": "002",
+      "seed": 272502,
+      "prompt": "A forgotten outdoor swimming pool in a wide meadow during a windless, overcast afternoon. Seen from directly above at a slight diagonal, the rectangular basin is a clean turquoise interruption in dense yellow-green grass. Water covers the faded ivory tiles; one cobalt lane stripe is visible on the bottom, and a steel ladder enters at the near corner. A pale cloud reflection floats on the surface without hiding the underwater stripe. The grass grows right up to the narrow concrete rim, with weeds emerging from cracks. Beyond the basin there are only meadow grasses, no paths or surrounding buildings. The composition is almost abstract but the weathered materials, shallow water, slight mineral stains and subdued color feel documentary and real."
+    },
+    {
+      "id": "003",
+      "seed": 272503,
+      "prompt": "At the edge of a mountain lake just before sunrise, a solitary wooden rowboat floats on glassy water. The camera is only centimeters above the surface, looking toward a distant dark-green ridge. Beneath the narrow band of land, the lake reflects a brilliant pink and apricot sunrise that has not yet appeared in the actual cool blue sky above. The reflected clouds form a deep luminous world below the boat, separated from the visible sky by a crisp horizontal shoreline. A single ripple breaks the reflection immediately beside the hull. In the near foreground, rounded stones are visible beneath a thin layer of clear water. A restrained panoramic photograph with blue-violet shadows, peach light confined to the water and the strange feeling that the lake remembers tomorrow."
+    },
+    {
+      "id": "004",
+      "seed": 272504,
+      "prompt": "A tiny cream-painted railway shelter stands in a sea of waist-high summer grass, its faded blue bench visible through the open front. In a side-on view, two rusty rails approach from the left, pass the shelter, and stop abruptly in the meadow on the right; the last few wooden sleepers are partly swallowed by the earth. No train, passengers, timetable or readable signs. Soft hills overlap behind the station in smoky golden layers. Late-afternoon backlight turns the grass heads into fine amber threads, while the shelter casts a long shadow toward the foreground. A distant camera with an 85mm lens compresses the hills and makes the small abandoned station feel suspended between repeated waves of grass. Faded cream, dusty blue and honey gold, like a half-remembered photograph from a place that no longer exists."
+    },
+    {
+      "id": "005",
+      "seed": 272505,
+      "prompt": "A sunlit meadow after a summer storm. From beside a low stone wall, the camera looks across a narrow dirt path toward a bright green hillside. A compact, vertical sheet of individual raindrops hangs motionless over one section of the path, each droplet transparent and separated from its neighbors. The earth directly beneath this suspended rain is dark and wet; a shallow puddle reflects the pale clouds, while the grass outside the narrow curtain remains dry. A low sun at the upper left lights the drops from behind without turning them into glowing fantasy particles. A few large droplets near the lens are softly blurred, the middle-distance rain is sharp, and the hills beyond dissolve into silver mist. An uncanny photographic moment with ordinary wet soil, clover and natural sunlight."
+    },
+    {
+      "id": "006",
+      "seed": 272506,
+      "prompt": "A broad flight of old concrete stairs rises diagonally across a mossy hillside on a misty autumn morning. The camera looks down from the top landing toward the valley, so the parallel stair edges form a strong descending rhythm in the lower left. The uppermost step, visible in the foreground, opens directly onto uninterrupted grass: there is no building, doorway or railing. Damp moss fills the joints, tiny ferns grow from chipped corners, and a single yellow leaf rests on a tread. Beyond the foot of the stairs, dark pines emerge in layers from a shallow sea of fog. Cool sage green, charcoal stone and a muted amber glow from somewhere behind the clouds. The high viewpoint and carefully observed textures make this useless staircase feel like a real place encountered during sleep."
+    },
+    {
+      "id": "007",
+      "seed": 272507,
+      "prompt": "A remote coastal grassland at the last light of sunset, photographed from a low, level viewpoint. Above the distant horizon floats a colossal horizontal body of ocean water, completely detached from the earth. Its lower surface is visible as a dark translucent blue-green plane, and at its near edge a single immense white wave curls downward without falling. A continuous strip of pale peach sky remains between the floating ocean and the grassland, making the separation unmistakable. Warm sunlight catches the foam and the thin grass tips in the foreground; the suspended water itself remains cool and heavy-looking, with believable translucency and layered reflections. The land below contains no buildings or people. A wide landscape composition, with the impossible ocean occupying the upper half and quiet ordinary grass below, presented as one convincing photographic exposure rather than an illustration."
+    },
+    {
+      "id": "008",
+      "seed": 272508,
+      "prompt": "A red wooden swing seat hangs motionless from two dark ropes beneath a simple timber A-frame, in a small patch of snow surrounded by lush summer meadow. The camera is at the height of the seat, several meters away, with the swing on the right third and a gently curving snow edge crossing the foreground. Green clover and tiny purple flowers emerge beside granular melting ice; a shallow thread of meltwater catches a highlight. Behind the swing, dense leafy trees cast cool shade, and a clear blue sky shows between their branches. Strong July sunlight gives the swing a long, sharply defined shadow across the snow. Warm green foliage and the faded red seat contrast with luminous white snow. Every material looks weathered and tangible, with no other seasonal anomaly and no people."
+    },
+    {
+      "id": "009",
+      "seed": 272509,
+      "prompt": "From a high grassy ridge, look down across a sequence of rolling hills under slanting evening light. A single low white picket fence begins near the camera and winds through the landscape in a series of increasingly distant S-curves. The fence has occasional open gaps, but no gates, houses, fields or visible purpose. It continues across one ridge after another until the final white fragments disappear into atmospheric haze. The near posts show chipped paint and gray wood grain, while the distant sections become thin pale lines. Long hill shadows alternate with sunlit grass in olive, lime and gold. The elevated viewpoint makes the fence resemble a recurring line in an endless dream; the natural terrain stays irregular and believable."
+    },
+    {
+      "id": "010",
+      "seed": 272510,
+      "prompt": "A mature willow stands alone on a tiny round island in a huge shallow lake at misty dawn. Its trunk is slightly bent, and long green branches almost touch the water, casting a dark, softly distorted reflection. Frame the tree from far away with a 100mm lens, allowing a large field of pale gray-blue water to surround it on every side. A narrow ring of grass and reeds outlines the island. At the lower edge of the image, a few overlapping ripples break the otherwise still surface. A distant shoreline is barely discernible through white fog, and the brightest patch of sky lies behind the tree rather than directly above it. Low contrast, silvery light, translucent willow leaves and a subtle green accent create an almost monochrome photographic study of isolation."
+    },
+    {
+      "id": "011",
+      "seed": 272511,
+      "prompt": "An abandoned open-air corridor of simple white concrete columns crosses a gently sloping green meadow. The camera stands under the first roof bay, where the shaded ceiling and two near columns form a dark rectangular frame around the sunlit landscape. Beyond that frame, successive pairs of columns recede along a straight line, but the roof ends after the third bay; farther columns stand exposed to the open blue sky. Grass grows uninterrupted between the columns, with no paved floor, doors or rooms. Strong late-afternoon sunlight projects repeated rectangular shadows sideways across the slope. Weathered concrete, hairline cracks and warm reflected green light ground the architecture in reality. A centered one-point perspective that gradually dissolves from enclosed shade into limitless outdoor space."
+    },
+    {
+      "id": "012",
+      "seed": 272512,
+      "prompt": "The last fragment of a dream before waking: a single white cotton bedsheet hangs from a clothesline between two weathered wooden posts on an otherwise empty hillside. Seen from a low viewpoint among dew-covered grass, the sheet is small and far to the right, its lower edge lifting gently in the breeze. The horizon is a soft succession of lavender and pale-green hills, with a thin band of golden dawn appearing beneath the blue sky. A faint crescent moon remains near the upper left. The first sunlight passes through the edge of the fabric, revealing its weave and irregular folds; nearby droplets remain cool and silvery in shadow. No house, road, person or other object. A quiet, asymmetrical widescreen photograph with the empty landscape occupying most of the frame, ending the dream without a spectacle."
+    }
+  ]
+}
