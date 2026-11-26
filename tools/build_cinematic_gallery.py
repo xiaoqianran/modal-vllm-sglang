@@ -1,12 +1,14 @@
 """Build a standalone film-contact-sheet HTML from verified Task/HF archive records.
 
-No images or model files are read or downloaded on the PC.
+Prefer verified local image copies when present; otherwise use HF archive URLs.
+No model files are read or downloaded.
 """
 import argparse
+import hashlib
 from html import escape
 import json
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import urlparse, quote
 
 from orchestration import state
 from orchestration.monitor_data import build_snapshot
@@ -42,6 +44,32 @@ def collect(directory, titles):
     return output
 
 
+def prefer_local_images(items, folder, *, relative_prefix=""):
+    """Use a local archive copy only when its content-addressed HF hash matches."""
+    folder = Path(folder)
+    for item in items:
+        url = item.get("url")
+        if not url:
+            continue
+        shot = item["id"]
+        if not isinstance(shot, str) or not shot.isascii() or not shot.isdigit():
+            continue
+        parsed = urlparse(url)
+        if parsed.scheme != "https" or parsed.hostname != "huggingface.co" or not parsed.path.startswith("/buckets/"):
+            continue
+        remote = Path(parsed.path).name
+        digest = Path(remote).stem
+        suffix = Path(remote).suffix.lower()
+        if len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest) or suffix not in {".webp", ".png", ".jpg", ".jpeg"}:
+            continue
+        for filename in (shot + suffix, remote):
+            local = folder / filename
+            if local.is_file() and hashlib.sha256(local.read_bytes()).hexdigest() == digest:
+                item["local_src"] = relative_prefix + quote(filename)
+                break
+    return items
+
+
 def render_gallery(items):
     count = sum(bool(x["url"]) for x in items)
     headings = (
@@ -57,9 +85,12 @@ def render_gallery(items):
         url=item["url"]
         if url:
             safe=escape(url,quote=True)
-            art=(f'<a class="visual" href="{safe}" target="_blank" rel="noopener noreferrer" aria-label="打开 {title} 原图">'
-                 f'<img src="{safe}" alt="{title} · {en}" loading="lazy" referrerpolicy="no-referrer"><span class="open">查看 HF 原图 ↗</span></a>')
+            source=escape(item.get("local_src") or url,quote=True)
+            art=(f'<a class="visual" href="{source}" target="_blank" rel="noopener noreferrer" aria-label="打开 {title} 原图">'
+                 f'<img src="{source}" alt="{title} · {en}" loading="lazy" referrerpolicy="no-referrer"><span class="open">查看原图 ↗</span></a>')
             status='<span class="state done">已发布</span>'
+            if item.get("local_src"):
+                status='<span class="state done">本地已校验 · <a href="'+safe+'" target="_blank" rel="noopener noreferrer">HF</a></span>'
         else:
             art='<div class="visual placeholder"><span>AWAITING FRAME</span></div>'
             status='<span class="state">尚未发布</span>'
@@ -98,7 +129,7 @@ footer{border-top:1px solid var(--line);margin-top:72px;padding-top:20px;display
             '<div class="topline"><span>MINIMAX H3 IMAGE / MODAL</span><span>HUGGING FACE · ORIGINAL IMAGE ARCHIVE</span></div>'
             +headings+'<div class="section-name"><span>THE CONTACT SHEET</span><span>12 FRAMES</span></div>'
             +'<section class="gallery">'+''.join(cards)+'</section>'
-            '<footer><span>由实际归档记录生成 · 无占位图片冒充成品</span><span>点击任意画面打开 HF 原图</span></footer></main></body></html>')
+            '<footer><span>由实际归档记录生成 · 无占位图片冒充成品</span><span>点击任意画面打开原图 · 优先本地文件</span></footer></main></body></html>')
 
 
 def build(root=ROOT, task_name=TASK_NAME):
@@ -130,9 +161,14 @@ def build(root=ROOT, task_name=TASK_NAME):
     else:
         directory=state.resolve_task(root, "outputs/"+task_name)
         items=collect(directory,titles)
+    local_folder=root/"outputs"/task_name
+    prefer_local_images(items,local_folder,relative_prefix=quote(task_name)+"/")
     html=render_gallery(items)
     dest=root/"outputs"/f"{task_name}-gallery.html"
     atomic_write(dest,html.encode("utf-8"))
+    if local_folder.is_dir() and any(item.get("local_src") for item in items):
+        local_items=[{**item,"local_src":item["local_src"].split("/",1)[1]} if item.get("local_src") else item for item in items]
+        atomic_write(local_folder/"index.html",render_gallery(local_items).encode("utf-8"))
     return dest,items
 
 

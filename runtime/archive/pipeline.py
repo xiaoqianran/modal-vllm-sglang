@@ -12,8 +12,8 @@ from .operations import PreparedMedia, describe, prepare_media, write_record
 
 
 class ArchiveProvider(Protocol):
-    def upload(self, local_file: Path, remote_path: str) -> str: ...
-    def verify(self, local_file: Path, remote_path: str, mode: str, *, expected_sha256: str | None = None) -> str: ...
+    def publish(self, local_file: Path, remote_path: str, mode: str, *,
+                expected_sha256: str) -> tuple[str, str, bool]: ...
 
 
 @dataclass(frozen=True)
@@ -44,13 +44,15 @@ class ArchivePipeline:
             remote_path = self.remote_path(media)
             url = public_url(self.settings.bucket, remote_path)
             verification = "not_uploaded"
+            reused = False
             if upload:
                 provider = self.provider or HuggingFaceBucket(self.settings.bucket)
-                url = provider.upload(media.upload_file, remote_path)
-                verification = provider.verify(media.upload_file, remote_path,
-                                               self.settings.verify, expected_sha256=media.stored_sha256)
+                url, verification, reused = provider.publish(
+                    media.upload_file, remote_path, self.settings.verify,
+                    expected_sha256=media.stored_sha256)
             record = describe(media, self.settings.bucket, remote_path, url,
                               verification, "archived" if upload else "planned")
+            record["reused"] = reused
             if manifest is not None:
                 write_record(manifest, record)
             return record

@@ -6,6 +6,7 @@ import re
 import hashlib
 from pathlib import Path
 from urllib.parse import quote
+from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 from runtime.utils.files import sha256_file
@@ -47,6 +48,25 @@ class HuggingFaceBucket:
         public_url(self.bucket, remote_path)
         batch_bucket_files(self.bucket, add=[(str(local_file), remote_path)], token=self.token)
         return public_url(self.bucket, remote_path)
+
+    def publish(self, local_file: Path, remote_path: str, mode: str, *,
+                expected_sha256: str) -> tuple[str, str, bool]:
+        """Reuse only a publicly readable object with the exact stored bytes."""
+        url = public_url(self.bucket, remote_path)
+        try:
+            verification = self.verify(local_file, remote_path, "sha256",
+                                       expected_sha256=expected_sha256)
+        except HTTPError as exc:
+            # Missing object is the only condition that permits publication.
+            # Permissions, transport failures and corrupted content fail closed.
+            if exc.code != 404:
+                raise
+        else:
+            return url, verification, True
+        self.upload(local_file, remote_path)
+        verification = self.verify(local_file, remote_path, mode,
+                                   expected_sha256=expected_sha256)
+        return url, verification, False
 
     def verify(self, local_file: Path, remote_path: str, mode: str, *,
                expected_sha256: str | None = None) -> str:

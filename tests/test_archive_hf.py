@@ -49,20 +49,18 @@ def test_fake_upload_and_manifest(tmp_path):
     class FakeProvider:
         def __init__(self):
             self.calls = []
-        def upload(self, local_file, remote_path):
-            self.calls.append(("upload", remote_path, local_file.stat().st_size))
-            return "https://example.invalid/" + remote_path
-        def verify(self, local_file, remote_path, mode, *, expected_sha256=None):
+        def publish(self, local_file, remote_path, mode, *, expected_sha256):
             assert expected_sha256 == hashlib.sha256(local_file.read_bytes()).hexdigest()
-            self.calls.append(("verify", remote_path, mode))
-            return mode
+            self.calls.append(("publish", remote_path, mode))
+            return "https://example.invalid/" + remote_path, mode, False
     fake = FakeProvider()
     manifest = tmp_path / "record.json"
     record = ArchivePipeline(ArchiveSettings("example/art", "a01", verify="sha256"),
                              provider=fake).run(path, upload=True, manifest=manifest)
     assert record["status"] == "archived"
     assert record["verification"] == "sha256"
-    assert [x[0] for x in fake.calls] == ["upload", "verify"]
+    assert [x[0] for x in fake.calls] == ["publish"]
+    assert record["reused"] is False
     assert manifest.is_file()
 
 
@@ -136,4 +134,37 @@ def test_source_checksum_rejected_before_upload(tmp_path):
     pipeline = ArchivePipeline(ArchiveSettings("example/art", "p", compression="none"), provider=provider)
     with pytest.raises(ValueError, match="checksum"):
         pipeline.run(path, upload=True, expected_sha256=hashlib.sha256(b"right").hexdigest())
-    provider.upload.assert_not_called()
+    provider.publish.assert_not_called()
+
+
+@pytest.mark.parametrize("case", ["hit", "missing", "forbidden", "corrupt", "timeout"])
+def test_content_addressed_publish(tmp_path, case):
+    from unittest.mock import patch
+    from urllib.error import HTTPError
+    from runtime.archive.huggingface import HuggingFaceBucket
+    p = tmp_path / "clip.mp4"
+    p.write_bytes(b"media")
+    digest = hashlib.sha256(b"media").hexdigest()
+    bucket = HuggingFaceBucket("example/art", token="test")
+    remote = f"projects/p/videos/{digest}.mp4"
+    url = public_url(bucket.bucket, remote)
+    err = {
+        "forbidden": HTTPError(url, 403, "denied", {}, None),
+        "corrupt": RuntimeError("SHA256 differs"),
+        "timeout": TimeoutError("network timeout"),
+    }
+    side = ["sha256"] if case == "hit" else (
+        [HTTPError(url, 404, "missing", {}, None), "sha256"] if case == "missing" else err[case])
+    with patch.object(bucket, "verify", side_effect=side) as verify, patch.object(bucket, "upload") as upload:
+        if case in err:
+            with pytest.raises(type(err[case])):
+                bucket.publish(p, remote, "sha256", expected_sha256=digest)
+            upload.assert_not_called()
+        else:
+            assert bucket.publish(p, remote, "sha256", expected_sha256=digest) == (url, "sha256", case == "hit")
+            if case == "missing":
+                upload.assert_called_once_with(p, remote)
+                assert verify.call_count == 2
+            else:
+                upload.assert_not_called()
+                assert verify.call_count == 1

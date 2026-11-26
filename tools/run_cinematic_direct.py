@@ -16,7 +16,7 @@ from orchestration.sdk import Backend
 from runtime.delivery.config import normalize_delivery
 from runtime.archive.config import ASSET_APP_NAME
 from runtime.utils.files import atomic_json, read_json
-from tools.build_cinematic_gallery import render_gallery
+from tools.build_cinematic_gallery import render_gallery, prefer_local_images
 
 ROOT = Path(__file__).resolve().parents[1]
 TASK_NAME = "022-minimax-cinematic-atlas-12"
@@ -119,9 +119,9 @@ def run(*, limit=12):
             "archive": archived,
         }
         atomic_json(path, records)
-        gallery.write_text(render_gallery(records_for_gallery(titles,task["items"],records)),encoding="utf-8")
+        gallery.write_text(render_gallery(prefer_local_images(records_for_gallery(titles,task["items"],records),ROOT/"outputs"/TASK_NAME,relative_prefix=TASK_NAME+"/")),encoding="utf-8")
         print("HF_PUBLISHED",shot_id,url,flush=True)
-    gallery.write_text(render_gallery(records_for_gallery(titles,task["items"],records)),encoding="utf-8")
+    gallery.write_text(render_gallery(prefer_local_images(records_for_gallery(titles,task["items"],records),ROOT/"outputs"/TASK_NAME,relative_prefix=TASK_NAME+"/")),encoding="utf-8")
     print("GALLERY",json.dumps({"path":str(gallery),"published":len(records),"expected":12},ensure_ascii=False),flush=True)
     if limit==12 and len(records)!=12:
         raise RuntimeError("Gallery incomplete")
