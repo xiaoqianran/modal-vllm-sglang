@@ -1,0 +1,80 @@
+{
+  "version": 1,
+  "name": "027-pika-impossible-nature-12",
+  "project": "027-pika-impossible-nature-12",
+  "scene": "001-main",
+  "workflow": "pika-t2va",
+  "params": {
+    "target": {
+      "short_edge": 480,
+      "aspect_ratio": "16:9",
+      "duration_seconds": 5.0
+    }
+  },
+  "delivery": {
+    "provider": "huggingface",
+    "bucket": "seachen/modal-vllm-sglang-assets"
+  },
+  "items": [
+    {
+      "id": "001",
+      "seed": 272701,
+      "prompt": "integrated_multimodal_description: [Shot 1] Photorealistic live-action speculative natural-history documentary, horizontal 16:9, one uninterrupted five-second take. An underwater wildlife documentary frame in a remote polar sea. A pod of three translucent whale-like animals swims beneath broken sea ice. The nearest animal reveals a branching ivory skeleton and softly opaque organs through its gelatinous outer body, with subtle refraction along its flippers. Two smaller individuals fade into the blue. Sunlight enters through a narrow opening in the ice, illuminating plankton and rippled backs. Wide underwater camera, cool blue-green palette, believable tissue texture, restrained natural light. The camera tracks alongside three translucent whales beneath fractured polar ice. The nearest whale makes one slow downward tail stroke; its ivory skeleton remains visible through the flexible tissue as it banks gently toward a shaft of sunlight. The smaller whales follow at steady spacing, plankton drifting past the lens. Finish on the illuminated flank, keeping anatomy and refraction consistent. No text overlays or abrupt cuts.\n\noverall_soundscape: Muffled underwater currents and a distant resonant whale call.\n\nnon_diegetic_music: Low sustained cello and widely spaced glassy tones."
+    },
+    {
+      "id": "002",
+      "seed": 272702,
+      "prompt": "integrated_multimodal_description: [Shot 1] Photorealistic live-action speculative natural-history documentary, horizontal 16:9, one uninterrupted five-second take. A ground-level wildlife photograph on a misty floodplain at dawn. A gigantic ancient tortoise walks slowly through shallow water, bearing a miniature mature woodland rooted in its weathered shell. Ferns and moss hang over the edges while small white birds lift off from the branches. Its wet wrinkled head reaches forward at lower right, and ripples spread from a massive front foot. Low 35mm camera, silver mist, soft backlight, muted olive and warm brown, realistic wet surfaces and botanical detail. A low tracking camera follows an ancient tortoise carrying a rooted miniature forest across a misty floodplain. Its front foot lifts, drips and settles into the water, sending concentric ripples outward. Ferns sway with the shell's motion and two white birds lift from the branches. Finish as its head extends into warm dawn light. No text overlays or abrupt cuts.\n\noverall_soundscape: Water splashes, leaves rustle and two short wingbeats.\n\nnon_diegetic_music: Sparse woodwind notes over soft sustained strings."
+    },
+    {
+      "id": "003",
+      "seed": 272703,
+      "prompt": "integrated_multimodal_description: [Shot 1] Photorealistic live-action speculative natural-history documentary, horizontal 16:9, one uninterrupted five-second take. An intimate macro photograph of a butterfly perched beneath a rain-darkened orchid leaf. Its wings consist of overlapping transparent biological membranes supported by delicate dark veins, refracting the surrounding forest into narrow bands of amber, violet and green. Tiny droplets cling to the wing margins; fine hairs and curled antennae remain sharply visible. A shaft of afternoon light crosses the wings against a softly blurred forest. Side-on macro framing, shallow depth of field, restrained optical dispersion, tangible natural anatomy. A macro camera slowly arcs around a transparent-winged butterfly beneath a wet orchid leaf. The butterfly opens its wings once, and narrow spectral bands travel across the membranes as their angle changes. A droplet slides along a vein and falls; the insect holds its perch, antennae moving slightly. End on the open wings against blurred forest. No text overlays or abrupt cuts.\n\noverall_soundscape: Light rain drips and faint forest insects.\n\nnon_diegetic_music: Three soft harp notes."
+    },
+    {
+      "id": "004",
+      "seed": 272704,
+      "prompt": "integrated_multimodal_description: [Shot 1] Photorealistic live-action speculative natural-history documentary, horizontal 16:9, one uninterrupted five-second take. A wide underwater documentary image on a tropical seabed. A colony of coral polyps grows across the broad armored back of an enormous slow-moving crustacean, its six jointed legs lifting above the sand. Small reef fish shelter within branching coral while disturbed sediment trails a rear leg. The creature is framed in profile, with seagrass in the foreground and open turquoise water behind. Natural caustic light, peach and rust coral, realistic chitin and living polyps. A lateral underwater tracking shot follows a giant six-legged crustacean carrying a living coral reef. Its articulated legs step in sequence and lift a small sediment plume; reef fish dart out of branching coral and return. Sun caustics move naturally across the shell. End as the animal clears a patch of seagrass. No text overlays or abrupt cuts.\n\noverall_soundscape: Gentle underwater rush, faint clicks and sand disturbance.\n\nnon_diegetic_music: N/A"
+    },
+    {
+      "id": "005",
+      "seed": 272705,
+      "prompt": "integrated_multimodal_description: [Shot 1] Photorealistic live-action speculative natural-history documentary, horizontal 16:9, one uninterrupted five-second take. A nocturnal wildlife photograph in a snow-covered boreal forest. A reindeer-like animal stands between spruce trunks, its branching antlers carrying small translucent biological sacs that emit subdued warm amber light. The light reveals frost on its muzzle and nearby falling snow; its dense winter coat remains mostly in shadow. A second animal is barely visible beyond the trees. Eye-level telephoto composition, deep indigo and warm ochre, credible posture, realistic fur and localized bioluminescence. A static telephoto frame shows a reindeer-like animal in a dark snowy spruce forest. Its antler sacs emit steady dim amber light. It lifts its muzzle, exhales a cloud of vapor, and turns its head slightly, illuminating passing snowflakes and a nearby branch. The background animal remains distant and still. No text overlays or abrupt cuts.\n\noverall_soundscape: Wind through spruce needles, soft breathing and one snow crunch.\n\nnon_diegetic_music: A quiet low viola drone."
+    },
+    {
+      "id": "006",
+      "seed": 272706,
+      "prompt": "integrated_multimodal_description: [Shot 1] Photorealistic live-action speculative natural-history documentary, horizontal 16:9, one uninterrupted five-second take. A coastal natural-history photograph from a rocky headland during a windy spring morning. A flock of ray-shaped flying organisms glides above the sea, each carrying ribbon-like green photosynthetic fins fluttering behind its streamlined body. The nearest individual banks into the wind, revealing a pale ribbed underside and flexible translucent edges. White surf strikes the rocks below. Wide lateral framing, overcast maritime light, slate blue, kelp green and sea foam, believable aerodynamic anatomy. A side-tracking camera follows a flock of ray-shaped aerial organisms above a rugged coastline. The nearest banks into the wind, flexing its broad fins while ribbon-like green photosynthetic membranes trail behind. The camera matches its speed as waves break on rocks below, ending with the flock gliding toward the headland. No text overlays or abrupt cuts.\n\noverall_soundscape: Coastal wind, breaking surf and subtle membrane flutter.\n\nnon_diegetic_music: A slow rising flute phrase."
+    },
+    {
+      "id": "007",
+      "seed": 272707,
+      "prompt": "integrated_multimodal_description: [Shot 1] Photorealistic live-action speculative natural-history documentary, horizontal 16:9, one uninterrupted five-second take. Extreme macro nature photography of a large dew droplet suspended beneath a grass blade. Inside the droplet, a colony of translucent swimming organisms with feathery appendages drifts around a branching green algal filament, magnified by the curved water surface. The droplet occupies most of the frame, with a smaller blurred bead behind it and a dawn meadow reflected along its rim. Precise shallow focus, natural backlighting, clear meniscus and optical distortion, pale green and gold, delicate biological structures. An extreme macro camera gently pushes toward a dew droplet suspended beneath a grass blade. Through its curved surface, tiny translucent organisms swim around a branching algal filament, their feathery appendages beating rhythmically. The droplet trembles in a breeze without detaching, and the dawn reflection shifts along its rim. Hold the droplet sharply in the final frame. No text overlays or abrupt cuts.\n\noverall_soundscape: Faint meadow wind and distant insects.\n\nnon_diegetic_music: N/A"
+    },
+    {
+      "id": "008",
+      "seed": 272708,
+      "prompt": "integrated_multimodal_description: [Shot 1] Photorealistic live-action speculative natural-history documentary, horizontal 16:9, one uninterrupted five-second take. A ground-level botanical documentary photograph on a young volcanic island. Ivory flowers grow from a fissure beside cooling black lava, their waxy petals curled into heat-resistant cups and dark roots gripping porous basalt. A narrow seam of dull orange heat remains farther back, with delicate steam drifting sideways. The foreground flowers are sharply resolved against an austere charcoal landscape. Soft gray daylight mixed with faint thermal reflection, restrained cream and burnt orange, credible mineral and plant textures. A ground-level camera slides slowly across black volcanic rock toward ivory flowers rooted in a fissure. The waxy petals tremble in a warm breeze, thin steam drifts sideways, and a dull orange seam of cooling lava pulses subtly behind them. End on the flowers with the heat shimmer remaining in the background. No text overlays or abrupt cuts.\n\noverall_soundscape: Soft wind, faint rock crackles and escaping steam.\n\nnon_diegetic_music: A single sustained low string tone."
+    },
+    {
+      "id": "009",
+      "seed": 272709,
+      "prompt": "integrated_multimodal_description: [Shot 1] Photorealistic live-action speculative natural-history documentary, horizontal 16:9, one uninterrupted five-second take. A high-altitude wildlife documentary photograph from a mountain ridge. A group of aerial medusa-like organisms drifts in a valley filled with morning fog, their pale bells buoyed by translucent gas chambers and fine trailing filaments moving with the wind. The nearest passes beside a rocky outcrop where a compact fibrous nest clings to a sheltered ledge. Distant silhouettes disappear into cloud. Long-lens composition, layered atmospheric depth, pearl gray and lavender, believable membrane tension and moisture. A long-lens camera pans slowly across a fog-filled mountain valley. Three pale aerial medusae drift with the wind, translucent gas chambers flexing and fine filaments trailing. The nearest approaches a sheltered rocky ledge and brushes its fibrous nest gently before drifting alongside it. Keep the other organisms visible in layered mist. No text overlays or abrupt cuts.\n\noverall_soundscape: Mountain wind and faint filament rustle.\n\nnon_diegetic_music: Sparse airy flute and sustained soft strings."
+    },
+    {
+      "id": "010",
+      "seed": 272710,
+      "prompt": "integrated_multimodal_description: [Shot 1] Photorealistic live-action speculative natural-history documentary, horizontal 16:9, one uninterrupted five-second take. A solitary desert tree photographed at blue hour on a salt flat. Its trunk and spreading branches consist of thick translucent plant tissue with visible vertical channels of clear sap; the outer surface appears moist and flexible rather than metallic or glass. Dark leaves cluster near branch tips and a shallow puddle reflects the irregular silhouette. Wind-carved salt ridges lead toward the tree, distant hills barely visible. Low wide-angle framing, rose horizon, blue shadows, realistic refraction and botanical detail. A low camera arcs slowly around a solitary translucent desert tree on a salt flat at blue hour. Clear sap moves upward through visible channels in the flexible trunk; fine branches sway slightly and small dark leaves flutter. Ripples spread across the shallow puddle as its reflection shifts with the camera. End on the rose horizon behind the tree. No text overlays or abrupt cuts.\n\noverall_soundscape: Dry wind and faint leaf movement.\n\nnon_diegetic_music: Widely spaced soft piano notes."
+    },
+    {
+      "id": "011",
+      "seed": 272711,
+      "prompt": "integrated_multimodal_description: [Shot 1] Photorealistic live-action speculative natural-history documentary, horizontal 16:9, one uninterrupted five-second take. A close wildlife photograph inside a glacial cave lit by diffuse daylight through blue ice. A small white bird perches on a ledge, its open beak and expanded translucent throat sac revealing concentric tissue folds adapted for resonant calls. Fine frost clings to its feet and feathers. The cave walls show layered bubbles and mineral streaks, with a soft reflection in a thin pool below. Off-center medium close-up, cobalt and milky white, authentic feather structure, gentle natural light. A medium close-up inside a blue glacial cave follows a small white bird perched on an ice ledge. The bird inhales, expands its translucent throat sac and releases one clear resonant call; the sac contracts naturally. Its feathers settle as the camera gently pushes in and droplets fall into the pool below. No text overlays or abrupt cuts.\n\noverall_soundscape: One ringing bird call with natural cave reverberation, followed by dripping water.\n\nnon_diegetic_music: N/A"
+    },
+    {
+      "id": "012",
+      "seed": 272712,
+      "prompt": "integrated_multimodal_description: [Shot 1] Photorealistic live-action speculative natural-history documentary, horizontal 16:9, one uninterrupted five-second take. An aerial natural-history photograph of a remote ocean at dawn. A vast oval colonial organism floats at the surface, its dark flexible perimeter enclosing a mosaic of living vegetation, tidal pools and pale branching reef structures. Along one edge, broad muscular lobes displace the water, leaving curved wakes. Small seabirds circle above for scale, while the surrounding ocean remains empty. Oblique aerial framing, deep teal water, olive vegetation and golden sunlight, realistic wave interaction and organic surface detail. An oblique aerial camera glides above a vast floating colonial organism in a remote ocean. Broad muscular lobes flex slowly along its perimeter, pushing water outward into curved wakes while small seabirds circle above the vegetation and tidal pools. The camera pulls back gradually to reveal the entire living island against the empty teal sea. No text overlays or abrupt cuts.\n\noverall_soundscape: Ocean swell, gentle water displacement and distant seabird calls.\n\nnon_diegetic_music: Slow sustained strings with a gentle final swell."
+    }
+  ]
+}
