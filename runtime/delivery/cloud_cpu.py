@@ -53,12 +53,12 @@ def archive_mounted_artifact(root, artifact, settings, project):
 def archive_mounted_batch(root, requests, *, metrics=None):
     """Bounded per-bucket batch with independent receipts and no source deletion."""
     from dataclasses import replace
-    from pathlib import Path
     from tempfile import TemporaryDirectory
     from time import perf_counter
     from runtime.archive.config import ARCHIVE_BATCH_BYTES, ARCHIVE_BATCH_FILES
-    from runtime.archive.huggingface import HuggingFaceBucket
+    from runtime.archive.huggingface import HuggingFaceBucket, public_url
     from runtime.archive.operations import describe, prepare_media
+    from runtime.archive.encoding_index import lookup_encoding, mapping_path, mapping_bytes
     from runtime.archive.pipeline import asset_path
     from runtime.delivery.config import normalize_delivery
     from runtime.utils.files import sha256_file
@@ -71,12 +71,17 @@ def archive_mounted_batch(root, requests, *, metrics=None):
     if len(buckets) != 1:
         raise ValueError("Archive batch must use one bucket")
     metrics = {} if metrics is None else metrics
-    metrics.update(requests=len(requests), source_hits=0, upload_calls=0)
+    metrics.update(requests=len(requests), source_hits=0, encoding_hits=0,
+                   upload_calls=0, index_upload_calls=0, sdk_upload_calls=0, submitted_bytes=0)
     started = perf_counter()
     results = [None] * len(requests)
     prepared = {}
     by_source = {}
     entries = {}
+    cached_outcomes = {}
+    mappings = {}
+    bucket = next(iter(buckets))
+    provider = None
     def error(exc):
         return {"error": type(exc).__name__ + ": archive failed; source retained"}
 
@@ -88,6 +93,8 @@ def archive_mounted_batch(root, requests, *, metrics=None):
                 if settings["provider"] not in {"huggingface", "both"}:
                     raise ValueError("HF delivery required")
                 path = mounted_source(root, artifact)
+                if provider is None:
+                    provider = HuggingFaceBucket(bucket)
                 key = (artifact["sha256"], artifact["size"], path.suffix.lower(),
                        settings["compression"], settings["min_saving"])
                 if key in by_source:
@@ -98,23 +105,39 @@ def archive_mounted_batch(root, requests, *, metrics=None):
                     metrics["source_hits"] += 1
                 else:
                     media = prepare_media(path, Path(work) / str(i), settings["compression"],
-                                          settings["min_saving"], expected_sha256=artifact["sha256"])
+                                          settings["min_saving"], expected_sha256=artifact["sha256"],
+                                          lookup=lambda original, saving: lookup_encoding(provider, original, saving))
+                    if media.remote_only:
+                        metrics["encoding_hits"] += 1
                     by_source[key] = media
                 remote = asset_path(media)
-                entries.setdefault(remote, (media.upload_file, media.stored_sha256))
-                prepared[i] = (media, remote, artifact)
+                if media.remote_only:
+                    cached_outcomes[remote] = (public_url(bucket, remote), "sha256", True)
+                else:
+                    entries.setdefault(remote, (media.upload_file, media.stored_sha256))
+                    if (media.source.suffix.lower() == ".png"
+                            and settings["compression"] == "adaptive_lossless"):
+                        mappings.setdefault(remote, {})[mapping_path(media, settings["min_saving"])] = mapping_bytes(media)
+                prepared[i] = (media, remote, artifact, settings)
             except Exception as exc:
                 results[i] = error(exc)
         metrics.update(prepare_ms=round((perf_counter() - started)*1000, 2),
-                       unique_objects=len(entries))
-        if entries:
-            bucket = next(iter(buckets))
-            try:
-                outcomes = HuggingFaceBucket(bucket).publish_many(entries, metrics=metrics)
-            except Exception as exc:
-                outcomes = dict.fromkeys(entries, exc)
+                       unique_objects=len(set(entries) | set(cached_outcomes)))
+        if prepared:
+            entries = {path: entry for path, entry in entries.items() if path not in cached_outcomes}
+            outcomes = dict(cached_outcomes)
+            if entries:
+                try:
+                    indexes = {path: records for path, records in mappings.items() if path in entries}
+                    if indexes:
+                        outcomes.update(provider.publish_many(entries, metrics=metrics, indexes=indexes))
+                    else:
+                        outcomes.update(provider.publish_many(entries, metrics=metrics))
+                except Exception as exc:
+                    outcomes.update(dict.fromkeys(entries, exc))
+            metrics["verified_encoding_hits"] = len(cached_outcomes)
             seen = set()
-            for i, (media, remote, artifact) in prepared.items():
+            for i, (media, remote, artifact, settings) in prepared.items():
                 outcome = outcomes[remote]
                 if isinstance(outcome, Exception):
                     results[i] = error(outcome)

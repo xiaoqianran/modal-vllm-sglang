@@ -30,10 +30,10 @@ uv run python -m tools.archive_to_hf "outputs/<task-name>/001_image.png" --proje
 ```
 
 - `--compression none` disables recompression.
-- `--compression adaptive_lossless` (default) tries lossless WebP for eligible 8-bit RGB/RGBA PNG or WebP files; retains the original unless at least 5% smaller.
+- `--compression adaptive_lossless` (default) tries lossless WebP for eligible 8-bit RGB/RGBA PNG files; retains the original unless at least 5% smaller.
 - JPEG and MP4 are not recompressed.
 - This CLI is manual (only `--upload` sends files); Task-level automatic delivery is configured separately. Existing `outputs/` files are never modified or deleted.
-- `--verify size` checks remote size. `--verify sha256` downloads the uploaded object into a temporary directory to compare the full digest.
+- `--verify size` checks remote size. `--verify sha256` streams the public uploaded object to compare the full digest without writing a temporary copy.
 - A manifest is written **only when `--manifest` is provided**.
 - This CLI only archives one file; Task-level automatic delivery has a separate CPU worker adapter. Neither path deletes Modal Volume sources.
 - Uploaded paths incorporate the SHA256 of the stored bytes; uploading the same bytes again uses the same remote path. Concurrent/multiple writers and remote overwrite policies will require an additional integration review.
@@ -41,3 +41,5 @@ uv run python -m tools.archive_to_hf "outputs/<task-name>/001_image.png" --proje
 HF official API: https://huggingface.co/docs/huggingface_hub/guides/buckets
 
 Automatic Task delivery (`local`, `huggingface`, `both`) is documented in [delivery-policy.md](delivery-policy.md).
+
+Legacy receipts can be migrated without deleting old URLs using `python -m tools.migrate_hf_asset receipt.json --copy` (omit `--copy` for dry run). A read-only inventory is available via `python -m tools.audit_hf_assets receipt1.json receipt2.json`; untracked assets must not be treated as safe to delete.

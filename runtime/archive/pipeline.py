@@ -64,7 +64,7 @@ class ArchivePipeline:
 def asset_path(media: PreparedMedia) -> str:
     """Global content address within the selected bucket, independent of project."""
     digest = media.stored_sha256
-    suffix = media.upload_file.suffix.lower()
+    suffix = ".webp" if media.encoding == "webp_lossless" else media.upload_file.suffix.lower()
     if suffix == ".jpeg":
         suffix = ".jpg"
     return f"assets/sha256/{digest[:2]}/{digest}{suffix}"

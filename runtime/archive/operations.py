@@ -21,10 +21,12 @@ class PreparedMedia:
     original_sha256: str
     stored_sha256: str
     encoding: str
+    remote_only: bool = False
 
 
 def prepare_media(source: str | Path, workspace: Path, policy: str = "adaptive_lossless",
-                  min_saving: float = 0.05, *, expected_sha256: str | None = None) -> PreparedMedia:
+                  min_saving: float = 0.05, *, expected_sha256: str | None = None,
+                  lookup=None) -> PreparedMedia:
     """Preserve the input. Only encode 8-bit RGB/RGBA files with no metadata."""
     path = Path(source).resolve()
     if not path.is_file():
@@ -47,6 +49,12 @@ def prepare_media(source: str | Path, workspace: Path, policy: str = "adaptive_l
     encoding = "original"
 
     if suffix == ".png" and policy == "adaptive_lossless":
+        if lookup is not None:
+            original = PreparedMedia(path, path, kind, size, size,
+                                     original_sha256, original_sha256, "original")
+            cached = lookup(original, min_saving)
+            if cached is not None:
+                return cached
         from PIL import Image, ImageChops
 
         with Image.open(path) as image:

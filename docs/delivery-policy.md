@@ -117,7 +117,7 @@ no pixel loss. Skip existing WebP and animated PNG; decode and compare only
 if savings justify adopting the candidate. A changed encoder may generate a
 new content address for an image archived by the older encoder.
 
-Reuse is per project and stored-byte hash: verify the anonymous public URL
+At this earlier screening stage, reuse was per project and stored-byte hash: verify the anonymous public URL
 by full SHA-256 before skipping upload. Only HTTP 404 permits creation;
 other errors fail closed. Concurrent first publications are not single-flight.
 
@@ -136,7 +136,7 @@ encoding/verification policy shares an in-flight Future. Distinct source
 paths must independently match SHA-256, even when they share an encoding
 candidate in the same batch. A single CPU call reloads Volume once and
 submits missing unique stored-byte objects in one batch_bucket_files call.
-No permanent coordinator, distributed lock, or persistent source index.
+At this screening stage there was no permanent coordinator, distributed lock, or persistent source index; see the subsequent update below.
 
 The batch endpoint returns one success/error per source, with full anonymous
 SHA-256 verification for all archived objects, including explicit size-mode
@@ -156,7 +156,7 @@ prepare_ms, lookup_ms, upload_ms and verify_ms when applicable.
 submitted_bytes is logical payload size, not measured network traffic;
 upload_calls counts SDK calls, not individual HTTP requests.
 
-Limits: singleflight is per Backend and coalesces identical source paths;
+Initial implementation limits: singleflight is per Backend and coalesces identical source paths;
 different paths coalesce only within a batch after verification. Across
 processes or separate batches there is no strict single-upload guarantee.
 No persistent mapping from original to stored hash yet; encoding may repeat
@@ -180,3 +180,76 @@ Real client singleflight (four concurrent callers, default 100 ms): one
 RPC, three distinct source references, two unique new objects, one source
 preparation hit, one SDK upload submission (1,575,687 logical bytes), all
 four caller receipts verified, 10.0573 s wall including startup.
+
+## Persistent encoding index and adaptive batching (2026-11-26)
+
+The CPU batch path now checks a persistent index at
+`indexes/encoding/<policy-fingerprint>/<first-two-hex>/<original-sha256>.json`.
+The policy fingerprint includes an explicit encoder schema, Pillow/libwebp
+versions and minimum saving. Only adaptive PNG preparation uses this index.
+Each source is still hashed in full before lookup; a hit checks the entire
+public stored object against the recorded size and SHA-256 before returning
+a receipt. Missing/malformed indexes or missing targets trigger fresh
+preparation. A corrupted or inaccessible target fails closed. Index records are built only after verified local preparation and submitted
+alongside media in a single SDK batch. The nontransactional API can leave a
+dangling index; every hit still verifies the actual remote asset, and missing
+targets trigger fresh preparation. Optional index failure never invalidates
+an independently verified media receipt. Indexes
+are trusted metadata within the same bucket write-permission boundary;
+they are not proof against a malicious authorized bucket writer. Keep bucket
+write access restricted.
+
+A cache hit avoids encoding and media upload, not full source/remote
+verification. Within a batch, already verified cached targets are excluded
+from the ordinary publication pass. Metrics distinguish media upload calls
+from index upload calls. Fresh adaptive PNGs incur an extra index lookup, but media and index are
+submitted together in one SDK call; the speed benefit depends on reuse rate.
+
+The hard limits remain 4 files and 64 MiB, with oversized files dispatched
+alone. Per-bucket scheduling adapts the target count between 2 and 4 and the
+wait between 10 and 100 ms (starts at 4/100 ms); singleton batches lower the
+window and target, filled batches raise them. These are bounded heuristics,
+not a proven optimal configuration. The fixed wait override retains the
+four-file target for controlled tests.
+
+In-process singleflight still merges identical source requests. OS-backed
+striped locks serialize overlapping content requests from separate
+cooperating processes sharing the same local temporary directory. Each
+process still validates its own source. A crashed process releases OS locks,
+but a remote RPC already in progress can outlive that process. Different
+hosts, direct endpoint callers and overlapping abandoned remote RPCs do
+not have strict global singleflight. No Redis, database or always-on service
+is introduced.
+
+Explicit legacy migration (dry run unless --copy):
+```powershell
+uv run python -m tools.migrate_hf_asset receipt.json
+uv run python -m tools.migrate_hf_asset receipt.json --copy
+```
+This uses the HF SDK Xet server-side copy operation. It verifies the source
+and destination against the receipt, never intentionally overwrites a known
+corrupt destination and retains every old URL. HF batch operations are not
+transactional; the same write-permission/race limits as publication apply.
+Do not automatically delete legacy files, global CAS objects or indexes:
+public HTML/URLs may exist outside any one project's inventory. The known
+reference audit is read-only and explicitly incomplete.
+
+Initial full offline regression: 417 tests and 213 subtests passed (18 SDK warnings).
+
+Real HF screening from PC2, earlier two-submission implementation (three
+distinct synthetic PNGs, one cold/reuse pair each): cold 26.741/37.838/22.834 s,
+reuse 5.886/10.312/8.141 s, zero media/index upload calls on hits. The
+separate index submission cost 8.135/13.893/8.643 s; this motivated combining
+media and index in the final SDK submission. Explicit Xet copy of a
+synthetic legacy object succeeded in 19.931 s. All eight test paths removed.
+
+Final deployed huaianer CPU archive smoke (four distinct 256x256 synthetic
+PNGs, new source paths in a second project): cold 10.072 s, one SDK call
+containing four media objects and four indexes (393584 media bytes);
+warm reuse 4.041 s, four encoding hits, zero SDK upload calls and zero
+submitted media bytes. All eight receipts verified full SHA-256; all eight
+HF test paths and the isolated Volume test directory cleaned. Source version
+3222b14b64e86945f78d42fe19f2391c076b1c959a42538e01bfddb65285c57f
+matched the deployed worker. These are screening samples, not an isolated
+A/B comparison or proof of optimal scheduling. HF reported elevated 30-day
+egress usage during the PC2 experiment.

@@ -236,3 +236,36 @@ def test_publish_many_recovers_partial_upload(tmp_path):
     assert result["missing"].code == 404
     assert result["forbidden"].code == 403
     submit.assert_called_once()
+
+def test_media_and_index_share_one_sdk_call_and_recover_partial_failure(tmp_path):
+    from urllib.error import HTTPError
+    from unittest.mock import patch
+    from runtime.archive.huggingface import HuggingFaceBucket
+
+    bucket = HuggingFaceBucket("example/art", token="test")
+    source = tmp_path / "data.webp"
+    source.write_bytes(b"data")
+    missing = HTTPError("https://example.invalid", 404, "missing", {}, None)
+    entries = {"asset": (source, "digest"), "corrupt": (source, "digest")}
+    indexes = {"asset": {"index.json": b"{}"}, "corrupt": {"bad.json": b"{}"}}
+    metrics = {}
+    def verify(file, path, mode, *, expected_sha256):
+        if path == "corrupt":
+            raise RuntimeError("corrupt")
+        if not uploaded:
+            raise missing
+        return "sha256"
+    uploaded = False
+    def upload(items, *, indexes):
+        nonlocal uploaded
+        assert set(items) == {"asset"}
+        assert indexes == {"index.json": b"{}"}
+        uploaded = True
+        raise OSError("index submission failed after asset upload")
+    with patch.object(bucket, "verify", side_effect=verify), patch.object(bucket, "upload_many", side_effect=upload) as submit:
+        result = bucket.publish_many(entries, metrics=metrics, indexes=indexes)
+    assert result["asset"][1:] == ("sha256", False)
+    assert isinstance(result["corrupt"], RuntimeError)
+    assert metrics["sdk_upload_calls"] == metrics["index_upload_calls"] == metrics["upload_calls"] == 1
+    assert metrics["upload_batch_error"]
+    submit.assert_called_once()

@@ -1,9 +1,14 @@
 """Dispatch HF delivery to a deployed Modal CPU function. Never transfer bytes to PC2."""
 from concurrent.futures import Future
+from contextlib import ExitStack
+from hashlib import sha256
+from pathlib import Path
+from tempfile import gettempdir
 from threading import Condition
 from time import monotonic
 
 from orchestration import model_capabilities
+from runtime.utils.files import file_lock
 
 from runtime.archive.config import (ASSET_APP_NAME, ARCHIVE_BATCH_BYTES, ARCHIVE_BATCH_FILES,
                                     ARCHIVE_BATCH_WAIT, archive_source_version)
@@ -27,10 +32,14 @@ def archive_request(job, record, plan):
 class ArchiveBatcher:
     """Per-Backend microbatch and singleflight; uses existing delivery threads."""
 
-    def __init__(self, modal_client, *, wait=ARCHIVE_BATCH_WAIT):
+    def __init__(self, modal_client, *, wait=None, lock_root=None):
         self.modal = modal_client
         self.version = archive_source_version()
         self.wait = wait
+        self.windows = {}
+        self.targets = {}
+        # OS-backed locks release on process death. Fixed stripes bound disk use.
+        self.lock_root = Path(lock_root or Path(gettempdir()) / "modal-archive-locks-v1")
         self.condition = Condition()
         self.pending = {}
         self.inflight = {}
@@ -54,15 +63,20 @@ class ArchiveBatcher:
             if future is None:
                 future = self.inflight[key] = Future()
                 batch = self.pending.get(bucket)
-                if batch is None or len(batch["items"]) >= ARCHIVE_BATCH_FILES or batch["bytes"] + size > ARCHIVE_BATCH_BYTES:
-                    batch = {"items": [], "bytes": 0, "deadline": monotonic() + self.wait}
+                now = monotonic()
+                if (batch is None or now >= batch["deadline"]
+                        or len(batch["items"]) >= batch["target"]
+                        or batch["bytes"] + size > ARCHIVE_BATCH_BYTES):
+                    window = self.wait if self.wait is not None else self.windows.get(bucket, ARCHIVE_BATCH_WAIT)
+                    target = ARCHIVE_BATCH_FILES if self.wait is not None else self.targets.get(bucket, ARCHIVE_BATCH_FILES)
+                    batch = {"items": [], "bytes": 0, "deadline": now + window, "target": target}
                     self.pending[bucket] = batch
                     leader = True
                 batch["items"].append((key, request, future))
                 batch["bytes"] += size
                 self.condition.notify_all()
             if leader:
-                while (self.pending.get(bucket) is batch and len(batch["items"]) < ARCHIVE_BATCH_FILES
+                while (self.pending.get(bucket) is batch and len(batch["items"]) < batch["target"]
                        and batch["bytes"] < ARCHIVE_BATCH_BYTES):
                     remaining = batch["deadline"] - monotonic()
                     if remaining <= 0:
@@ -70,6 +84,15 @@ class ArchiveBatcher:
                     self.condition.wait(remaining)
                 if self.pending.get(bucket) is batch:
                     del self.pending[bucket]
+                if self.wait is None and batch["bytes"] < ARCHIVE_BATCH_BYTES:
+                    previous = self.windows.get(bucket, ARCHIVE_BATCH_WAIT)
+                    self.windows[bucket] = (max(0.01, previous * 0.75) if len(batch["items"]) == 1
+                                            else min(ARCHIVE_BATCH_WAIT, previous * 1.5))
+                    target = self.targets.get(bucket, ARCHIVE_BATCH_FILES)
+                    count = len(batch["items"])
+                    # Always allow at least two files, so bursts can be detected.
+                    self.targets[bucket] = (max(2, target - 1) if count == 1 else
+                                            min(ARCHIVE_BATCH_FILES, target + 1) if count >= batch["target"] else target)
         if leader:
             self._dispatch(batch["items"])
         return future.result()
@@ -77,7 +100,16 @@ class ArchiveBatcher:
     def _dispatch(self, items):
         try:
             function = self.modal.Function.from_name(ASSET_APP_NAME, "archive_batch")
-            response = function.remote([request for _, request, _ in items], self.version)
+            requests = [request for _, request, _ in items]
+            stripes = sorted({sha256((r["delivery"]["bucket"] + ":" +
+                                      r["artifact"]["sha256"]).encode()).hexdigest()[:2]
+                              for r in requests})
+            # Cross-process exclusion on this host only. A second process still
+            # independently validates its own source and the remote asset.
+            with ExitStack() as locks:
+                for stripe in stripes:
+                    locks.enter_context(file_lock(self.lock_root / stripe, timeout=3600))
+                response = function.remote(requests, self.version)
             if response.get("archive_version") != self.version or len(response.get("results", [])) != len(items):
                 raise RuntimeError("Archive batch contract/version mismatch")
             # Validate all envelopes before resolving any Future.

@@ -184,3 +184,43 @@ def test_batch_limits(tmp_path):
     large = dict(request, artifact=dict(artifact, size=ARCHIVE_BATCH_BYTES))
     with pytest.raises(ValueError, match="byte limit"):
         archive_mounted_batch(tmp_path, [large, request])
+
+def test_batcher_adapts_and_serializes_across_instances(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier, Lock
+    from time import sleep
+    from runtime.delivery.huggingface import ArchiveBatcher
+    from runtime.delivery.config import normalize_delivery
+
+    modal = Mock()
+    settings = normalize_delivery({"provider": "huggingface"})
+    artifact = {"storage": "volume", "type": "image", "path": "model-results/a.png",
+                "size": 10, "sha256": "a"*64}
+    request = {"artifact": artifact, "delivery": settings, "project": "test"}
+    active = peak = 0
+    guard = Lock()
+    def call(items, version):
+        nonlocal active, peak
+        with guard:
+            active += 1
+            peak = max(peak, active)
+        sleep(0.05)
+        with guard:
+            active -= 1
+        return {"archive_version": version, "results": [
+            {"receipt": {"status": "archived", "verification": "sha256",
+                         "source_artifact": item["artifact"], "bucket": settings["bucket"]}}
+            for item in items]}
+    modal.Function.from_name.return_value.remote.side_effect = call
+    a = ArchiveBatcher(modal, lock_root=tmp_path)
+    b = ArchiveBatcher(modal, lock_root=tmp_path)
+    barrier = Barrier(2)
+    def archive(batcher):
+        barrier.wait()
+        return batcher.archive(request)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        assert all(r["status"] == "archived" for r in pool.map(archive, [a, b]))
+    assert peak == 1
+    assert a.targets[settings["bucket"]] == 3
+    assert a.windows[settings["bucket"]] < 0.1
+    assert a.inflight == b.inflight == {}

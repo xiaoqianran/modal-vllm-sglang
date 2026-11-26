@@ -49,15 +49,19 @@ class HuggingFaceBucket:
         batch_bucket_files(self.bucket, add=[(str(local_file), remote_path)], token=self.token)
         return public_url(self.bucket, remote_path)
 
-    def upload_many(self, entries):
+    def upload_many(self, entries, *, indexes=None):
         """One SDK submission for distinct missing content addresses."""
         from huggingface_hub import batch_bucket_files
         for path in entries:
             public_url(self.bucket, path)
-        batch_bucket_files(self.bucket, add=[(str(file), path) for path, (file, _) in entries.items()],
-                           token=self.token)
+        indexes = indexes or {}
+        for path in indexes:
+            public_url(self.bucket, path)
+        add = [(str(file), path) for path, (file, _) in entries.items()]
+        add.extend((payload, path) for path, payload in indexes.items())
+        batch_bucket_files(self.bucket, add=add, token=self.token)
 
-    def publish_many(self, entries, *, metrics=None):
+    def publish_many(self, entries, *, metrics=None, indexes=None):
         """path -> (file, expected SHA); independently verify each result.
 
         Even after a partially failed SDK submission, discover successful
@@ -85,18 +89,29 @@ class HuggingFaceBucket:
                            existing_hits=sum(isinstance(r, tuple) for r in results.values()),
                            upload_calls=int(bool(missing)),
                            submitted_bytes=sum(file.stat().st_size for file, _ in missing.values()))
-            if missing:
+            index_entries = {key: payload
+                             for path, records in (indexes or {}).items()
+                             if path in missing or isinstance(results.get(path), tuple)
+                             for key, payload in records.items()}
+            metrics.update(index_upload_calls=int(bool(index_entries)),
+                           sdk_upload_calls=int(bool(missing or index_entries)),
+                           encoding_index_submitted=len(index_entries))
+            if missing or index_entries:
                 started = perf_counter()
                 try:
-                    self.upload_many(missing)
+                    if index_entries:
+                        self.upload_many(missing, indexes=index_entries)
+                    else:
+                        self.upload_many(missing)
                 except Exception:
                     # Non-transactional API: do not blindly resubmit the batch.
                     metrics["upload_batch_error"] = True
                 metrics["upload_ms"] = round((perf_counter() - started)*1000, 2)
-                started = perf_counter()
-                for path, result in pool.map(check, missing.items()):
-                    results[path] = (*result[:2], False) if isinstance(result, tuple) else result
-                metrics["verify_ms"] = round((perf_counter() - started)*1000, 2)
+                if missing:
+                    started = perf_counter()
+                    for path, result in pool.map(check, missing.items()):
+                        results[path] = (*result[:2], False) if isinstance(result, tuple) else result
+                    metrics["verify_ms"] = round((perf_counter() - started)*1000, 2)
         return results
 
     def publish(self, local_file: Path, remote_path: str, mode: str, *,
@@ -133,6 +148,10 @@ class HuggingFaceBucket:
         # Read the same public URL as the HTML gallery. Never relay credentials
         # to redirects or write a verification copy to disk.
         expected = expected_sha256 or sha256_file(local_file)
+        return self.verify_digest(remote_path, size, expected)
+
+    def verify_digest(self, remote_path: str, size: int, expected: str) -> str:
+        url = public_url(self.bucket, remote_path)
         digest = hashlib.sha256()
         received = 0
         request = Request(url, headers={"Accept-Encoding": "identity"})
