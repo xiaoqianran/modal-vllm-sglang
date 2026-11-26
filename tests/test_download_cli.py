@@ -172,9 +172,9 @@ class DownloadCliTests(TestCase):
             maintenance.assert_not_called()
 
     def test_per_model_worker_defaults_and_cli_override(self):
-        expected = {"models/001-moss-image": 3,
-                    "models/005-minimax-h3-image": 4,
-                    "models/002-pika-h3-flex": 5}
+        expected = {"models/001-moss-image": 5,
+                    "models/005-minimax-h3-image": 6,
+                    "models/002-pika-h3-flex": 8}
         for folder, workers in expected.items():
             with self.subTest(folder=folder):
                 spec = self.spec(folder)

@@ -1,6 +1,6 @@
 {
   "volume_name": "model-store",
-  "download_workers": 4,
+  "download_workers": 6,
   "revision": "5f90473023975e6271b0ed1dd84c4e88e4bbc6d3",
   "gpu": "RTX-PRO-6000",
   "cpu": 4,
