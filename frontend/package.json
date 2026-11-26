@@ -1,0 +1,28 @@
+{
+  "name": "modal-studio",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "@fontsource-variable/bricolage-grotesque": "^5.3.0",
+    "@fontsource-variable/dynapuff": "^5.3.0",
+    "@fontsource-variable/fraunces": "^5.3.0",
+    "@fontsource-variable/kablammo": "^5.3.0",
+    "@fontsource-variable/manrope": "^5.3.0",
+    "@fontsource/bagel-fat-one": "^5.3.0",
+    "@fontsource/cherry-bomb-one": "^5.3.0",
+    "@fontsource/modak": "^5.3.0",
+    "@fontsource/shrikhand": "^5.3.0",
+    "gsap": "^3.15.1",
+    "lucide-vue-next": "^0.468.0",
+    "vue": "^3.5.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.2.0",
+    "vite": "^6.1.0",
+    "vite-plugin-singlefile": "^2.2.0"
+  }
+}

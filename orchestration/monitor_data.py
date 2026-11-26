@@ -1,5 +1,6 @@
 """Measured dashboard data; missing measurements stay unknown, never zero."""
 from collections import Counter
+from runtime.archive.preview import verified_preview
 from datetime import datetime, timezone
 import math
 from pathlib import Path
@@ -58,7 +59,7 @@ def stage_rows(spans, now):
     return rows
 
 
-def build_snapshot(directory, plan, current, dimensions):
+def build_snapshot(directory, plan, current, dimensions, *, archive_receipts=None):
     output = Path(state.layout(directory)["output"])
     runtime = state.runtime_root(output)
     task_id = f"{plan['project']}/{plan['scene']}"
@@ -71,11 +72,34 @@ def build_snapshot(directory, plan, current, dimensions):
     spans = [s for s in spans if not (s.get("stage") == "download" and s.get("attributes", {}).get("reused"))]
     records = current["jobs"]
     assets = {}
+    archive_receipts = archive_receipts or {}
+    preview_index = read_optional(output / ".runtime/preview-index.json")
     for job in plan["jobs"]:
         record = records[job["key"]]
         artifact = record.get("local_artifact")
         if artifact:
             path = state.media_directory(directory) / artifact["path"]
+            try:
+                relative = path.relative_to(output).as_posix()
+            except ValueError:
+                relative = None
+            receipt = archive_receipts.get(relative)
+            if (receipt and receipt.get("status") == "archived"
+                    and receipt.get("verification") == "sha256"
+                    and artifact.get("sha256") == receipt.get("original_sha256")
+                    and artifact.get("size") == receipt.get("original_bytes")):
+                from runtime.archive.huggingface import public_url
+                try:
+                    href = public_url(receipt["bucket"], receipt["path"])
+                    if href != receipt.get("url"):
+                        raise ValueError("Archive URL mismatch")
+                    assets[job["key"]] = {"url": href, "local_url": quote(relative),
+                                           "filename": path.name, "kind": artifact["type"],
+                                           "dimensions": dimensions(path) if path.is_file() else None,
+                                           "bytes": receipt["stored_bytes"], "thumb": verified_preview(receipt, preview_index) or (href if artifact["type"] == "image" else "")}
+                    continue
+                except (KeyError, TypeError, ValueError):
+                    pass
             if path.is_file():
                 try:
                     href = quote(path.relative_to(output).as_posix())
@@ -96,7 +120,7 @@ def build_snapshot(directory, plan, current, dimensions):
             assets[job["key"]] = {"url": href,
                                    "filename": archived["path"].rsplit("/", 1)[-1],
                                    "kind": archived["kind"], "dimensions": None,
-                                   "bytes": archived["stored_bytes"]}
+                                   "bytes": archived["stored_bytes"], "thumb": verified_preview(archived, preview_index) or (href if archived["kind"] == "image" else "")}
     jobs, shots = [], {}
     for job in plan["jobs"]:
         key, record = job["key"], records[job["key"]]

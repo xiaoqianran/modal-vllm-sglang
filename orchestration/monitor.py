@@ -97,12 +97,16 @@ def render(output):
     runtime = state.runtime_root(output)
     css = Path(__file__).with_name("monitor.css").read_text(encoding="utf-8")
     script = Path(__file__).with_name("monitor.js").read_text(encoding="utf-8")
+    from orchestration import studio
+    archive_receipts = studio.read_json(output / studio.RECEIPTS, {}) or {}
+    snapshots = []
     for path in sorted((runtime / "tasks").glob("*/*/plan.json")):
         directory = path.parent
         if not (directory / "state.json").exists() or state.layout(directory).get("output") != str(output):
             continue
         plan, current = read_json(path), read_json(directory / "state.json")
-        data = build_snapshot(directory, plan, current, dimensions)
+        data = build_snapshot(directory, plan, current, dimensions, archive_receipts=archive_receipts)
+        snapshots.append(data)
         encoded = safe_json(data)
         atomic_write(runtime / "monitor" / (plan["name"] + ".js"), ("window.updateTaskMonitor(" + encoded + ");").encode("utf-8"))
         by_key = {job["key"]: job for job in data["jobs"]}
@@ -131,6 +135,12 @@ def render(output):
                     '<template id="job-template">' + job_markup() + '</template><template id="model-template">' + model_markup() + '</template>'
                     '<script type="application/json" id="initial-data">' + encoded + '</script><script>' + script + '</script></body></html>')
         atomic_write(output / ("监控" + plan["name"] + ".html"), document.encode("utf-8"))
+    # The live worker already built these snapshots. Publish a small shared
+    # catalogue; never re-encode thumbnails or contact HF in the polling loop.
+    if studio.TEMPLATE.is_file() and snapshots:
+        studio.publish_catalog(output, snapshots)
+        if not (output / "index.html").is_file():
+            studio.render(output, thumbs=False)
 
 
 class LogStream:

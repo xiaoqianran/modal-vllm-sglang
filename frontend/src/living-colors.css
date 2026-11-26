@@ -1,0 +1,28 @@
+/* Living Color System: three light fields, no per-frame JS or image processing. */
+.creative[data-view]:not([data-view="monitor"]){position:relative;isolation:isolate}
+.living-atmosphere{position:absolute;inset:0;overflow:hidden;pointer-events:none;z-index:-1;contain:paint}
+.living-atmosphere i{position:absolute;display:block;width:min(1100px,94vw);height:min(1000px,95vw);border-radius:50%;opacity:var(--living-strength,.16);background:radial-gradient(ellipse at center,var(--living-glow-0),transparent 69%);transform:translate3d(0,0,0)}
+.living-atmosphere i:nth-child(1){top:clamp(400px,65svh,800px);left:-32%;animation:living-drift 20s ease-in-out infinite alternate}
+.living-atmosphere i:nth-child(2){top:clamp(780px,105svh,1300px);right:-25%;background:radial-gradient(ellipse,var(--living-glow-1),transparent 69%);animation:living-drift 26s ease-in-out infinite alternate-reverse}
+.living-atmosphere i:nth-child(3){top:clamp(1150px,160svh,2000px);left:10%;background:radial-gradient(ellipse,var(--living-glow-2),transparent 70%);animation:living-drift 32s ease-in-out infinite alternate}
+.creative[data-view="gallery"] .living-atmosphere i:nth-child(1),.creative[data-view="explore"] .living-atmosphere i:nth-child(1){top:-200px}
+.creative[data-view="gallery"] .living-atmosphere i:nth-child(2),.creative[data-view="explore"] .living-atmosphere i:nth-child(2){top:140px}
+@keyframes living-drift{from{transform:translate3d(-3%,0,0) scale(.94)}to{transform:translate3d(8%,7%,0) scale(1.1)}}
+.creative[data-palette] .archive-album-caption h3,.creative[data-palette] .archive-browse .tile-caption h3{color:var(--living-title-0,var(--ink));transition:color .32s ease}
+.creative[data-palette] .archive-album:nth-child(4n+2) h3,.creative[data-palette] .tile:nth-child(4n+2) h3{color:var(--living-title-1)}
+.creative[data-palette] .archive-album:nth-child(4n+3) h3,.creative[data-palette] .tile:nth-child(4n+3) h3{color:var(--living-title-2)}
+.creative[data-palette] .archive-album:nth-child(4n+4) h3,.creative[data-palette] .tile:nth-child(4n+4) h3{color:var(--living-title-3)}
+.creative[data-palette] .archive-index-head h2{color:var(--living-title-0)}
+.creative[data-palette]:not([data-view="monitor"]) .topbar{background:color-mix(in srgb,var(--paper) 86%,transparent);backdrop-filter:blur(15px);-webkit-backdrop-filter:blur(15px)}
+.creative .palette-panel,.creative .font-panel{background:color-mix(in srgb,var(--surface) 94%,var(--living-glow-0));box-shadow:0 16px 60px color-mix(in srgb,var(--ink) 15%,transparent)}
+.creative .palette-option:hover,.creative .font-options button:hover{background:color-mix(in srgb,var(--surface) 82%,var(--living-glow-0))}
+.creative .archive-cover{transition:box-shadow .35s ease}
+.creative .archive-cover:hover{box-shadow:0 12px 38px color-mix(in srgb,var(--living-glow-0) 22%,transparent)}
+.creative .archive-album:nth-child(4n+2) .archive-cover:hover{box-shadow:0 12px 38px color-mix(in srgb,var(--living-glow-1) 22%,transparent)}
+.creative .archive-album:nth-child(4n+3) .archive-cover:hover{box-shadow:0 12px 38px color-mix(in srgb,var(--living-glow-2) 22%,transparent)}
+/* Small static grain in the index background, never over the pictures or type. */
+.living-atmosphere:after{content:"";position:absolute;inset:0;opacity:.045;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Cpath filter='url(%23n)' d='M0 0h160v160H0z' opacity='.5'/%3E%3C/svg%3E");pointer-events:none}
+.creative[data-view="monitor"] .production-overview{background:var(--surface);border-color:var(--line)}
+.creative[data-view="monitor"] .production-progress-title b{color:var(--living-title-0)}
+@media(prefers-reduced-motion:reduce){.living-atmosphere i{animation:none!important}.creative .archive-cover,.creative .archive-album-caption h3,.creative .tile-caption h3{transition:none}}
+@media(max-width:600px){.living-atmosphere i{animation:none}.living-atmosphere i:nth-child(2){top:70svh}}

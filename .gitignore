@@ -22,3 +22,4 @@
 /.agents/
 /.code-review-graph/
 /.codegraph/
+/frontend/node_modules/
