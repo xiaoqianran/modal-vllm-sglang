@@ -38,10 +38,10 @@ benchmark 已下载且验证的特定 MiniMax-H3 快照，拒绝意外联网补�
 根据可用后端选择 Worker，历史日志中出现 Azure 并不意味着代码固定 Azure；
 实际选择可能跨云及跨区域，不能保证随机、特定价格或某个地理位置。
 
-本项目通过 PyPI 固定依赖 `modal-benchmark==0.4.3`，使用一个 Coordinator + N 个直接 Writer；默认 Xet 可信下载凭证不会因文件时间戳漂移重新扫描完整 SHA-256。
+本项目通过 PyPI 固定依赖 `modal-benchmark==0.4.4`，使用一个 Coordinator + N 个直接 Writer；默认 Xet 可信下载凭证不会因文件时间戳漂移重新扫描完整 SHA-256。
 `uv sync` 后使用统一入口 `tools/download_models.py`；旧 `tools/download_azure.py` 作为兼容入口保留。
 
-0.4.2 在明确指定 Volume V2 时默认使用持久 Writer 调度（`scheduling="persistent"`），任务包上限为 10 GiB（`task_batch_bytes=10737418240`，单个超限文件不切分）。Writer 可连续领取任务，减少重复启动和 reload；默认 4 个小文件线程（小于 64 MiB）、跨任务包合并提交（16 文件 / 16 GiB / 45 秒任务边界），Xet 固定并发 8，安全节点补位默认关闭（replacement_budget=0）。Coordinator 使用不可抢占 CPU 容器（该函数 CPU/内存目录价 3 倍）；Writer 仍可抢占。最终仍按持久化凭证验收。现有入口已明确传入 Volume V2，因此无需修改业务调度代码。升级前应停止旧版下载作业；历史缓存与发布规则保持不变。
+0.4.4 在明确指定 Volume V2 时默认使用持久 Writer 混合领取（大文件 ≥64 MiB 独立领取，小文件批量领取，单个大文件不切分）。Writer 可连续领取任务，减少重复启动和 reload；默认 4 个小文件线程（小于 64 MiB）、跨任务包合并提交（16 文件 / 16 GiB / 45 秒任务边界），Xet 固定并发 8，安全节点补位默认关闭（replacement_budget=0）。Coordinator 使用不可抢占 CPU 容器（该函数 CPU/内存目录价 3 倍）；Writer 仍可抢占。最终仍按持久化凭证验收。现有入口已明确传入 Volume V2，因此无需修改业务调度代码。升级前应停止旧版下载作业；历史缓存与发布规则保持不变。
 
 ## 三种模型
 
@@ -96,4 +96,4 @@ Pika GPU 推理默认使用 Modal 原生镜像、固定 SHA-256 的官方 SGLang
 
 ### Volume 子路径约定
 
-`model-store` 是唯一推理模型 Volume V2。所有推理/物化/维护容器将卷内 `/inference` 使用 Modal `sub_path` 精确挂载为 `/data`。模型缓存位于 `/data/models`，原始 Volume SDK 路径需要补 `/inference` 前缀。当前 modal-benchmark 0.4.3 已支持 `sub_path="/inference"`，Coordinator 和 Writer 均只将 Volume 内该子树挂载为 `/data`；业务方不再负责前缀转换；上传与推理禁止写入 ComfyUI 专用子树。
+`model-store` 是唯一推理模型 Volume V2。所有推理/物化/维护容器将卷内 `/inference` 使用 Modal `sub_path` 精确挂载为 `/data`。模型缓存位于 `/data/models`，原始 Volume SDK 路径需要补 `/inference` 前缀。当前 modal-benchmark 0.4.4 已支持 `sub_path="/inference"`，Coordinator 和 Writer 均只将 Volume 内该子树挂载为 `/data`；业务方不再负责前缀转换；上传与推理禁止写入 ComfyUI 专用子树。
