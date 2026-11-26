@@ -6,7 +6,7 @@
   "workflow": "pika-t2va",
   "params": {
     "target": {
-      "short_edge": 480,
+      "short_edge": 768,
       "aspect_ratio": "16:9",
       "duration_seconds": 5.0
     }
@@ -78,3 +78,4 @@
     }
   ]
 }
+
