@@ -1,0 +1,78 @@
+{
+  "version": 1,
+  "name": "026-moss-surreal-cinema-12",
+  "project": "026-moss-surreal-cinema-12",
+  "scene": "001-main",
+  "workflow": "moss-t2i",
+  "params": {
+    "size": "1536x864",
+    "num_inference_steps": 50,
+    "guidance_scale": 3
+  },
+  "delivery": {
+    "provider": "huggingface",
+    "bucket": "seachen/modal-vllm-sglang-assets"
+  },
+  "items": [
+    {
+      "id": "001",
+      "seed": 272601,
+      "prompt": "An original live-action science fiction film opens on a densely inhabited coastal city at first light. Seen from the roof of an ordinary apartment block, rows of concrete buildings, rooftop laundry and a distant commuter bridge occupy the lower half of the frame. Above them, an inverted city hangs from an immense dark landmass in the atmosphere: the underside of its streets faces the viewer, with countless tiny amber windows and a few long waterfalls dissolving into cloud before reaching the ground. A clear band of pale morning sky separates the two cities. On a neighboring rooftop a lone resident in a gray coat stands beside a water tank, small enough to establish the scale. Restrained blue-gray and warm amber, long-lens atmospheric compression, natural haze and practical architectural detail. No graphic overlays or legible signage."
+    },
+    {
+      "id": "002",
+      "seed": 272602,
+      "prompt": "On a windswept black volcanic beach, an archaeological expedition has uncovered an enormous buried white sphere resembling a fractured moon. Only its upper hemisphere emerges from the wet basalt sand, hundreds of meters across, its chalky cratered surface cut open by a single deep dark fissure. Three tiny researchers in weatherproof orange jackets stand near a temporary survey shelter far from the sphere, their equipment and footprints establishing its scale. The gray ocean runs diagonally into the distance, and low clouds swallow the far side of the object. A ground-level 28mm cinema frame from beside a shallow tidal pool, with a distorted reflection of the pale sphere in the foreground. Cold maritime daylight, muted volcanic blacks, salt spray, believable weathered stone and a feeling of scientific discovery rather than fantasy spectacle."
+    },
+    {
+      "id": "003",
+      "seed": 272603,
+      "prompt": "Inside a narrow industrial glass elevator traveling down the exterior of an enormous submerged research tower, a single adult engineer in an off-white pressure suit without a helmet stands with her back to the camera, one hand on a brushed metal rail. Beyond the scratched panoramic glass is an endless blue ocean; an immense pale whale drifts vertically past the tower, its body partly obscured by layers of suspended particles, while tiny fish cross the shaft of sunlight above. The elevator's rectangular steel frame surrounds the view, and a warm maintenance lamp reflects faintly in the glass without hiding the ocean. A quiet eye-level medium-wide shot with deep cyan water, near-black structural silhouettes and natural-looking underwater light falloff. Credible human scale, utilitarian construction, restrained grain, no readable text."
+    },
+    {
+      "id": "004",
+      "seed": 272604,
+      "prompt": "A gigantic concrete hydroelectric dam spans a mountain gorge in the late afternoon. The viewpoint is from a narrow maintenance bridge high above the turbulent river. Instead of falling, one continuous column of white water rises from the river beside the dam, curving upward toward a broad dark opening in a suspended rock shelf. Individual droplets trail downward around the main ascending flow. A few tiny maintenance workers in yellow rain jackets stand behind the bridge railing, looking toward the anomaly. The frame uses the bridge's steel handrails as converging foreground lines, the dam as a heavy vertical mass at the left and the upward waterfall at the right. Storm-cleared sunlight penetrates the gorge, illuminating spray and wet concrete; earthy greens, cold stone and a narrow stripe of gold. The impossible water movement is embedded in a convincingly photographed industrial landscape."
+    },
+    {
+      "id": "005",
+      "seed": 272605,
+      "prompt": "A vast, silent museum hall built from dark ribbed concrete contains a miniature white star suspended in a circular open chamber. The glowing sphere is about five meters across, with delicate surface granulation and a small prominence on one side; its brilliant light illuminates the surrounding floor and architecture but the exposure preserves fine detail in its surface. A few adult visitors stand on a distant raised walkway behind protective glass, reduced to silhouettes. The camera is low and off-center behind a massive pillar, revealing the star between the dark foreground and the enormous vaulted ceiling. Warm ivory light fades into cool slate shadows, with faint dust in the air and subtle reflections on polished stone. The atmosphere is hushed, monumental and almost sacred, like an unadorned practical set in a science fiction drama, not a diagram or a luminous fantasy illustration."
+    },
+    {
+      "id": "006",
+      "seed": 272606,
+      "prompt": "An elevated commuter train passes slowly through the flooded streets of an abandoned modern city at dawn. The camera watches from the shadow of a deserted elevated station, using the roof and a broken platform lamp as a foreground frame. Beneath the track, still water fills the streets up to the lower floors of office buildings. A row of traffic lights protrudes from the water, and a few small trees grow on the roofs of submerged cars. The train is ordinary brushed steel, its warm interior windows nearly empty, with no visible driver. A pale orange sunrise emerges between the towers, casting elongated reflections across the floodwater. Long horizontal composition, a 50mm lens, subdued blue-green and amber color, convincing water reflections, damp concrete and a sense of everyday life continuing after an unexplained change. No destruction in progress, no text or overlays."
+    },
+    {
+      "id": "007",
+      "seed": 272607,
+      "prompt": "A dense temperate rainforest has grown around the remains of a colossal circular spacecraft ring standing upright among ancient trees. The upper curve vanishes into canopy fog; the lower segment lies partly embedded in rich soil, its weathered titanium panels wrapped in roots and moss. Through the ring's central opening is ordinary forest, not a portal. A single field researcher carrying a small canvas backpack approaches along a narrow muddy trail at the lower left, almost lost among the enormous roots. The camera is low behind wet fern fronds, looking upward through layers of green foliage toward the pale metallic arc. Filtered morning sunlight falls in irregular shafts, revealing condensation and fine scratches, while the deepest forest remains cool and dim. The composition contrasts organic growth with massive engineered geometry, as though a forgotten technology has become part of the ecosystem."
+    },
+    {
+      "id": "008",
+      "seed": 272608,
+      "prompt": "A modest lived-in apartment on the tenth floor of a concrete building, photographed during an inexplicable moment when gravity has stopped inside the room. An adult woman in an oversized charcoal sweater stands barefoot beside the window with both feet still on the wooden floor, looking at an ordinary ceramic mug suspended at eye level. A small curved ribbon of tea floats separately above the mug; two loose sheets of paper and a few crumbs hover nearby, while the heavy furniture remains grounded and the curtains hang naturally. Beyond the window, the distant city appears entirely normal under gray afternoon light. The camera observes quietly from the hallway, framing the scene through an open doorway. Intimate 40mm cinema composition, muted warm wood and cool daylight, natural skin and fabric, credible liquid surface tension. No exaggerated expression or glowing effects."
+    },
+    {
+      "id": "009",
+      "seed": 272609,
+      "prompt": "A solitary cream-colored station wagon travels along a straight two-lane highway across a barren red plateau at dusk. An enormous planetary ring spans the sky diagonally from the upper left to the distant right horizon, composed of several distinct pale bands with narrow dark gaps, much larger than any familiar celestial feature. The ring is lit by the last sunlight while the land remains in cool shadow. A roadside metal barrier and a patch of dry scrub frame the lower edge, and the car is tiny in the middle distance, trailing a thin line of dust. A stationary roadside camera with a 35mm lens captures the scale difference between mundane human travel and the extraordinary sky. Rust-red earth, indigo twilight, pale ivory rings and believable atmospheric attenuation. An unhurried wide shot from a contemplative science fiction road movie."
+    },
+    {
+      "id": "010",
+      "seed": 272610,
+      "prompt": "A small weather observation platform on a remote alpine ridge faces a vast storm cloud that has become an immobile sculptural mass. A single branching lightning channel remains suspended within the cloud, a thin pale-white network with softly illuminated vapor immediately around it, neither exploding nor striking the ground. In the foreground a lone meteorologist wearing a dark green field jacket stands beside an old analog weather instrument, seen from behind. Frost covers the steel railing and dark rock; snow drifts lie beneath it. A patch of cold daylight enters from the left through thinner cloud, keeping the surrounding mountains visible. The camera looks across the ridge with a moderate telephoto lens, compressed layers of gray mountains and a quiet, precise composition. The unnatural stillness is conveyed by sharp frozen vapor contours and the persistent lightning, rendered with subdued photographic contrast."
+    },
+    {
+      "id": "011",
+      "seed": 272611,
+      "prompt": "A weathered lighthouse stands on a small rocky island suspended in the darkness of outer space. The island has an uneven exposed underside with fractured basalt and roots; its top supports wind-bent grass, a short stone path and the familiar white lighthouse with a warm rotating beacon. Far behind it, the curved blue limb of an immense planet fills the lower-right sky, while a sparse field of stars remains visible in the dark upper half. The camera observes from a neighboring fragment of rock that intrudes subtly into the lower-left foreground, providing parallax. Cool reflected planetary light outlines the island's rough edges and the warm beacon creates a gentle cone through a thin local haze. A wide, solitary cinematic frame with a convincing rocky surface, subdued exposure and the emotional contrast of a human navigational light in an impossible ocean of darkness."
+    },
+    {
+      "id": "012",
+      "seed": 272612,
+      "prompt": "A final intimate scene inside a quiet observation room aboard a distant spacecraft. A small rectangular patch of real green grass grows in a shallow soil bed beneath a simple glass skylight. On the right, an adult astronaut in a worn off-white flight suit sits on a low metal bench, helmet resting beside her, looking toward the grass rather than the stars. Beyond the enormous curved observation window behind the bed, Earth appears as a tiny pale-blue crescent in deep black space. The room is made of practical brushed metal and fabric insulation, with gentle warm-white grow lights illuminating individual grass blades and a few droplets of water. Shoot from the doorway at seated eye level, keeping the astronaut small and the modest green patch near the center. Quiet human scale after the monumental earlier images; natural textures, soft shadows, restrained color and no text or graphic overlays."
+    }
+  ]
+}
