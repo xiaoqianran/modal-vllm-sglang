@@ -130,6 +130,14 @@ class Handler(BaseHTTPRequestHandler):
                 body = json.dumps(payload).encode("utf-8")
             except (ValueError, json.JSONDecodeError) as exc:
                 return self._fail(400, exc)
+        ensure_engine = getattr(self.server, "ensure_engine", None)
+        if ensure_engine is not None:
+            try:
+                ensure_engine()
+            except Exception as exc:
+                self.log_error("Engine startup failed: %s", exc)
+                # No upstream request has been issued.
+                return self._fail(503, "Engine initialization failed", rejected=method == "POST")
         req = urllib.request.Request(
             UPSTREAM + self.path, data=body, method=method,
             headers={"Content-Type": "application/json"} if body else {},
@@ -192,34 +200,52 @@ class Handler(BaseHTTPRequestHandler):
             self.log_error("Response interrupted: %s", exc)
 
 
-def main():
-    import argparse
+def make_server(spec, *, ensure_engine=None):
+    """Bind the shared HTTP gateway before engine startup in lazy mode."""
     global SPEC, UPSTREAM, SG_PORT, PROXY_PORT
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--config", required=True)
-    args = parser.parse_args()
-    SPEC = read_json(args.config)
+    SPEC = spec
     SG_PORT = SPEC.get("port", 8000)
     PROXY_PORT = SPEC.get("proxy_port", SG_PORT + 1)
     UPSTREAM = f"http://127.0.0.1:{SG_PORT}"
-    # Do not advertise a ready endpoint until model weights have loaded.
+    server = ThreadingHTTPServer(("0.0.0.0", PROXY_PORT), Handler)
+    server.ensure_engine = ensure_engine
+    return server
+
+
+def serve_gateway(server):
+    done = threading.Event()
+
+    def clean_frames():
+        while not done.wait(600):
+            clean_finished_frames()
+
+    if SPEC.get("frame_transport") == "keyframes":
+        threading.Thread(target=clean_frames, daemon=True).start()
+    try:
+        server.serve_forever()
+    finally:
+        done.set()
+
+
+def main():
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config", required=True)
+    args = parser.parse_args()
+    spec = read_json(args.config)
+    upstream = f"http://127.0.0.1:{spec.get('port', 8000)}"
+    # In eager snapshot mode, expose the gateway only after engine readiness.
     while True:
         try:
-            with urllib.request.urlopen(UPSTREAM + "/health", timeout=2) as r:
+            with urllib.request.urlopen(upstream + "/health", timeout=2) as r:
                 if r.status == 200:
                     break
         except (urllib.error.URLError, TimeoutError):
             pass
         time.sleep(3)
     print("Engine ready; starting shared generation gateway", flush=True)
-    def clean_frames():
-        while True:
-            time.sleep(600)
-            clean_finished_frames()
-
-    threading.Thread(target=clean_frames, daemon=True).start()
-    server = ThreadingHTTPServer(("0.0.0.0", PROXY_PORT), Handler)
-    server.serve_forever()
+    with make_server(spec) as server:
+        serve_gateway(server)
 
 
 if __name__ == "__main__":

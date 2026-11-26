@@ -1,6 +1,7 @@
 """Snapshot lifecycle boundaries without allocating remote containers or GPUs."""
 import tempfile
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -22,6 +23,9 @@ class MemorySnapshotTests(unittest.TestCase):
                                          side_effect=[({}, 'original'), ({}, 'changed' if changed else 'original')]))
         stack.enter_context(patch('runtime.serving.model_runtime.command_argv', return_value=['engine']))
         popen = stack.enter_context(patch('runtime.serving.model_runtime.subprocess.Popen'))
+        popen.return_value.poll.return_value = None
+        stack.enter_context(patch('runtime.serving.inference_gateway.make_server'))
+        stack.enter_context(patch('runtime.serving.inference_gateway.serve_gateway'))
         health = stack.enter_context(patch('runtime.serving.process_lifecycle.wait_for_health'))
         stop = stack.enter_context(patch('runtime.serving.process_lifecycle.stop_process'))
         monitor = stack.enter_context(patch('runtime.serving.process_lifecycle.monitor_processes'))
@@ -50,14 +54,43 @@ class MemorySnapshotTests(unittest.TestCase):
         monitor.assert_called_once()
         stop.assert_not_called()
 
-    def test_disabled_snapshot_starts_engine_in_runtime_hook(self):
+    def test_disabled_snapshot_starts_engine_only_on_demand_once(self):
         cls, obj, cache, popen, health, stop, monitor, resources = self.lifecycle('off')
         self.assertFalse(hasattr(cls, 'capture_engine'))
-        popen.assert_not_called()
         cls.start._get_raw_f()(obj)
-        self.assertEqual(popen.call_count, 2)
+        popen.assert_not_called()
+        monitor.assert_not_called()
+        health.assert_not_called()
+        self.assertEqual(obj.engine_initialization_seconds, 0)
         self.assertEqual(cache.call_count, 1)
-        self.assertGreaterEqual(obj.startup_seconds, obj.engine_initialization_seconds)
+        self.assertEqual(cache.call_args.kwargs['phase'], 'runtime_setup')
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            list(pool.map(lambda _: obj._ensure_engine(), range(12)))
+        popen.assert_called_once()
+        monitor.assert_called_once()
+        health.assert_called_once()
+        self.assertEqual(cache.call_count, 1)
+
+    def test_lazy_engine_failure_remains_retryable_before_submit(self):
+        cls, obj, cache, popen, health, stop, monitor, resources = self.lifecycle('off')
+        cls.start._get_raw_f()(obj)
+        health.side_effect = [RuntimeError("startup failed"), None]
+        with self.assertRaisesRegex(RuntimeError, "startup failed"):
+            obj._ensure_engine()
+        self.assertIsNone(obj.monitor)
+        stop.assert_called_once()
+        obj._ensure_engine()
+        self.assertEqual(popen.call_count, 2)
+        monitor.assert_called_once()
+        self.assertEqual(cache.call_count, 1)
+
+    def test_recovery_only_container_can_stop_without_engine(self):
+        cls, obj, cache, popen, health, stop, monitor, resources = self.lifecycle('off')
+        cls.start._get_raw_f()(obj)
+        cls.stop._get_raw_f()(obj)
+        popen.assert_not_called()
+        stop.assert_not_called()
+        obj.gateway_server.server_close.assert_called_once()
 
     def test_changed_cache_stops_captured_engine_before_gateway_starts(self):
         cls, obj, cache, popen, health, stop, monitor, resources = self.lifecycle('gpu', changed=True)

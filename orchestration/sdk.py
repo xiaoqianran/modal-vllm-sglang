@@ -12,7 +12,8 @@ from orchestration.sdk_session import SDKSession
 from orchestration.input_store import MANAGED_PREFIX, stage_input
 from runtime.tasks.task_identity import intent_digest
 from runtime.tasks.task_spec import prepare, result_prefix, execution_signature
-from runtime.tasks.job_client import remote_cache_fingerprint, remote_record, check_record
+from runtime.tasks.job_client import remote_cache_fingerprint, remote_record, check_record, recovery_path
+from runtime.tasks.result_integrity import verify_remote_media
 from runtime.tasks.artifacts import image_reference
 from runtime.utils.files import read_json
 from runtime.telemetry.recorder import local_recorder
@@ -87,17 +88,28 @@ class Backend:
                 raise ValueError("Managed input requires a durable workflow controller")
         key = intent_digest(spec)
         handle_key = (key, deployment_version)
-        with self.session.keyed_lock(("model", handle_key)):
-            if handle_key not in self.models:
-                self.models[handle_key] = self.modal.Cls.from_name(
-                    spec.get("app_name", "modal-model-" + spec["service"]),
-                    spec.get("modal_class", "Model"))()
         execution_hash = execution_signature(prepare(spec, item)[1], fingerprint)
         # A stable class tag can still receive an old rolling container.
         # Guard the invocation itself, without paid version-pinned lookup.
         guard = {"expected_deployment_version": deployment_version} if deployment_version is not None else {}
-        return self.submission_ledger().submit(prefix, item["id"], execution_hash,
-            lambda: self.models[handle_key].generate_one.spawn(item, prefix, fingerprint, key, **guard).object_id)
+        def spawn():
+            with self.session.keyed_lock(("model", handle_key)):
+                if handle_key not in self.models:
+                    self.models[handle_key] = self.modal.Cls.from_name(
+                        spec.get("app_name", "modal-model-" + spec["service"]),
+                        spec.get("modal_class", "Model"))()
+            return self.models[handle_key].generate_one.spawn(item, prefix, fingerprint, key, **guard).object_id
+
+        return self.submission_ledger().submit(prefix, item["id"], execution_hash, spawn)
+
+    def preflight_result(self, record):
+        """Existing evidence forbids a fresh GPU submission, even after local state loss."""
+        result = remote_record(self.volume, record["prefix"], record["id"])
+        if result is not None:
+            check_record(record, result)
+            if result.get("status") == "completed" and not verify_remote_media(self.volume, record, result):
+                raise ValueError("Remote result damaged; refusing GPU submission")
+        return result
 
     def submission_ledger(self):
         from orchestration.protocol import SUBMISSION_REGISTRY
@@ -110,10 +122,26 @@ class Backend:
     def call_handle(self, call_id):
         return self.session.handle(("call", call_id), lambda: self.modal.FunctionCall.from_id(call_id))
 
-    def _committed_result(self, record):
+    def _committed_result(self, record, *, recover=False):
         result = remote_record(self.volume, record["prefix"], record["id"])
         if result:
             check_record(record, result)
+            if recover and result.get("status") == "collecting" and record.get("call_id"):
+                from runtime.tasks.task_lifecycle import terminal_call_status
+                from runtime.utils.volume_records import put_once
+                call_id = record["call_id"]
+                terminal = terminal_call_status(self.modal, call_id)
+                if terminal and verify_remote_media(self.volume, record, result):
+                    # Publish one immutable recovery receipt instead of overwriting GPU metadata.
+                    marker = {"source_hash": intent_digest(result), "call_id": call_id,
+                              "terminal_status": terminal}
+                    if put_once(self.volume, recovery_path(record["prefix"], record["id"]), marker):
+                        # Successful immutable publication plus the already verified
+                        # terminal receipt is sufficient. Only a lost race needs a read.
+                        result = {**result, "status": "completed"}
+                    else:
+                        result = remote_record(self.volume, record["prefix"], record["id"])
+                        check_record(record, result)
             if result.get("telemetry"):
                 self.telemetry_manifests[record.get("call_id")] = result["telemetry"]
             if result.get("status") in {"completed", "failed", "cancelled"}:
@@ -131,7 +159,7 @@ class Backend:
         call_id = persisted_call or self.session.accepted_call(submission)
         identity = (*submission, persisted_call)
         if not persisted_call or record.get("status") == "uncertain" or self.session.ledger_due(identity, _LEDGER_INTERVAL):
-            committed = self._committed_result(record)
+            committed = self._committed_result({**record, "call_id": call_id}, recover=True)
             if committed is not None:
                 self.session.forget_ledger(identity)
                 self.session.forget_accepted_call(submission)
@@ -158,7 +186,7 @@ class Backend:
                 return None
             self.session.forget_handle(("call", call_id))
             self.session.forget_ledger(identity)
-            committed = self._committed_result(record)
+            committed = self._committed_result(record, recover=True)
             if committed is not None:
                 self.session.forget_accepted_call(submission)
                 return committed
@@ -166,14 +194,14 @@ class Backend:
         except Exception:
             self.session.forget_handle(("call", call_id))
             self.session.forget_ledger(identity)
-            committed = self._committed_result(record)
+            committed = self._committed_result(record, recover=True)
             if committed is not None:
                 self.session.forget_accepted_call(submission)
                 return committed
             raise
         self.session.forget_handle(("call", call_id))
         self.session.forget_ledger(identity)
-        committed = self._committed_result(record)
+        committed = self._committed_result(record, recover=True)
         if committed is not None:
             self.session.forget_accepted_call(submission)
             return committed

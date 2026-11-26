@@ -3,6 +3,8 @@ import json
 from runtime.tasks.task_identity import intent_digest
 from runtime.config.model_cache import cache_directory, component_specs
 from runtime.config.storage import volume_key
+from runtime.tasks.result_integrity import validate_media_record
+from runtime.tasks.task_lifecycle import CALL_TERMINAL
 
 
 def remote_cache_fingerprint(spec, volume):
@@ -17,19 +19,33 @@ def remote_cache_fingerprint(spec, volume):
     return intent_digest(cache)
 
 
+def recovery_path(prefix, shot):
+    return f"{prefix}/{shot}.recovered.json"
+
+
 def remote_record(volume, prefix, shot):
     try:
-        return json.loads(b"".join(volume.read_file(volume_key(f"/{prefix}/{shot}.json"))))
+        record = json.loads(b"".join(volume.read_file(volume_key(f"/{prefix}/{shot}.json"))))
     except FileNotFoundError:
         return None
+    if record.get("status") == "collecting":
+        try:
+            marker = json.loads(b"".join(volume.read_file(volume_key("/" + recovery_path(prefix, shot)))))
+        except FileNotFoundError:
+            return record
+        if (marker.get("source_hash") != intent_digest(record)
+                or not isinstance(marker.get("call_id"), str)
+                or not marker["call_id"].startswith("fc-")
+                or marker.get("terminal_status") not in CALL_TERMINAL):
+            raise ValueError("Invalid recovered result evidence")
+        validate_media_record({"id": shot}, record)
+        return {**record, "status": "completed"}
+    return record
 
 
 def check_record(job, record):
     if (record.get("intent_hash") != job["intent_hash"]
             or record.get("execution_hash") != job["execution_hash"]):
         raise ValueError("Task/configuration/cache conflict; refusing to overwrite or resubmit")
-    if record.get("status") == "completed":
-        if (record.get("id") != job["id"]
-                or record.get("file") not in {job["id"] + s for s in (".png", ".jpg", ".webp", ".mp4")}
-                or not isinstance(record.get("sha256"), str) or len(record["sha256"]) != 64):
-            raise ValueError("Invalid completed result")
+    if record.get("status") in {"collecting", "completed"}:
+        validate_media_record(job, record)

@@ -210,9 +210,6 @@ def tick(directory, backend, downloads, pool, *, item=None, pinned_preparation=N
                     continue
                 if record.get("dependency_wait_started_at"):
                     recorder.interval("wait", record["dependency_wait_started_at"], reason="dependency")
-                siblings = sum(other["item"] == job["item"]
-                               and model_capabilities.CAPABILITIES[other["uses"]]["output"] == kind
-                               for other in plan["jobs"])
                 stem = state.output_stem(job)
                 suffixes = (".png", ".jpg", ".jpeg", ".webp") if kind == "image" else (".mp4",)
                 if any((state.media_directory(directory) / (stem + suffix)).exists() for suffix in suffixes):
@@ -229,6 +226,19 @@ def tick(directory, backend, downloads, pool, *, item=None, pinned_preparation=N
                 receipt = {"id": request["id"], "prefix": prefix, "intent_hash": signature,
                            "cache_fingerprint": fingerprint,
                            "execution_hash": execution_signature(signature, fingerprint)}
+                # Inspect committed evidence before reserving or starting a GPU.
+                existing = backend.preflight_result(receipt)
+                if existing is not None:
+                    if existing["status"] == "completed":
+                        artifact = cloud_artifact({**receipt, "result": existing}, kind)
+                        advance(key, **receipt, status="completed", result=existing,
+                                artifacts={kind: artifact}, error=None, cloud_observed_at=utc_now())
+                    elif existing["status"] in {"failed", "cancelled"}:
+                        advance(key, **receipt, status="failed", result=existing, error="Cloud generation failed")
+                    else:
+                        advance(key, **receipt, status="uncertain",
+                                error="Existing GPU evidence; observe original submission, never resubmit")
+                    continue
                 # Durable intent precedes the one and only spawn attempt.
                 advance(key, **receipt, status="submitting", wait_reason=None)
                 try:

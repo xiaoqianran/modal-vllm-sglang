@@ -60,9 +60,38 @@ class Backend(sdk.Backend):
                 raise
         if result.get("version") != VERSION or result.get("payload_hash") != receipt["payload_hash"]:
             raise ValueError("Workflow receipt/configuration mismatch")
+        if result.get("status") in {"running", "uncertain"}:
+            result = self._observe_controller(receipt, result)
         if receipt.get("call_id") and result.get("status") in {"completed", "failed", "uncertain"}:
             self.session.forget_handle(("call", receipt["call_id"]))
         return result
+
+
+    def _observe_controller(self, receipt, result):
+        from orchestration import workflow_recovery as recovery
+        from runtime.config.storage import runtime_volume_name
+
+        key = ("controller", receipt["id"], receipt["payload_hash"])
+        controller_state = receipt.get("controller_state", "unconfirmed")
+        if self.session.ledger_due(key, 10):
+            self.session.note_ledger_read(key)
+            controller_state = "unconfirmed"
+            try:
+                manifest = recovery.load_plan(self.volume, receipt["id"], runtime_volume_name(),
+                                              expected_hash=receipt["payload_hash"])
+            except FileNotFoundError:
+                manifest = None  # Legacy checkpoints have no recoverable owner chain.
+            if manifest is not None:
+                owner = recovery.latest_owner(self.volume, manifest)
+                if owner is not None:
+                    controller_state = recovery.observe_owner(self.volume, manifest, self.modal, owner)
+        if controller_state == "terminal":
+            return {**result, "status": "uncertain", "controller_state": controller_state,
+                    "error": "Controller terminated; durable recovery available (resume_shot)"}
+        if controller_state != "active":
+            return {**result, "status": "uncertain", "controller_state": controller_state,
+                    "error": "Controller state unconfirmed; refusing takeover"}
+        return {**result, "controller_state": controller_state}
 
 
 def payload_for(directory, plan, item, backend, preparation=None):
@@ -273,7 +302,9 @@ def tick_shot(directory, item, backend, downloads, pool):
                             if current["jobs"][key] != merged:
                                 state.record_event(directory, key, merged)
                             current["jobs"][key] = merged
-                        current["cloud_runs"][item].update(status=remote["status"], telemetry=remote.get("telemetry"))
+                        current["cloud_runs"][item].update(
+                            status=remote["status"], telemetry=remote.get("telemetry"),
+                            controller_state=remote.get("controller_state"), error=remote.get("error"))
                         state.save(directory / "state.json", current)
         # Re-discover manifests from durable state, including terminal jobs after restart.
         _, current = sdk.snapshot(directory)

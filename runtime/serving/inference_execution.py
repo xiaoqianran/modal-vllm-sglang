@@ -3,7 +3,7 @@ import hashlib
 import time
 from pathlib import Path
 
-from runtime.tasks.result_integrity import completed_output
+from runtime.tasks.result_integrity import MEDIA_SUFFIXES, validate_media_record, verify_local_media
 from runtime.utils.files import atomic_json, read_json, sha256_file
 from runtime.utils.media import media_suffix
 from runtime.utils.outputs import validate_path_component
@@ -13,7 +13,8 @@ from runtime.telemetry.recorder import Recorder
 from runtime.tasks.task_spec import prepare, execution_signature
 
 
-def execute(spec, items, prefix, volume, cache_fingerprint="unverified", recorder=None, background_telemetry=False):
+def execute(spec, items, prefix, volume, cache_fingerprint="unverified", recorder=None,
+            background_telemetry=False, ensure_engine=None):
     from runtime.serving.inference_api import ImageGenerationClient, SGLangVideoClient
     parts = prefix.split("/")
     for part in parts:
@@ -44,36 +45,42 @@ def execute(spec, items, prefix, volume, cache_fingerprint="unverified", recorde
         execution_hash = execution_signature(signature, cache_fingerprint)
         if old and old.get("execution_hash") != execution_hash:
             raise ValueError("Remote model cache changed")
+        if old.get("status") in {"collecting", "completed"} and old.get("intent_hash") != signature:
+            raise ValueError("Remote task signature missing or changed")
         if old.get("status") == "completed":
-            if old.get("file") not in {item["id"] + s for s in (".png", ".jpg", ".webp", ".mp4")}:
-                raise ValueError("Unsafe remote result filename")
+            validate_media_record(item, old)
             target = folder / old["file"]
-            if not completed_output(target, metadata, signature):
+            if not verify_local_media(target, old):
                 raise ValueError("Remote result damaged")
             yield old
             continue
-        if old.get("status") == "collecting" and old.get("file") in {item["id"] + s for s in (".png", ".jpg", ".webp", ".mp4")}:
+        if old.get("status") == "collecting":
+            validate_media_record(item, old)
             target = folder / old["file"]
-            if target.is_file() and sha256_file(target) == old.get("sha256"):
+            if verify_local_media(target, old):
                 old["status"] = "completed"
                 atomic_json(metadata, old)
                 volume.commit()
                 yield old
                 continue
-        if not old and any((folder / (item["id"] + suffix)).exists() for suffix in (".png", ".jpg", ".webp", ".mp4")):
+        if not old and any((folder / (item["id"] + suffix)).exists() for suffix in MEDIA_SUFFIXES):
             raise FileExistsError("Unverified remote media already exists")
         action = recovery_action(old)
         if action == "stop":
             raise RuntimeError("Remote task failed; create a new task to generate again")
         if action == "uncertain":
             raise RuntimeError("Uncertain submission; inspect remote metadata before creating a new task")
+        if action != "resume" and any(key.endswith("_artifact") for key in payload):
+            from runtime.tasks.artifacts import resolve_frames
+            with telemetry.span("transfer", operation="read_frames"):
+                payload = resolve_frames(payload, volume, mount_root=Path("/data"))
+        # Existing verified results and uncertain submissions never start the engine.
+        # Initialization failure must not leave a false submitting checkpoint.
+        if ensure_engine is not None:
+            ensure_engine()
         if action == "resume":
             job = old["job_id"]
         else:
-            from runtime.tasks.artifacts import resolve_frames
-            if any(key.endswith("_artifact") for key in payload):
-                with telemetry.span("transfer", operation="read_frames"):
-                    payload = resolve_frames(payload, volume, mount_root=Path("/data"))
             # Persist before submit: a lost response never causes automatic resubmission.
             atomic_json(metadata, {"status": "submitting", "intent_hash": signature, "execution_hash": execution_hash})
             commit_checkpoint("submitting")

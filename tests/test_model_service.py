@@ -1,5 +1,6 @@
 """Offline checks for declarative extension and submission failure boundaries."""
 import copy
+import hashlib
 import tempfile
 import unittest
 from pathlib import Path
@@ -123,6 +124,7 @@ class ModelServiceTests(unittest.TestCase):
             self.assertEqual(spec["image"], "debian_slim")
             self.assertEqual(spec["python_version"], "3.12")
             self.assertEqual(spec["uv_torch_backend"], "cu130")
+            self.assertEqual(spec["memory_snapshot"], "off")
             self.assertEqual(spec["uv_packages"], ["vllm==0.32.0", "vllm-omni==0.32.0"])
             self.assertTrue((target / "app.py").is_file())
 
@@ -148,6 +150,43 @@ class ModelServiceTests(unittest.TestCase):
             with patch("runtime.serving.legacy_cache_preparer.optional_hf_download_secrets", return_value=[]):
                 download_app, download, check_cache = create_download_app(path)
             self.assertIn("download", download_app.registered_functions)
+
+    def test_lazy_recovery_bypasses_engine_and_checks_media(self):
+        from runtime.tasks.task_spec import execution_signature
+        item = {"id": "001", "prompt": "boat", "seed": 42}
+        payload, signature = prepare(SPEC, item)
+        data = b"\x89PNG\r\n\x1a\n" + b"content"
+        for status in ("completed", "collecting"):
+            with self.subTest(status=status), tempfile.TemporaryDirectory() as directory, \
+                    patch("runtime.serving.inference_execution.Path", wraps=Path) as paths:
+                paths.side_effect = lambda value: Path(directory) if value == "/data" else Path(value)
+                folder = Path(directory) / "batch"
+                folder.mkdir()
+                (folder / "001.png").write_bytes(data)
+                atomic_json(folder / "001.json", {"id": "001", "file": "001.png",
+                    "status": status, "bytes": len(data), "sha256": hashlib.sha256(data).hexdigest(),
+                    "intent_hash": signature, "execution_hash": execution_signature(signature, "fingerprint")})
+                ensure = Mock(side_effect=AssertionError("Unexpected engine startup"))
+                volume = Mock()
+                result = list(execute(SPEC, [item], "batch", volume, "fingerprint", ensure_engine=ensure))
+                self.assertEqual(result[0]["status"], "completed")
+                ensure.assert_not_called()
+                self.assertEqual(volume.commit.call_count, int(status == "collecting"))
+                (folder / "001.png").write_bytes(b"corrupt")
+                with self.assertRaisesRegex(ValueError, "damaged"):
+                    list(execute(SPEC, [item], "batch", volume, "fingerprint", ensure_engine=ensure))
+                ensure.assert_not_called()
+
+    def test_lazy_startup_failure_never_writes_submitting_checkpoint(self):
+        item = {"id": "001", "prompt": "boat", "seed": 42}
+        with tempfile.TemporaryDirectory() as directory, patch("runtime.serving.inference_execution.Path", wraps=Path) as paths:
+            paths.side_effect = lambda value: Path(directory) if value == "/data" else Path(value)
+            ensure = Mock(side_effect=RuntimeError("engine failed"))
+            volume = Mock()
+            with self.assertRaisesRegex(RuntimeError, "engine failed"):
+                list(execute(SPEC, [item], "batch", volume, ensure_engine=ensure))
+            self.assertFalse((Path(directory) / "batch" / "001.json").exists())
+            volume.commit.assert_not_called()
 
     def test_lost_image_response_is_not_resubmitted(self):
         volume = Mock()

@@ -34,7 +34,11 @@ class FakeBackend(sdk.Backend):
         self.download_entered = threading.Event()
         self.fail_download = False
         self.volume = Mock()
-        self.volume.read_file.side_effect = lambda path: [self.files[path]]
+        def read_file(path):
+            if path not in self.files:
+                raise FileNotFoundError(path)
+            return [self.files[path]]
+        self.volume.read_file.side_effect = read_file
 
     def fingerprint(self, spec):
         return "cache"

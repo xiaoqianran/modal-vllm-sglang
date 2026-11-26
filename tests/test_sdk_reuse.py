@@ -335,3 +335,83 @@ def test_recovered_receipt_is_execution_scoped_and_bounded():
         b.session.remember_accepted_call(("test", i), "fc-test")
     assert len(b.session.accepted_calls) == 512
     assert b.session.accepted_call((job["prefix"], job["id"], job["execution_hash"])) is None
+
+
+@pytest.mark.parametrize("state,media,recovered", [
+    ("FAILURE", PNG, True),
+    ("TERMINATED", PNG, True),
+    ("TIMEOUT", PNG, True),
+    ("PENDING", PNG, False),
+    ("FAILURE", PNG[:-1], False),
+    ("FAILURE", PNG[:-1] + b"x", False),
+    ("FAILURE", None, False),
+])
+def test_collecting_recovery_requires_terminal_call_and_intact_media(state, media, recovered):
+    from modal.types import InputStatus
+    from runtime.tasks.job_client import remote_record, recovery_path
+    vol = Volume()
+    b = backend(vol)
+    job = record()
+    result = {**completed(job), "status": "collecting"}
+    put_record(vol, job, result)
+    if media is not None:
+        vol.files[volume_key("/" + job["prefix"] + "/" + result["file"])] = media
+    call = b.modal.FunctionCall.from_id.return_value
+    call.get.side_effect = TimeoutError()
+    call.get_call_graph.return_value = [SimpleNamespace(
+        function_call_id=job["call_id"], input_id="in-test", status=getattr(InputStatus, state))]
+    observed = b.poll(job)
+    marker = volume_key("/" + recovery_path(job["prefix"], job["id"]))
+    if recovered:
+        assert observed == completed(job)
+        assert vol.uploads == [marker]
+        assert vol.reads == [volume_key("/" + job["prefix"] + "/" + job["id"] + ".json"),
+                             marker, volume_key("/" + job["prefix"] + "/" + result["file"])]
+        assert remote_record(vol, job["prefix"], job["id"]) == completed(job)
+        assert backend(vol).poll(job) == completed(job)
+        call.get.assert_not_called()
+    else:
+        assert observed is None
+        assert marker not in vol.files
+    assert json.loads(vol.files[volume_key("/" + job["prefix"] + "/" + job["id"] + ".json")]) == result
+    b.modal.Cls.from_name.assert_not_called()
+
+
+def test_collecting_recovery_concurrent_publication_is_immutable():
+    from modal.types import InputStatus
+    vol = Volume()
+    job = record()
+    result = {**completed(job), "status": "collecting"}
+    put_record(vol, job, result)
+    media_key = volume_key("/" + job["prefix"] + "/" + result["file"])
+    vol.files[media_key] = PNG
+    barrier = threading.Barrier(2)
+    original = vol.read_file
+
+    def read(key):
+        if key == media_key:
+            barrier.wait(timeout=5)
+        yield from original(key)
+    vol.read_file = read
+    workers = [backend(vol), backend(vol)]
+    for b in workers:
+        b.modal.FunctionCall.from_id.return_value.get_call_graph.return_value = [
+            SimpleNamespace(function_call_id=job["call_id"], input_id="in-test", status=InputStatus.FAILURE)]
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+        assert list(pool.map(lambda b: b.poll(job), workers)) == [completed(job)] * 2
+    assert len(vol.uploads) == 1
+
+
+def test_preflight_completed_result_verifies_bytes_without_gpu():
+    vol = Volume()
+    b = backend(vol)
+    job = record()
+    result = completed(job)
+    put_record(vol, job, result)
+    key = volume_key("/" + job["prefix"] + "/" + result["file"])
+    vol.files[key] = PNG
+    assert b.preflight_result(job) == result
+    vol.files[key] = PNG[:-1]
+    with pytest.raises(ValueError, match="damaged"):
+        b.preflight_result(job)
+    b.modal.Cls.from_name.assert_not_called()

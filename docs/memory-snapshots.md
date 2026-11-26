@@ -1,8 +1,11 @@
 # 通用 GPU 内存快照
 
 媒体服务的公共 `runtime/serving/model_runtime.py` 提供统一快照生命周期，无模型名称分支。
-MOSS、Pika、MiniMax 及新模型模板使用 `"memory_snapshot": "gpu"`；
-设为 `"off"` 可回退到普通初始化。旧配置省略此项时仍为 off。
+现有 MOSS、Pika、MiniMax 明确配置 `"memory_snapshot": "gpu"`；新模型模板默认 `"off"`，
+省略此项也为 off。off 采用按需启动引擎，gpu 采用拍摄前完整引擎初始化。
+两种模式不能在同一 GPU 调用中同时实现：需要将已加载的模型纳入快照时，捕获必须在输入到达前完成。
+CPU Runner 优先恢复已有产物，因此两种模式都不会主动为已验证的完整产物新派发 GPU。
+切换既有模型的配置会改变 spec hash、任务签名和结果前缀，须按新任务计划部署，不改写或重跑既有持久化计划。
 Pika 与 MiniMax 的 `scaledown_window` 为 60 秒，MOSS 仍为 30 秒；`min_containers` 保留 0。
 
 ## 生命周期
@@ -11,7 +14,10 @@ Pika 与 MiniMax 的 `scaledown_window` 为 60 秒，MOSS 仍为 30 秒；`min_c
    引擎自身的加载、内置预热和 CUDA 状态纳入快照。
 2. `start`（拍摄或恢复后）：重新核对挂载中可见的缓存清单，检查引擎健康；
    新建网关、线程锁、资源监控和子进程监控。快照不包含这些公共运行状态。
-3. 关闭快照时，在 `start` 中执行完整引擎初始化，使用同一套服务接口。
+3. 关闭快照时，`start` 仅校验缓存清单、创建轻量 HTTP 网关和运行状态。SDK 在验证已有
+   collecting/completed 产物之后才按需调用 `_ensure_engine`；校验通过的旧产物无需加载引擎。
+   合法 HTTP 请求（包含显式健康检查）与新 SDK 推理共用初始化锁；初始化成功前不提交推理。
+   `deployment_info` 仍是显式启动引擎的诊断接口。
 
 GPU 快照同时启用 Modal 的 `enable_memory_snapshot` 与 `enable_gpu_snapshot`。
 镜像默认设置 `TORCHINDUCTOR_COMPILE_THREADS=1`，可通过模型 env 显式覆盖。
@@ -34,8 +40,9 @@ Volume 内容变化不会自动让 Modal 重建快照。更新权重应使用新
 
 缓存检查仍使用完整文件名/大小清单（不是文件内容哈希），不提供降低检查强度的快速模式。
 CPU 准备、引擎启动前及快照后的检查分别输出 `cache_verified` 事件，
-phase 为 `cpu_prepare`、`engine_start`、`post_snapshot`；包括 seconds 和 success，失败也计时。
-普通 off 启动只检查一次；快照路径保留拍摄前和拍摄/恢复后的两次完整检查。
+phase 为 `cpu_prepare`、`runtime_setup`（off）、`engine_start`（gpu）、`post_snapshot`；
+包括 seconds 和 success，失败也计时。off 在轻量启动时完整检查一次，后续使用同一已验证的挂载路径；
+快照路径保留拍摄前和拍摄/恢复后的两次完整检查。
 文件遍历对每个普通文件只读取一次 stat，并保持清单排序和原有完整性比较。
 
 必须 `modal deploy <模型目录>/app.py` 后通过部署入口测试；`modal run`
@@ -47,7 +54,9 @@ phase 为 `cpu_prepare`、`engine_start`、`post_snapshot`；包括 seconds 和 
 `engine_initialization_seconds` 是拍摄时的初始化耗时，恢复后保留该历史值。
 GPU 快照模式的 `startup_seconds` 仅统计拍摄/恢复后的 start hook，
 `startup_measurement=post_snapshot_hook`，不含平台恢复时间，不能当成总冷启动。
-off 模式则为 `full_initialization`，包含引擎启动。
+off 模式的 `startup_measurement=lazy_runtime_setup` 仅包含运行层和缓存检查。
+首次真正需要引擎时独立记录 `lazy_engine_initialization` startup span 及
+`engine_initialization_seconds`。不能把轻量启动耗时当作新任务的完整就绪时间。
 
 每个引擎均应独立对比 off/gpu：相同任务、独立容器，等待配置的缩容窗口并确认旧容器退出；
 分别记录快照创建、快照恢复、提交到模型就绪、提交到首条产物完成及产物有效性。
@@ -56,6 +65,55 @@ GPU 驱动兼容性、快照恢复成功或实际加速。
 
 参考：[Modal 快照文档](https://modal.com/docs/guide/memory-snapshots)、
 [官方 SGLang 示例](https://modal.com/docs/examples/sglang_snapshot)。
+
+## MOSS 快照 worker 覆盖复测（2026-11-26）
+
+同一生产部署 revision 2、固定 RTX PRO 6000，前三个独立容器的 Modal 系统日志均为
+`Creating GPU memory snapshot for Function.`，Capture ID 各不相同。
+第四个独立冷启动（确认容器数为 0）命中历史捕获 `fd5b971c3c2849b9b8b3657876765be7`，
+平台明确记录 `Restoring Function from memory snapshot.`。后置 hook 3.46 s，
+SDK 端到端 174.69 s（含平台调度等等待），引擎初始化 60.96 s 为历史快照值，并未重新执行。
+官方说明 GPU Function 通常需要每种 GPU 2–3 份快照以覆盖不同 worker 类型；
+本轮现象与该机制一致，但未获取各 worker 的内部类型，不能逐一确定重拍原因。
+既有 MOSS/Pika/MiniMax 配置不因本轮实验自动切换；每次修改代码并重新部署都可能重新捕获快照。
+
+## MOSS 按需初始化真实 GPU 验收（2026-11-26）
+
+独立实验 App 直接使用生产 ModelRuntime 与 generate_one，固定 RTX PRO 6000，
+关闭 Snapshot。第一次尝试因 Modal 等待分配超过 300 秒而取消，重试成功。
+同一容器依次执行 collecting 恢复、completed 复用、新图像生成与再次复用。
+nvidia-smi 确认 NVIDIA RTX PRO 6000 Blackwell Server Edition。
+
+| 操作 | 端到端 SDK 耗时 | 容器内执行 |
+| --- | ---: | ---: |
+| collecting 恢复 | 8.46 s | 2.00 s |
+| completed 复用 | 0.83 s | 4.73 ms |
+| 1024×1024、4 steps 新图像 | 74.04 s | 73.58 s |
+| 新图像重复读取 | 0.80 s | 5.61 ms |
+
+轻量运行层启动 1.51 s（含完整缓存校验 1.48 s），前两次调用 engine_ready=false，
+GPU 显存采样 7 MiB。仅第三次启动引擎，初始化 69.04 s，实际扩散推理 1.60 s，
+内部 HTTP 网关返回 200；新图像和恢复产物均 3,147,861 字节且逐一校验 SHA-256。
+第四次命中同一产物，不重新执行推理。独立实验报告与原始日志保存在 PC2
+的 .runtime/999-lab-lazy-cf7fc3380ff3/report.json 和 .runtime/lazy_moss_retry_1126.log。
+该实验通过 SDK 与内部 HTTP 网关，不涉及外部 Proxy Auth 凭据验证。
+
+## CPU 恢复 SDK 请求对照（2026-11-26）
+
+使用前一轮 PRO 6000 硬退出实验的真实 collecting 凭证和 3,147,861 字节产物，
+在四个独立 Volume 路径中复现同一终态 Call 的恢复逻辑。原算法成功写入不可变
+凭证后重复读取原始记录与凭证；新算法仅在发布冲突时重新读取验证。
+
+| 指标 | 原路径 | 优化路径 |
+| --- | ---: | ---: |
+| Volume.read_file 调用次数 | 5 | 3 |
+| 终态查询 | 1 | 1 |
+| 不可变凭证发布 | 1 | 1 |
+| 本地 SDK 实测（两次） | 7.73 / 6.04 s | 4.02 / 3.71 s |
+
+两组产物 SHA-256 一致，全部成功恢复。实测为本地 Runner 到 Modal 的小样本交叉对照，
+不是云端 CPU 容器内延迟或长期吞吐结论。仅统计 SDK 方法调用次数，不等同底层 gRPC 请求数量。
+实验专用目录已删除并验证不存在，证据保存在 PC2 的 .runtime/rpc_recovery_ab_1126.json。
 
 ## 独立图像批量提交
 

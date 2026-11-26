@@ -4,7 +4,7 @@ import threading
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from runtime.serving import inference_gateway
 from runtime.utils.http import request_bytes, request_json
@@ -57,10 +57,12 @@ class GatewayTests(unittest.TestCase):
             context = patch.object(inference_gateway, name, value)
             context.start()
             self.addCleanup(context.stop)
-        self.endpoint = self.start_server(QuietHandler)
+        self.ensure = Mock()
+        self.endpoint = self.start_server(QuietHandler, ensure_engine=self.ensure)
 
-    def start_server(self, handler):
+    def start_server(self, handler, *, ensure_engine=None):
         server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        server.ensure_engine = ensure_engine
         thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
         thread.start()
 
@@ -106,6 +108,20 @@ class GatewayTests(unittest.TestCase):
             self.response, self.submit_code = {"id": "job-1"}, 200
             self.submit()
         self.assertEqual(self.submissions, 4)
+
+    def test_lazy_gateway_initializes_on_valid_request_and_rejects_failed_start(self):
+        self.ensure.assert_not_called()
+        with self.assertRaises(RuntimeError):
+            request_json(self.endpoint + "/invalid", timeout=1)
+        self.ensure.assert_not_called()
+        self.ensure.side_effect = RuntimeError("engine failed")
+        with self.assertRaises(SubmissionRejected):
+            self.submit()
+        self.assertEqual(self.submissions, 0)
+        self.ensure.side_effect = None
+        self.assertEqual(request_json(self.endpoint + "/health", timeout=1)["status"], "running")
+        self.submit()
+        self.assertEqual(self.submissions, 1)
 
     def test_explicit_engine_error_is_forwarded(self):
         self.submit_code = 422

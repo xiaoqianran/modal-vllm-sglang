@@ -193,12 +193,15 @@ def test_recovery_passes_authoritative_checkpoint_not_initial_jobs(fixture):
     runner.assert_called_once_with(f.payload, f.identity, durable=True, previous=value)
 
 
-def test_recovered_submitting_job_observes_old_result_and_never_respawns(fixture, tmp_path):
+@pytest.mark.parametrize("previous_status", ["submitting", "pending"])
+def test_recovered_submitting_job_observes_old_result_and_never_respawns(fixture, tmp_path, previous_status):
     f = fixture
     job, completed = first_completed(f)
     records = copy.deepcopy(f.payload["initial_jobs"])
     records[job["key"]] = {k: v for k, v in completed.items() if k not in {"result", "artifacts"}}
     records[job["key"]]["status"] = "submitting"
+    if previous_status == "pending":
+        records[job["key"]] = {"status": "pending"}
     previous = checkpoint(f, records)
     backend = f.backend
     backend.fingerprint = lambda spec: "cache"
@@ -295,3 +298,42 @@ def test_tampered_terminal_evidence_fails_closed(fixture):
     f.vol.files[key] = json.dumps(record).encode()
     with pytest.raises(ValueError, match="terminal evidence"):
         r.acquire_owner(f.vol, f.manifest, api("fc-next","in-next"), recover=True)
+
+
+def test_local_runner_detects_dead_controller_without_resubmitting_gpu(fixture):
+    from pipeline.s02_submit_shots import Backend as WorkflowBackend
+    f = fixture
+    owner = r.acquire_owner(f.vol, f.manifest, api())
+    checkpoint(f, f.payload["initial_jobs"])
+    with patch("runtime.serving.modal_setup.model_volume", return_value=f.vol):
+        b = WorkflowBackend()
+    b.modal = api(graph=[node(owner, InputStatus.FAILURE)])
+    receipt = {"id": f.identity, "payload_hash": f.manifest["payload_hash"],
+               "call_id": owner["call_id"], "status": "running"}
+    result = b.poll_workflow(receipt)
+    assert result["status"] == "uncertain"
+    assert result["controller_state"] == "terminal"
+    assert result["jobs"] == f.payload["initial_jobs"]
+    assert r.read_state(f.vol, f.manifest)["status"] == "running"
+    assert r.terminal_evidence(f.vol, f.manifest, owner)
+    assert b.poll_workflow({**receipt, **result})["status"] == "uncertain"
+    assert b.modal.FunctionCall.from_id.return_value.get_call_graph.call_count == 1
+    b.modal.Function.from_name.assert_not_called()
+    b.modal.Cls.from_name.assert_not_called()
+
+
+@pytest.mark.parametrize("known_active", [True, False])
+def test_local_runner_does_not_treat_unknown_controller_as_dead(fixture, known_active):
+    from pipeline.s02_submit_shots import Backend as WorkflowBackend
+    f = fixture
+    owner = r.acquire_owner(f.vol, f.manifest, api())
+    checkpoint(f, f.payload["initial_jobs"])
+    with patch("runtime.serving.modal_setup.model_volume", return_value=f.vol):
+        b = WorkflowBackend()
+    b.modal = api(graph=[node(owner, InputStatus.PENDING)] if known_active else [])
+    receipt = {"id": f.identity, "payload_hash": f.manifest["payload_hash"],
+               "call_id": owner["call_id"], "status": "running"}
+    result = b.poll_workflow(receipt)
+    assert result["status"] == ("running" if known_active else "uncertain")
+    assert result["controller_state"] == ("active" if known_active else "unconfirmed")
+    assert r.terminal_evidence(f.vol, f.manifest, owner) is None

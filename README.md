@@ -133,6 +133,7 @@ CPU 下载器检查完整文件清单、复用有效缓存，自动路径会修�
 旧单模型客户端 `run_jobs`、同步批处理 `run_task` / `generate_batch_stream` 和 HTTP 工作流执行器已移除；统一使用 `run` 登记任务，再由 `worker` 执行。私有 HTTP 推理服务保留。
 
 通用 GPU 快照：MOSS、Pika、MiniMax 共用拍摄与恢复生命周期；Pika/MiniMax 空闲缩容 60 秒，MOSS 30 秒。
+非快照模式按需加载 GPU 引擎，先检查完整产物；新模型模板默认 off，已有明确 gpu 配置保持不变。
 配置、计时边界及逐引擎远程验收要求见 [快照说明](docs/memory-snapshots.md)。
 
 运行记录统一在 `runtime/telemetry/`：登记、提交、等待、启动、生成、保存、素材交接、下载使用固定阶段名。

@@ -1,6 +1,6 @@
 {
   "volume_name": "model-store",
-  "memory_snapshot": "gpu",
+  "memory_snapshot": "off",
   "service": "REPLACE_SERVICE",
   "operation": "t2i",
   "kind": "image",

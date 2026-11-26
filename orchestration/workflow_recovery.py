@@ -4,7 +4,6 @@ Volume V2 no-overwrite publication is the admission barrier. A controller
 successor can be admitted only after the exact previous Modal input is
 terminal. GPU submission reservations remain untouched.
 """
-import io
 import json
 import re
 
@@ -14,6 +13,8 @@ from orchestration.protocol import VERSION, run_id, state_path
 from runtime.config.storage import VOLUME_SUB_PATH, volume_key
 from runtime.tasks.artifacts import image_reference
 from runtime.tasks.job_client import check_record
+from runtime.tasks.task_lifecycle import CALL_TERMINAL, call_input_status
+from runtime.utils.volume_records import put_once as _put_once
 from runtime.tasks.task_identity import intent_digest, safe_id
 from runtime.tasks.task_spec import result_prefix, execution_signature
 
@@ -57,23 +58,6 @@ def _read(volume, path):
     if not isinstance(value, dict):
         raise ValueError("Invalid cloud workflow record")
     return value
-
-
-def _put_once(volume, path, value):
-    key = volume_key("/" + path)
-    data = json.dumps(value, sort_keys=True, ensure_ascii=False, allow_nan=False).encode("utf-8")
-    if len(data) > MAX_RECORD_BYTES:
-        raise ValueError("Cloud workflow record too large")
-    try:
-        with volume.batch_upload(force=False) as batch:
-            batch.put_file(io.BytesIO(data), key)
-        return True
-    except Exception as exc:
-        from modal.exception import InvalidError
-        if not (isinstance(exc, FileExistsError) or
-                isinstance(exc, InvalidError) and str(exc) == f'path "{key}" already exists'):
-            raise
-        return False
 
 
 def validate_payload(payload, identity, volume_name):
@@ -162,9 +146,7 @@ def validate_jobs(plan, records):
             expected = {"type": cap["output"], "storage": "volume",
                         "path": record["prefix"] + "/" + result["file"],
                         "sha256": result["sha256"], "size": result["bytes"]}
-            if (record.get("artifacts") != {cap["output"]: expected}
-                    or type(result["bytes"]) is not int or result["bytes"] <= 0
-                    or not re.fullmatch(r"[0-9a-f]{64}", result["sha256"])):
+            if record.get("artifacts") != {cap["output"]: expected}:
                 raise ValueError("Invalid persisted artifact reference")
 
 
@@ -238,25 +220,15 @@ def _base_input_id(value):
     return match.group(1) if match else None
 
 
-def _terminal_status(modal_api, owner):
-    """Only the exact platform input's terminal status proves death."""
-    from modal.types import InputStatus
+def _owner_status(modal_api, owner):
     input_id = _base_input_id(owner["input_id"])
     if input_id is None:
         return None
-    try:
-        graph = modal_api.FunctionCall.from_id(owner["call_id"]).get_call_graph()
-    except Exception:
-        return None
-    matches = [node for node in graph if node.function_call_id == owner["call_id"]
-               and node.input_id == input_id]
-    terminal = {InputStatus.SUCCESS, InputStatus.FAILURE, InputStatus.INIT_FAILURE,
-                InputStatus.TERMINATED, InputStatus.TIMEOUT}
-    return matches[0].status.name if len(matches) == 1 and matches[0].status in terminal else None
+    return call_input_status(modal_api, owner["call_id"], input_id=input_id)
 
 
 def owner_terminal(modal_api, owner):
-    return _terminal_status(modal_api, owner) is not None
+    return _owner_status(modal_api, owner) in CALL_TERMINAL
 
 
 def terminal_path(identity, owner):
@@ -269,28 +241,37 @@ def terminal_evidence(volume, manifest, owner):
         expected = {"schema": SCHEMA, "owner_hash": intent_digest(owner),
                     "call_id": owner["call_id"], "input_id": _base_input_id(owner["input_id"])}
         if (any(value.get(k) != v for k, v in expected.items()) or
-                value.get("status") not in {"SUCCESS", "FAILURE", "INIT_FAILURE", "TERMINATED", "TIMEOUT"}):
+                value.get("status") not in CALL_TERMINAL):
             raise ValueError("Invalid durable controller terminal evidence")
     return value
 
 
-def seal_terminal(volume, manifest, modal_api, owner):
-    """Persist verified terminal evidence before a rollout can remove call history."""
+def _observe_owner(volume, manifest, modal_api, owner):
     evidence = terminal_evidence(volume, manifest, owner)
     if evidence is not None:
-        return evidence
-    status = _terminal_status(modal_api, owner)
-    if status is None:
-        return None
+        return "terminal", evidence
+    status = _owner_status(modal_api, owner)
+    if status not in CALL_TERMINAL:
+        return ("active" if status == "PENDING" else "unconfirmed"), None
     value = {"schema": SCHEMA, "owner_hash": intent_digest(owner),
              "call_id": owner["call_id"], "input_id": _base_input_id(owner["input_id"]),
              "status": status}
     if _put_once(volume, terminal_path(manifest["identity"], owner), value):
-        return value
+        return "terminal", value
     evidence = terminal_evidence(volume, manifest, owner)
     if evidence is None:
         raise RuntimeError("Controller terminal evidence publication not visible")
-    return evidence
+    return "terminal", evidence
+
+
+def observe_owner(volume, manifest, modal_api, owner):
+    """Return active, terminal or unconfirmed without duplicating graph requests."""
+    return _observe_owner(volume, manifest, modal_api, owner)[0]
+
+
+def seal_terminal(volume, manifest, modal_api, owner):
+    """Persist verified terminal evidence before a rollout can remove call history."""
+    return _observe_owner(volume, manifest, modal_api, owner)[1]
 
 
 def acquire_owner(volume, manifest, modal_api, *, recover=False, claim_registry=None):

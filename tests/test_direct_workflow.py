@@ -85,7 +85,7 @@ class DirectWorkflowTests(unittest.TestCase):
         self.backend.volume.read_file.side_effect = FileNotFoundError
         self.assertFalse(self.provisioner.direct_drained(key, receipt["id"], ["image/001"]))
         result = {"status": "completed", "id": proof["id"], "file": proof["id"] + ".png",
-                  "sha256": "a" * 64, "intent_hash": proof["intent_hash"],
+                  "bytes": 64, "sha256": "a" * 64, "intent_hash": proof["intent_hash"],
                   "execution_hash": proof["execution_hash"]}
         self.backend.volume.read_file.side_effect = None
         self.backend.volume.read_file.return_value = [json.dumps(result).encode()]

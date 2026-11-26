@@ -53,7 +53,7 @@ class ModelRuntime:
     def _load_spec(self):
         return validate(read_json(Path("/opt/model.json")))
 
-    def _prepare_engine(self):
+    def _prepare_engine(self, paths=None):
         from runtime.serving.process_lifecycle import stop_process, wait_for_health
 
         spec = self.spec
@@ -62,7 +62,8 @@ class ModelRuntime:
         self.process = None
         self.gateway = None
         try:
-            paths, self.cache_fingerprint = verify_cache(spec, phase="engine_start")
+            if paths is None:
+                paths, self.cache_fingerprint = verify_cache(spec, phase="engine_start")
             self.process = subprocess.Popen(command_argv(spec, paths))
             wait_for_health(
                 self.process,
@@ -101,7 +102,7 @@ class ModelRuntime:
         try:
             with self.telemetry.span(
                 "startup",
-                mode="post_snapshot_hook" if gpu_snapshot else "full_initialization",
+                mode="post_snapshot_hook" if gpu_snapshot else "lazy_runtime_setup",
                 cpu=spec.get("cpu", 4),
                 memory_mib=spec.get("memory", 32768),
                 gpu=spec.get("gpu", "RTX-PRO-6000"),
@@ -116,6 +117,7 @@ class ModelRuntime:
                     cache_fingerprint=self.cache_fingerprint,
                 )
         except BaseException:
+            self._stop_lazy_gateway()
             if hasattr(self, "resources"):
                 self.resources.stop()
             try:
@@ -137,6 +139,7 @@ class ModelRuntime:
         startup = spec.get("startup_timeout", 3600)
         started = time.perf_counter()
         self.batch_lock = threading.Lock()
+        self.engine_lock = threading.Lock()
         self.stopping = threading.Event()
         self.resources = ResourceMonitor(
             interval=spec.get("telemetry_interval", 5), recorder=self.telemetry
@@ -145,17 +148,29 @@ class ModelRuntime:
         self.resources.start()
         self.gateway = None
         if not gpu_snapshot:
-            self._prepare_engine()
+            # Validate the mounted cache without starting vLLM/SGLang.
+            self._cache_paths, self.cache_fingerprint = verify_cache(spec, phase="runtime_setup")
+            self.process = None
+            self.engine_initialization_seconds = 0.0
+            self.monitor = None
+            from runtime.serving.inference_gateway import make_server, serve_gateway
+            self.gateway_server = make_server(spec, ensure_engine=self._ensure_engine)
+            self.gateway_thread = threading.Thread(target=serve_gateway, args=(self.gateway_server,), daemon=True)
+            self.gateway_thread.start()
+            self.startup_seconds = time.perf_counter() - started
+            print(json.dumps({"event": "runtime_ready", "service": spec["service"],
+                              "engine_ready": False, "startup_seconds": self.startup_seconds,
+                              "cache_fingerprint": self.cache_fingerprint}), flush=True)
+            return
         try:
             # Volume mutations do not invalidate Modal snapshots. Reject stale
             # captured weights rather than serving them under a new manifest.
-            if gpu_snapshot:
-                _, fingerprint = verify_cache(spec, phase="post_snapshot")
-                if fingerprint != self.cache_fingerprint:
-                    raise RuntimeError(
-                        "Model cache changed since engine initialization; "
-                        "redeploy to rebuild snapshot"
-                    )
+            _, fingerprint = verify_cache(spec, phase="post_snapshot")
+            if fingerprint != self.cache_fingerprint:
+                raise RuntimeError(
+                    "Model cache changed since engine initialization; "
+                    "redeploy to rebuild snapshot"
+                )
             wait_for_health(
                 self.process,
                 f"http://127.0.0.1:{spec.get('port', 8000)}/health",
@@ -186,16 +201,52 @@ class ModelRuntime:
             "container": os.environ.get("MODAL_TASK_ID"),
             "cache_fingerprint": self.cache_fingerprint,
             "startup_seconds": self.startup_seconds,
-            "startup_measurement": "post_snapshot_hook" if gpu_snapshot else "full_initialization",
+            "startup_measurement": "post_snapshot_hook",
             "engine_initialization_seconds": self.engine_initialization_seconds,
             "memory_snapshot": spec.get("memory_snapshot", "off"),
             "snapshot_capture_id": getattr(self, "snapshot_capture_id", None),
             "resources": self.resources.snapshot(),
         }), flush=True)
 
+    def _ensure_engine(self):
+        """One shared engine for SDK and HTTP; recovery-only SDK calls bypass it."""
+        from runtime.serving.process_lifecycle import monitor_processes, stop_process
+        with self.engine_lock:
+            if self.stopping.is_set():
+                raise RuntimeError("Container is stopping")
+            if self.monitor is not None:
+                if self.process.poll() is not None:
+                    raise RuntimeError("Engine exited")
+                return
+            with self.telemetry.span("startup", mode="lazy_engine_initialization") as fields:
+                self._prepare_engine(self._cache_paths)
+                fields["engine_initialization_seconds"] = self.engine_initialization_seconds
+                try:
+                    if self.stopping.is_set():
+                        raise RuntimeError("Container is stopping")
+                    self.monitor = monitor_processes(
+                        (self.process,), self.volume, label=self.spec["service"],
+                        stopping=self.stopping, on_failure=lambda: os._exit(1),
+                    )
+                except BaseException:
+                    stop_process(self.process)
+                    raise
+
+    def _stop_lazy_gateway(self):
+        if hasattr(self, "stopping"):
+            self.stopping.set()
+        server = getattr(self, "gateway_server", None)
+        if server is not None:
+            thread = getattr(self, "gateway_thread", None)
+            if thread is not None and thread.is_alive():
+                server.shutdown()
+                thread.join(timeout=5)
+            server.server_close()
+
     @modal.method()
     def deployment_info(self):
         """Explicit live check: starts the GPU container, but generates no media."""
+        self._ensure_engine()
         spec = self.spec
         volume_name = os.environ.get("MODEL_VOLUME_NAME", "model-store")
         gpu_snapshot = spec.get("memory_snapshot", "off") == "gpu"
@@ -216,7 +267,7 @@ class ModelRuntime:
             "cpu": spec.get("cpu", 4),
             "memory": spec.get("memory", 32768),
             "startup_seconds": self.startup_seconds,
-            "startup_measurement": "post_snapshot_hook" if gpu_snapshot else "full_initialization",
+            "startup_measurement": "post_snapshot_hook" if gpu_snapshot else "lazy_runtime_setup",
             "engine_initialization_seconds": self.engine_initialization_seconds,
             "memory_snapshot": spec.get("memory_snapshot", "off"),
             "snapshot_capture_id": getattr(self, "snapshot_capture_id", None),
@@ -259,6 +310,7 @@ class ModelRuntime:
             record = next(execute(
                 spec, [item], prefix, self.volume, self.cache_fingerprint,
                 recorder=telemetry, background_telemetry=True,
+                ensure_engine=self._ensure_engine,
             ))
             print(json.dumps({
                 "event": "generate_one_completed",
@@ -267,6 +319,7 @@ class ModelRuntime:
                 "service": spec["service"],
                 "lock_wait_seconds": started - requested,
                 "execution_seconds": time.perf_counter() - started,
+                "engine_ready": self.monitor is not None,
                 "resources": self.resources.snapshot(refresh=False),
                 "container": os.environ.get("MODAL_TASK_ID"),
                 "input": modal.current_input_id(),
@@ -290,13 +343,12 @@ class ModelRuntime:
     def stop(self):
         from runtime.serving.process_lifecycle import stop_process
 
+        self._stop_lazy_gateway()
         if hasattr(self, "resources") and self.resources.thread.is_alive():
             self.resources.stop()
         if hasattr(self, "telemetry") and self.telemetry.writer is not None:
             self.telemetry.writer.close()
-        if hasattr(self, "stopping"):
-            self.stopping.set()
-        if hasattr(self, "monitor"):
+        if getattr(self, "monitor", None) is not None:
             self.monitor.join(timeout=60)
         else:
             for process in (getattr(self, "gateway", None), getattr(self, "process", None)):
