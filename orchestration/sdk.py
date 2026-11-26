@@ -70,6 +70,8 @@ class Backend:
         self.fingerprints = {}
         self.telemetry_manifests = {}
         self.session = SDKSession()
+        from runtime.delivery.huggingface import ArchiveBatcher
+        self.archive_batcher = ArchiveBatcher(self.modal)
 
     def fingerprint(self, spec):
         key = intent_digest(spec)
@@ -222,8 +224,8 @@ class Backend:
         return download_to_local(self.volume, directory, job, record, fields)
 
     def archive(self, directory, job, record, plan):
-        from runtime.delivery.huggingface import archive_from_volume
-        return archive_from_volume(self.modal, job, record, plan)
+        from runtime.delivery.huggingface import archive_request
+        return self.archive_batcher.archive(archive_request(job, record, plan))
 
 
 def snapshot(directory):

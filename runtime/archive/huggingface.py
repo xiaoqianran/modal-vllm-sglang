@@ -49,6 +49,56 @@ class HuggingFaceBucket:
         batch_bucket_files(self.bucket, add=[(str(local_file), remote_path)], token=self.token)
         return public_url(self.bucket, remote_path)
 
+    def upload_many(self, entries):
+        """One SDK submission for distinct missing content addresses."""
+        from huggingface_hub import batch_bucket_files
+        for path in entries:
+            public_url(self.bucket, path)
+        batch_bucket_files(self.bucket, add=[(str(file), path) for path, (file, _) in entries.items()],
+                           token=self.token)
+
+    def publish_many(self, entries, *, metrics=None):
+        """path -> (file, expected SHA); independently verify each result.
+
+        Even after a partially failed SDK submission, discover successful
+        objects by full readback. Missing or ambiguous objects remain errors.
+        """
+        from concurrent.futures import ThreadPoolExecutor
+        from time import perf_counter
+
+        metrics = {} if metrics is None else metrics
+
+        def check(item):
+            path, (file, digest) = item
+            try:
+                self.verify(file, path, "sha256", expected_sha256=digest)
+                return path, (public_url(self.bucket, path), "sha256", True)
+            except Exception as exc:
+                return path, exc
+
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            started = perf_counter()
+            results = dict(pool.map(check, entries.items()))
+            missing = {p: entries[p] for p, r in results.items()
+                       if isinstance(r, HTTPError) and r.code == 404}
+            metrics.update(lookup_ms=round((perf_counter() - started)*1000, 2),
+                           existing_hits=sum(isinstance(r, tuple) for r in results.values()),
+                           upload_calls=int(bool(missing)),
+                           submitted_bytes=sum(file.stat().st_size for file, _ in missing.values()))
+            if missing:
+                started = perf_counter()
+                try:
+                    self.upload_many(missing)
+                except Exception:
+                    # Non-transactional API: do not blindly resubmit the batch.
+                    metrics["upload_batch_error"] = True
+                metrics["upload_ms"] = round((perf_counter() - started)*1000, 2)
+                started = perf_counter()
+                for path, result in pool.map(check, missing.items()):
+                    results[path] = (*result[:2], False) if isinstance(result, tuple) else result
+                metrics["verify_ms"] = round((perf_counter() - started)*1000, 2)
+        return results
+
     def publish(self, local_file: Path, remote_path: str, mode: str, *,
                 expected_sha256: str) -> tuple[str, str, bool]:
         """Reuse only a publicly readable object with the exact stored bytes."""

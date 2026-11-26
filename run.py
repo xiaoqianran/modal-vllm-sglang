@@ -103,11 +103,13 @@ def main():
                           if plan.get("delivery", {}).get("provider") in {"huggingface", "both"}}
             if hf_buckets:
                 import modal
-                from runtime.archive.config import ASSET_APP_NAME
+                from runtime.archive.config import ASSET_APP_NAME, archive_source_version
                 readiness = modal.Function.from_name(ASSET_APP_NAME, "check_bucket")
+                expected = archive_source_version()
                 for bucket in sorted(hf_buckets):
-                    if not readiness.remote(bucket).get("ready"):
-                        raise ValueError("Cloud HF archive destination is unavailable")
+                    info = readiness.remote(bucket)
+                    if not info.get("ready") or info.get("archive_version") != expected:
+                        raise ValueError("Cloud HF archive destination/version is unavailable; deploy current archiver")
             directories = [new_run(plan, output=args.output) for plan in plans]
             from orchestration.sdk import request_resume
             for directory in directories:

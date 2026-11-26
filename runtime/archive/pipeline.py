@@ -58,7 +58,13 @@ class ArchivePipeline:
             return record
 
     def remote_path(self, media: PreparedMedia) -> str:
-        folder = "images" if media.kind == "image" else "videos"
-        # Hash of uploaded bytes protects different encodings from overwriting each other.
-        return (f"projects/{self.settings.project}/{folder}/"
-                f"{media.stored_sha256}{media.upload_file.suffix.lower()}")
+        return asset_path(media)
+
+
+def asset_path(media: PreparedMedia) -> str:
+    """Global content address within the selected bucket, independent of project."""
+    digest = media.stored_sha256
+    suffix = media.upload_file.suffix.lower()
+    if suffix == ".jpeg":
+        suffix = ".jpg"
+    return f"assets/sha256/{digest[:2]}/{digest}{suffix}"

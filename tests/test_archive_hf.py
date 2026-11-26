@@ -199,3 +199,40 @@ def test_fast_lossless_rgba_preserves_all_channels(tmp_path):
     assert media.encoding == "webp_lossless"
     with Image.open(media.upload_file) as decoded:
         assert image.tobytes() == decoded.convert("RGBA").tobytes()
+
+
+def test_global_asset_address_ignores_project(tmp_path):
+    path = tmp_path / "a.png"
+    fixture_png(path)
+    a = ArchivePipeline(ArchiveSettings("example/art", "first", compression="none")).run(path)
+    b = ArchivePipeline(ArchiveSettings("example/art", "second", compression="none")).run(path)
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    assert a["path"] == b["path"] == f"assets/sha256/{digest[:2]}/{digest}.png"
+
+
+def test_publish_many_recovers_partial_upload(tmp_path):
+    from urllib.error import HTTPError
+    from unittest.mock import patch
+    from runtime.archive.huggingface import HuggingFaceBucket
+    p = tmp_path / "file.mp4"
+    p.write_bytes(b"data")
+    bucket = HuggingFaceBucket("example/art", token="test")
+    entries = {name: (p, "digest") for name in ("hit", "success", "missing", "forbidden")}
+    remote = {"hit"}
+    def verify(file, path, mode, *, expected_sha256):
+        if path == "forbidden":
+            raise HTTPError("https://example.invalid", 403, "denied", {}, None)
+        if path not in remote:
+            raise HTTPError("https://example.invalid", 404, "missing", {}, None)
+        return "sha256"
+    def upload(items):
+        assert set(items) == {"success", "missing"}
+        remote.add("success")
+        raise OSError("partial upload")
+    with patch.object(bucket, "verify", side_effect=verify), patch.object(bucket, "upload_many", side_effect=upload) as submit:
+        result = bucket.publish_many(entries)
+    assert result["hit"][2] is True
+    assert result["success"][2] is False
+    assert result["missing"].code == 404
+    assert result["forbidden"].code == 403
+    submit.assert_called_once()

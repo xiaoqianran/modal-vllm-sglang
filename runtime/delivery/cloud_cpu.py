@@ -10,7 +10,7 @@ from runtime.archive import ArchivePipeline, ArchiveSettings
 from runtime.utils.media import media_suffix
 
 
-def archive_mounted_artifact(root, artifact, settings, project):
+def mounted_source(root, artifact):
     if not isinstance(artifact, dict) or artifact.get("storage") != "volume":
         raise ValueError("Cloud archive requires a Modal Volume artifact")
     relative = artifact.get("path")
@@ -34,10 +34,95 @@ def archive_mounted_artifact(root, artifact, settings, project):
     if path.stat().st_size != artifact["size"]:
         raise ValueError("Cloud Volume artifact checksum/size mismatch")
     with path.open("rb") as source:
-        media_suffix(source.read(32), artifact["type"])
+        suffix = media_suffix(source.read(32), artifact["type"])
+    if path.suffix.lower().replace(".jpeg", ".jpg") != suffix:
+        raise ValueError("Artifact extension differs from media content")
+    return path
+
+
+def archive_mounted_artifact(root, artifact, settings, project):
+    path = mounted_source(root, artifact)
     pipeline = ArchivePipeline(ArchiveSettings(
         bucket=settings["bucket"], project=project,
         compression=settings["compression"], verify=settings["verify"],
         min_saving=settings["min_saving"]))
     result = pipeline.run(path, upload=True, expected_sha256=artifact["sha256"])
     return {**result, "source_artifact": artifact}
+
+
+def archive_mounted_batch(root, requests, *, metrics=None):
+    """Bounded per-bucket batch with independent receipts and no source deletion."""
+    from dataclasses import replace
+    from pathlib import Path
+    from tempfile import TemporaryDirectory
+    from time import perf_counter
+    from runtime.archive.config import ARCHIVE_BATCH_BYTES, ARCHIVE_BATCH_FILES
+    from runtime.archive.huggingface import HuggingFaceBucket
+    from runtime.archive.operations import describe, prepare_media
+    from runtime.archive.pipeline import asset_path
+    from runtime.delivery.config import normalize_delivery
+    from runtime.utils.files import sha256_file
+    if not isinstance(requests, list) or not 1 <= len(requests) <= ARCHIVE_BATCH_FILES:
+        raise ValueError("Invalid archive batch count")
+    # Reject mixed buckets and oversize multi-file payloads at the remote boundary.
+    if len(requests) > 1 and sum(r["artifact"]["size"] for r in requests) > ARCHIVE_BATCH_BYTES:
+        raise ValueError("Archive batch byte limit exceeded")
+    buckets = {r["delivery"]["bucket"] for r in requests}
+    if len(buckets) != 1:
+        raise ValueError("Archive batch must use one bucket")
+    metrics = {} if metrics is None else metrics
+    metrics.update(requests=len(requests), source_hits=0, upload_calls=0)
+    started = perf_counter()
+    results = [None] * len(requests)
+    prepared = {}
+    by_source = {}
+    entries = {}
+    def error(exc):
+        return {"error": type(exc).__name__ + ": archive failed; source retained"}
+
+    with TemporaryDirectory(prefix="hf-batch-") as work:
+        for i, request in enumerate(requests):
+            try:
+                artifact = request["artifact"]
+                settings = normalize_delivery(request["delivery"])
+                if settings["provider"] not in {"huggingface", "both"}:
+                    raise ValueError("HF delivery required")
+                path = mounted_source(root, artifact)
+                key = (artifact["sha256"], artifact["size"], path.suffix.lower(),
+                       settings["compression"], settings["min_saving"])
+                if key in by_source:
+                    # Distinct Volume paths must independently prove their bytes.
+                    if sha256_file(path) != artifact["sha256"]:
+                        raise ValueError("Source artifact checksum mismatch")
+                    media = replace(by_source[key], source=path)
+                    metrics["source_hits"] += 1
+                else:
+                    media = prepare_media(path, Path(work) / str(i), settings["compression"],
+                                          settings["min_saving"], expected_sha256=artifact["sha256"])
+                    by_source[key] = media
+                remote = asset_path(media)
+                entries.setdefault(remote, (media.upload_file, media.stored_sha256))
+                prepared[i] = (media, remote, artifact)
+            except Exception as exc:
+                results[i] = error(exc)
+        metrics.update(prepare_ms=round((perf_counter() - started)*1000, 2),
+                       unique_objects=len(entries))
+        if entries:
+            bucket = next(iter(buckets))
+            try:
+                outcomes = HuggingFaceBucket(bucket).publish_many(entries, metrics=metrics)
+            except Exception as exc:
+                outcomes = dict.fromkeys(entries, exc)
+            seen = set()
+            for i, (media, remote, artifact) in prepared.items():
+                outcome = outcomes[remote]
+                if isinstance(outcome, Exception):
+                    results[i] = error(outcome)
+                    continue
+                url, verification, reused = outcome
+                receipt = describe(media, bucket, remote, url, verification, "archived")
+                receipt.update(reused=reused or remote in seen, source_artifact=artifact)
+                results[i] = {"receipt": receipt}
+                seen.add(remote)
+    metrics["archived"] = sum("receipt" in row for row in results)
+    return results

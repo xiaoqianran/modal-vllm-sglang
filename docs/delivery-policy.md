@@ -120,3 +120,63 @@ new content address for an image archived by the older encoder.
 Reuse is per project and stored-byte hash: verify the anonymous public URL
 by full SHA-256 before skipping upload. Only HTTP 404 permits creation;
 other errors fail closed. Concurrent first publications are not single-flight.
+
+
+## Global assets and bounded microbatches
+
+New publications use assets/sha256/<first-two-hex>/<stored-sha256>.<ext>,
+scoped to the selected Bucket, independent of project. Historical receipts
+and HTML keep their existing paths; no historical migration or deletion.
+The new path applies to manual single-file archive as well as the batch API.
+
+Backend uses the existing delivery thread pool, with a per-instance
+ArchiveBatcher (4 files, 64 MiB source bytes, 100 ms deadline). A single
+oversize file is dispatched alone. The same immutable Volume source and
+encoding/verification policy shares an in-flight Future. Distinct source
+paths must independently match SHA-256, even when they share an encoding
+candidate in the same batch. A single CPU call reloads Volume once and
+submits missing unique stored-byte objects in one batch_bucket_files call.
+No permanent coordinator, distributed lock, or persistent source index.
+
+The batch endpoint returns one success/error per source, with full anonymous
+SHA-256 verification for all archived objects, including explicit size-mode
+plans (stronger verification). After partial upload failure, independently
+verify each missing object's address and retain verified successes; only
+missing objects can be retried on resume. Never treat corruption/403/timeout
+as an absent object. Retry delivery, not generation.
+
+The deployed archive_source_version must match before registering a new HF
+Task and before a batch publishes. CPU code is packaged into the image;
+the version is computed from relevant source bytes, normalized for CRLF.
+Existing manual archive_asset callers remain compatible. Normal Backend
+calls use archive_batch with max_containers=4; the legacy endpoint has its
+own concurrency limit. Metrics returned per batch include requests,
+source_hits, unique_objects, existing_hits, upload_calls, submitted_bytes,
+prepare_ms, lookup_ms, upload_ms and verify_ms when applicable.
+submitted_bytes is logical payload size, not measured network traffic;
+upload_calls counts SDK calls, not individual HTTP requests.
+
+Limits: singleflight is per Backend and coalesces identical source paths;
+different paths coalesce only within a batch after verification. Across
+processes or separate batches there is no strict single-upload guarantee.
+No persistent mapping from original to stored hash yet; encoding may repeat
+on a later request. Global assets must not be deleted based on a single
+project's lifecycle.
+
+Cloud screening (huaianer, 2026-11-26, distinct synthetic 768x768 PNGs,
+compression=none, full SHA-256; one group per arm, not balanced cold/warm):
+four concurrent singleton RPCs 10.4923 s wall, four SDK upload calls;
+one four-file RPC 2.9167 s wall, one SDK upload call (7,090,012 submitted
+bytes, prepare 1004.94 ms, lookup 130.51 ms, upload 1089.42 ms, verify
+300.13 ms). Cross-project re-read of an existing object through two distinct
+Volume paths: 1.9734 s, one unique object, one source hit, zero upload calls
+and zero submitted bytes, both valid receipts; a deliberately wrong source
+SHA-256 was rejected independently. All eight new HF test objects and nine
+Volume test paths cleaned. Timings are preliminary and include RPC/cold-start
+effects; they do not establish an optimal batch size or HTTP request count.
+83 related offline tests + 13 subtests passed.
+
+Real client singleflight (four concurrent callers, default 100 ms): one
+RPC, three distinct source references, two unique new objects, one source
+preparation hit, one SDK upload submission (1,575,687 logical bytes), all
+four caller receipts verified, 10.0573 s wall including startup.
