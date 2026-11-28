@@ -10,6 +10,7 @@ import ArtistPalette from './ArtistPalette.vue'
 import { themes } from './artist-palettes.js'
 import { livingColors } from './living-colors.js'
 import MediaViewer from './MediaViewer.vue'
+import { mergeSnapshot, mergeTaskAssets, galleryPreview, canFallbackToOriginal } from './catalog.js'
 const props=defineProps({initial:Object})
 const fontOptions=[
  {id:'dynapuff',name:'DynaPuff',family:'DynaPuff Variable'},
@@ -45,7 +46,7 @@ const showFeature=computed(()=>view.value==='gallery'&&layout.value==='masonry'&
 const film=computed(()=>current.value[focus.value]||current.value[0])
 const activeTask=computed(()=>tasks.value.find(t=>t.id===selected.value))
 const thumbs=computed(()=>Object.fromEntries(assets.value.flatMap(a=>a.thumb?[[a.url,a.thumb],...(a.local_url?[[a.local_url,a.thumb]]:[])]:[])))
-const mediaIndex=computed(()=>Object.fromEntries(assets.value.flatMap(a=>[[a.url,a],...(a.local_url?[[a.local_url,a]]:[])])))
+const mediaIndex=computed(()=>Object.fromEntries(assets.value.flatMap(a=>[[a.id,a],[a.url,a],...(a.local_url?[[a.local_url,a]]:[])])))
 const canonical=computed(()=>Object.fromEntries(assets.value.filter(a=>a.local_url&&a.url).map(a=>[a.local_url,a.url])))
 const liveTask=computed(()=>activeTask.value&&({ ...activeTask.value, snapshot:normalize(activeTask.value.snapshot) }))
 const bytes=n=>n==null?'':n>=1048576?(n/1048576).toFixed(1)+' MB':Math.round(n/1024)+' KB'
@@ -54,12 +55,11 @@ const videoCount=computed(()=>assets.value.length-imageCount.value)
 const counts=computed(()=>({running:tasks.value.filter(t=>t.snapshot?.status==='running').length,done:tasks.value.filter(t=>t.snapshot?.status==='completed').length}))
 function normalize(s){if(!s)return s;return {...s,jobs:(s.jobs||[]).map(j=>j.asset&&canonical.value[j.asset.url]?{...j,asset:{...j.asset,url:canonical.value[j.asset.url]}}:j)}}
 function updateTask(s, summary=false){
- const item=tasks.value.find(t=>t.snapshot.name===s.name);if(!item)return;item.snapshot=summary?{...item.snapshot,...Object.fromEntries(Object.entries(s).filter(([k])=>k!=='jobs'))}:s
- for(const j of s.jobs||[]){const a=j.asset;if(!a)continue;const id=s.name+'/'+j.key;const url=canonical.value[a.url]||a.url
- const existing=assets.value.find(x=>x.id===id||(x.local_url&&x.local_url===(a.local_url||a.url)))
- if(existing){existing.prompt=j.prompt||existing.prompt;if(existing.gallery_thumb&&existing.url===url){if(a.thumb&&a.thumb!==existing.gallery_thumb&&existing.kind==='image')existing.preview=a.thumb}else{existing.thumb=a.thumb||existing.thumb;delete existing.gallery_thumb;delete existing.preview;}if(existing.id===id){existing.url=url;existing.bytes=a.bytes;existing.dimensions=a.dimensions||existing.dimensions;existing.storage=url.startsWith('https://')?'cloud':'local'}continue}
- assets.value.push({id,project:s.name,name:/^[a-f0-9]{64}\./.test(a.filename||'')?j.item+'_'+j.step+'.'+a.filename.split('.').pop():a.filename,title:j.item+' · '+({image:'图片',first:'首帧',last:'尾帧',video:'视频'}[j.step]||j.step),url,kind:a.kind,bytes:a.bytes,dimensions:a.dimensions,prompt:j.prompt,thumb:a.thumb||'',storage:url.startsWith('https://')?'cloud':'local'})
- }
+ const item=tasks.value.find(t=>t.snapshot.name===s.name);if(!item)return
+ const next=mergeSnapshot(item.snapshot,s,summary)
+ if(next===item.snapshot)return
+ item.snapshot=next
+ mergeTaskAssets(assets.value,s)
 }
 watch([project,kind,query,sort,pageSize,layout],()=>{page.value=1;focus.value=0})
 watch(pageCount,n=>{page.value=Math.min(page.value,n)})
@@ -98,8 +98,8 @@ async function transitionAlbum(id, source){if(reduced()||!source?.querySelector(
 }
 function openAlbum(id){project.value=id;kind.value='all';query.value='';layout.value='film';navigate('gallery')}
 function browseAll(){project.value='all';kind.value='all';query.value='';layout.value='grid';navigate('gallery')}
-function previewSrc(a){return a.thumb||(a.kind==='image'?a.url:'')}
-function previewError(e,a){const img=e.currentTarget;if(a.kind==='image'&&a.url&&img.getAttribute('src')!==a.url){img.src=a.url}else{img.alt='图片暂时无法加载'}}
+function previewSrc(a){return galleryPreview(a,online.value)}
+function previewError(e,a){const img=e.currentTarget;if(canFallbackToOriginal(a,online.value)&&img.getAttribute('src')!==a.url){img.src=a.url}else{img.alt='图片暂时无法加载'}}
 function previewStyle(a){const dims=a.dimensions;return dims?.[0]&&dims?.[1]?{aspectRatio:dims[0]+' / '+dims[1]}:{}}
 function pages(){return [...new Set([1,...[page.value-1,page.value,page.value+1].filter(n=>n>0&&n<=pageCount.value),pageCount.value])].sort((a,b)=>a-b)}
 function keyboard(e){if(viewer.value||e.defaultPrevented||e.target?.closest?.('input,textarea,select,[contenteditable]'))return;if(view.value==='gallery'&&layout.value==='film'&&['ArrowLeft','ArrowRight'].includes(e.key)){e.preventDefault();focus.value=Math.max(0,Math.min(current.value.length-1,focus.value+(e.key==='ArrowLeft'?-1:1)));return}if(e.key==='/'&&!e.target?.closest?.('button')){e.preventDefault();document.querySelector('#search')?.focus()}}

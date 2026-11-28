@@ -14,6 +14,7 @@ watch(()=>hero.value?.cover?.thumb,async(src)=>{emit('cover',src||'');await next
 onUnmounted(()=>animation?.kill())
 const visible=computed(()=>albums.value.filter(a=>[a.title,a.subtitle,a.id].join(' ').toLowerCase().includes(search.value.toLowerCase())))
 const pages=computed(()=>Math.max(1,Math.ceil(visible.value.length/pageSize)))
+watch(pages,n=>{page.value=Math.min(page.value,n)})
 const rows=computed(()=>visible.value.slice((Math.min(page.value,pages.value)-1)*pageSize,Math.min(page.value,pages.value)*pageSize))
 function move(d){if(!featured.value.length)return;const i=featured.value.findIndex(a=>a.id===hero.value?.id);chosen.value=featured.value[(i+d+featured.value.length)%featured.value.length].id}
 function go(n){page.value=Math.max(1,Math.min(pages.value,n));document.querySelector('#archive-index')?.scrollIntoView({block:'start'})}

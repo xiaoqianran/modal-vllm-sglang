@@ -4,7 +4,7 @@ import { X, ChevronLeft, ChevronRight, ExternalLink, Copy, Maximize2, Play } fro
 const props = defineProps({ asset:Object, position:Number, total:Number })
 const emit=defineEmits(['close','step'])
 const loaded=ref(false),failed=ref(false),copied=ref(false),dialog=ref(null)
-watch(()=>props.asset?.id,()=>{loaded.value=false;failed.value=false;copied.value=false})
+watch(()=>[props.asset?.project,props.asset?.id,props.asset?.url],()=>{loaded.value=false;failed.value=false;copied.value=false})
 const src=computed(()=>loaded.value?props.asset?.url:((props.asset?.kind==='image'?props.asset?.preview||props.asset?.thumb||props.asset?.url:props.asset?.thumb||'')))
 function imageError(){if(!loaded.value&&props.asset?.url&&src.value!==props.asset.url){loaded.value=true}else{failed.value=true}}
 function key(e){if(e.defaultPrevented||e.isComposing||e.altKey||e.ctrlKey||e.metaKey||e.target?.closest?.('input,textarea,select,[contenteditable]'))return;const delta=e.key==='ArrowLeft'?-1:e.key==='ArrowRight'?1:0;if(!delta)return;e.preventDefault();e.stopPropagation();if(props.position+delta>=0&&props.position+delta<props.total)emit('step',delta)}

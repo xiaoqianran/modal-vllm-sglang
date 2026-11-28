@@ -1,5 +1,6 @@
 <script setup>
 import { computed, onUnmounted, ref, watch } from 'vue'
+import { monitorAsset } from './catalog.js'
 import { RefreshCw, ExternalLink, CheckCircle2, Clock3, AlertCircle, Activity, Images, ChevronDown, Search, LayoutGrid, List } from 'lucide-vue-next'
 const props=defineProps({ task:Object, thumbs:Object, canonical:Object, mediaIndex:Object })
 const emit=defineEmits(['preview','update'])
@@ -33,7 +34,7 @@ function refresh(){if(!props.task?.feed||loading.value)return;const id=++sequenc
 watch(()=>props.task?.id,()=>{stop();live.value=null;connection.value='已保存的运行记录';refresh()},{immediate:true})
 watch(auto,()=>{clearInterval(timer);if(auto.value)timer=setInterval(refresh,5000)},{immediate:true})
 onUnmounted(()=>{clearInterval(timer);stop();if(window.updateTaskMonitor===callback)window.updateTaskMonitor=()=>{}})
-function assetFor(j){if(!j?.asset)return null;return {id:j.key,project:task.value.name,title:stepNames[j.step]||j.step,name:j.asset.filename,kind:j.asset.kind,url:j.asset.url,thumb:props.thumbs?.[j.asset.url]||j.asset.thumb||'',preview:props.mediaIndex?.[j.asset.url]?.preview||j.asset.thumb,bytes:j.asset.bytes,dimensions:j.asset.dimensions,prompt:j.prompt}}
+function assetFor(j){return monitorAsset(j,task.value.name,props.mediaIndex,props.thumbs)}
 function fallback(e,a){if(a.kind==='image'&&e.currentTarget.getAttribute('src')!==a.url)e.currentTarget.src=a.url}
 const previewItems=computed(()=>visibleShots.value.flatMap(s=>s.rows.map(assetFor).filter(Boolean)))
 function preview(j){const a=assetFor(j);if(!a)return;const list=previewItems.value.some(x=>x.id===a.id)?previewItems.value:shotRows.value.flatMap(s=>s.rows.map(assetFor).filter(Boolean));emit('preview',a,list)}
