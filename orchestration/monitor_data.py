@@ -14,6 +14,7 @@ STAGES = {"register": "登记", "submit": "提交", "wait": "等待", "startup":
           "generate": "生成", "save": "云端保存", "transfer": "素材交接", "download": "下载到本地"}
 STATUS = {"pending": "待调度", "blocked": "等待中", "queued": "已提交", "submitting": "提交中",
           "completed": "已完成", "failed": "失败", "uncertain": "状态待确认", "running": "运行中",
+          "delivering": "交付中",
           "ready": "已就绪", "preparing": "检查准备", "prepare_service": "部署 CPU 准备服务",
           "weights": "权重下载与校验", "cache_check": "检查缓存指纹", "build_deploy": "构建并部署推理服务",
           "deploying": "部署中", "downloading": "下载中"}
@@ -173,7 +174,31 @@ def build_snapshot(directory, plan, current, dimensions, *, archive_receipts=Non
     counts = dict(Counter(r["status"] for r in records.values()))
     terminal = all(r["status"] in {"completed", "failed"} for r in records.values())
     complete = terminal and all(r["status"] == "failed" or key in assets for key, r in records.items())
-    task_status = "failed" if terminal and counts.get("failed") else "completed" if complete else "running"
+    # A registered or accepted task is not necessarily running. Derive the
+    # display status from recorded evidence, without polling Modal or editing history.
+    if terminal:
+        task_status = "failed" if counts.get("failed") else "completed" if complete else "delivering"
+    else:
+        unfinished = {job["item"] for job in plan["jobs"]
+                      if records[job["key"]]["status"] not in {"completed", "failed"}}
+        controllers = [r for item, r in current.get("cloud_runs", {}).items() if item in unfinished]
+        if counts.get("uncertain") or any(
+            r.get("status") in {"uncertain", "failed", "completed"}
+            or r.get("controller_state") in {"terminal", "unconfirmed"}
+            or (r.get("call_id") and not r.get("durable_plan") and not r.get("controller_state"))
+            for r in controllers
+        ):
+            task_status = "uncertain"
+        elif counts.get("running") or any(
+            r.get("status") == "running" and r.get("controller_state") == "active" for r in controllers
+        ):
+            task_status = "running"
+        elif counts.get("queued") or counts.get("submitting") or any(
+            r.get("status") in {"queued", "submitting", "running"} for r in controllers
+        ):
+            task_status = "queued"
+        else:
+            task_status = "pending"
     start = stamp(current.get("registered_at"))
     timing_source = "登记至本地收集完成" if start is not None else "历史记录：从首次已知提交计算"
     if start is None:

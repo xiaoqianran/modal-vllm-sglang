@@ -75,10 +75,11 @@ function open(a,items=filter.value){if(!a)return;const i=items.findIndex(x=>x.id
 function close(){viewer.value=null;nextTick(()=>lastFocus?.focus())}
 function step(delta){const n=viewerIndex.value+delta;if(n<0||n>=viewerItems.value.length)return;viewerIndex.value=n;viewer.value=viewerItems.value[n]}
 const productionCovers=computed(()=>{const map={};for(const a of assets.value){if(a.thumb&&!map[a.project])map[a.project]=a.thumb}return map})
+const activeStatuses=['running','queued','delivering']
 const productionGroups=computed(()=>[
- {id:'active',label:'制作中',items:tasks.value.filter(t=>['running','queued','pending'].includes(t.snapshot.status))},
+ {id:'active',label:'制作中',items:tasks.value.filter(t=>activeStatuses.includes(t.snapshot.status))},
  {id:'done',label:'已完成',items:tasks.value.filter(t=>t.snapshot.status==='completed')},
- {id:'other',label:'其他记录',items:tasks.value.filter(t=>!['running','queued','pending','completed'].includes(t.snapshot.status))}
+ {id:'other',label:'其他记录',items:tasks.value.filter(t=>!activeStatuses.includes(t.snapshot.status)&&t.snapshot.status!=='completed')}
 ].filter(g=>g.items.length))
 const railSearch=ref('')
 const railGroups=computed(()=>productionGroups.value.map(g=>({...g,items:g.items.filter(t=>!railSearch.value.trim()||t.snapshot.name.toLowerCase().includes(railSearch.value.trim().toLowerCase())||groupLabel(t.snapshot.name).toLowerCase().includes(railSearch.value.trim().toLowerCase()))})).filter(g=>g.items.length))
