@@ -279,9 +279,12 @@ def tick_shot(directory, item, backend, downloads, pool):
                     return
             payload = payload_for(directory, plan, item, backend, preparation)
             backend.persist_workflow(payload, identity)
-            receipt = {"id": identity, "payload_hash": intent_digest(payload), "status": "submitting"}
+            receipt = {"id": identity, "payload_hash": intent_digest(payload), "status": "submitting",
+                       "durable_plan": payload.get("recovery_schema") == 1}
             if preparation:
                 receipt["provisioning"] = preparation
+            if orchestration_version:
+                receipt["deployment_version"] = orchestration_version
             save_receipt(directory, item, **receipt)
             try:
                 recorder = local_recorder(state.telemetry_directory(directory), task_id=f"{plan['project']}/{plan['scene']}")
@@ -294,10 +297,28 @@ def tick_shot(directory, item, backend, downloads, pool):
                 save_receipt(directory, item, status="uncertain", error="Workflow acceptance unknown; never resubmit")
                 raise
         else:
+            if receipt.get("recovery_requested"):
+                save_receipt(directory, item, recovery_requested=False)
+                if receipt.get("controller_state") == "terminal" and receipt["status"] == "uncertain":
+                    from orchestration.workflow_recovery import load_plan
+                    from orchestration.deployment_state import source_version
+                    from tools.recover_workflow import resume
+                    manifest = load_plan(backend.volume, receipt["id"], plan["volume"],
+                                         expected_hash=receipt["payload_hash"])
+                    recovered = resume(backend.volume, manifest, backend.modal,
+                                       receipt.get("deployment_version") or source_version())
+                    if recovered.get("call_id"):
+                        save_receipt(directory, item, call_id=recovered["call_id"], status="uncertain",
+                                     controller_state="unconfirmed", error=None)
+                        return
             if receipt["status"] == "submitting":
                 save_receipt(directory, item, status="uncertain")
             if receipt["status"] not in {"completed", "failed"}:
-                remote = backend.poll_workflow(receipt)
+                try:
+                    remote = backend.poll_workflow(receipt)
+                except Exception:
+                    save_receipt(directory, item, status="uncertain", controller_state="unconfirmed")
+                    raise
                 if remote is not None:
                     if set(remote["jobs"]) != {job["key"] for job in jobs}:
                         raise ValueError("Unexpected cloud job identities")
@@ -326,25 +347,44 @@ def tick_shot(directory, item, backend, downloads, pool):
         return collect_outputs(directory, backend, downloads, pool, item=item)
 
 
-def worker(output, *, poll=2, backend=None, stop=None, task_name=None):
+def claim_scene(lifecycle, directory):
+    """Hold scheduling ownership until the owning worker releases the scene."""
+    try:
+        lifecycle.enter_context(state.lock(Path(directory) / ".runner", filename=".scheduler.lock"))
+    except RuntimeError as exc:
+        if not str(exc).startswith("Another runner holds "):
+            raise
+        return False
+    return True
+
+
+def worker(output, *, poll=2, backend=None, stop=None, task_name=None, selection=None, observed=None,
+           before_scene=None):
     if not math.isfinite(poll) or poll <= 0:
         raise ValueError("poll must be positive")
     if backend is None:
         backend = Backend()
         from orchestration.provisioning import Provisioner
         backend.provisioner = Provisioner(backend)
-    active, downloads, scheduled = {}, {}, {}
+    active, downloads, scheduled, owned = {}, {}, {}, {}
+    checks = {}
     from runtime.telemetry.collector import start
     runtime = state.runtime_root(output)
-    start(runtime / "logs", backend.volume)
+    if selection is None:
+        start(runtime / "logs", backend.volume)
     from orchestration.monitor import render
     last_render = 0
     # A slow network call occupies one delivery slot, never the scan loop or downloads.
-    with ExitStack() as lifecycle, ThreadPoolExecutor(max_workers=8) as network, ThreadPoolExecutor(max_workers=8) as pool:
+    def release_claims():
+        for claim in owned.values():
+            claim.close()
+
+    with ExitStack() as lifecycle, ThreadPoolExecutor(max_workers=8) as pool, ThreadPoolExecutor(max_workers=8) as network:
+        lifecycle.callback(release_claims)
         if getattr(backend, "provisioner", None) is not None:
             lifecycle.callback(backend.provisioner.close)
         while stop is None or not stop.is_set():
-            if time.monotonic() - last_render >= 5:
+            if (selection is None or selection()) and time.monotonic() - last_render >= 5:
                 try:
                     render(output)
                 except (OSError, ValueError, KeyError) as exc:
@@ -352,13 +392,35 @@ def worker(output, *, poll=2, backend=None, stop=None, task_name=None):
                 last_render = time.monotonic()
             for key, future in list(active.items()):
                 if future.done():
+                    error = None
                     try:
                         future.result()
                     except Exception as exc:
+                        error = exc
                         print(f"{key}: {type(exc).__name__}: {exc}", flush=True)
                     del active[key]
+                    if observed:
+                        try:
+                            observed(Path(key[0]), key[1], error)
+                        except (ValueError, OSError, KeyError, RuntimeError) as exc:
+                            observed(Path(key[0]), key[1], exc)
             candidates = []
-            for path in sorted((runtime / "tasks").glob("*/*/plan.json")):
+            if selection is None:
+                paths = sorted((runtime / "tasks").glob("*/*/plan.json"))
+            else:
+                selected = set(selection())
+                paths = [directory / "plan.json" for directory in selected]
+                for directory in list(owned):
+                    if Path(directory) not in selected and not any(k[0] == directory for k in active):
+                        check = checks.get(directory)
+                        if check and not check[0].done():
+                            continue
+                        checks.pop(directory, None)
+                        owned.pop(directory).close()
+                        for key in [key for key in scheduled if key[0] == directory]:
+                            scheduled.pop(key)
+                            downloads.pop(key, None)
+            for path in paths:
                 try:
                     plan = read_json(path)
                     if plan.get("transport") != "sdk":
@@ -371,7 +433,33 @@ def worker(output, *, poll=2, backend=None, stop=None, task_name=None):
                             candidates.append(key)
                 except (ValueError, OSError, KeyError) as exc:
                     print(f"{path}: {type(exc).__name__}", flush=True)
-            for key in sorted(candidates, key=lambda key: scheduled.get(key, 0))[:max(0, 8 - len(active))]:
+            for key in sorted(candidates, key=lambda key: scheduled.get(key, 0)):
+                if len(active) >= 8:
+                    break
+                directory = key[0]
+                if directory not in owned:
+                    claim = ExitStack()
+                    if not claim_scene(claim, directory):
+                        scheduled[key] = time.monotonic()
+                        if observed:
+                            observed(Path(directory), key[1], "另一个 Worker 正在调度此任务")
+                        continue
+                    owned[directory] = claim
+                if before_scene:
+                    check = checks.get(directory)
+                    if check is None:
+                        checks[directory] = (network.submit(before_scene, Path(directory)), time.monotonic())
+                        continue
+                    future, started = check
+                    if not future.done():
+                        continue
+                    error = future.exception()
+                    if error is not None:
+                        if observed:
+                            observed(Path(directory), key[1], error)
+                        if time.monotonic() - started >= 30:
+                            checks.pop(directory)
+                        continue
                 active[key] = network.submit(tick_shot, key[0], key[1], backend,
                                              downloads.setdefault(key, {}), pool)
                 scheduled[key] = time.monotonic()

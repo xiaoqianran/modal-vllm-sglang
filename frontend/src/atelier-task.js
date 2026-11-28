@@ -28,3 +28,26 @@ export function draftTask({name,workflow,ratio,quality,prompt,count,seed,image,d
       ...(image?{image:{artifact:image}}:{})
     }))}
 }
+
+export const offlineRatios = ['16:9','4:3','1:1','3:4','9:16']
+export const offlineQualities = ['1k','2k','4k']
+
+// In live mode the model validator, not a browser formula, decides acceptance.
+export function modelCanvases(model, mode) {
+  if (!model?.workflows[mode]) return {}
+  if (model.canvases) return model.canvases[mode] || {}
+  return Object.fromEntries(offlineQualities.map(q => [q, Object.fromEntries(
+    offlineRatios.map(r => [r, canvasDimensions(r,q)]).filter(([,d]) => validCanvas(model.id,d))
+  )]))
+}
+export function canvasOptions(canvases) {
+  return [...new Set(Object.values(canvases).flatMap(c => Object.keys(c)))]
+}
+export function selectCanvas(canvases, ratio, quality) {
+  if (canvases[quality]?.[ratio]) return {ratio,quality}
+  const tiers=Object.keys(canvases)
+  const chosen=tiers.find(q=>canvases[q][ratio]&&q==='2k')||tiers.find(q=>canvases[q][ratio])
+  if(chosen)return {ratio,quality:chosen}
+  const q=canvases[quality]?quality:tiers[0]
+  return {ratio:Object.keys(canvases[q]||{})[0]||ratio,quality:q||quality}
+}

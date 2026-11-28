@@ -40,6 +40,40 @@ class MonitorDashboardTests(unittest.TestCase):
             (state.media_directory(self.directory) / name).write_bytes(b"test")
             self.current["jobs"][job["key"]] = {"status": "completed", "local_artifact": {"path": name, "type": kind}}
 
+    def test_task_status_uses_controller_evidence_without_resubmitting(self):
+        def snapshot():
+            return build_snapshot(self.directory, self.plan, self.current, lambda _: None)
+
+        self.assertEqual(snapshot()["status"], "pending")
+        receipt = {"status": "queued", "call_id": "fc-legacy"}
+        self.current["cloud_runs"] = {"001": receipt}
+        before = copy.deepcopy(self.current)
+        self.assertEqual(snapshot()["status"], "uncertain")
+        self.assertEqual(self.current, before)  # Display only, never rewrite history.
+
+        receipt.update(durable_plan=True)
+        self.assertEqual(snapshot()["status"], "queued")
+        receipt.update(status="running", controller_state="active")
+        self.assertEqual(snapshot()["status"], "running")
+        receipt.update(status="uncertain", controller_state="terminal")
+        self.current["jobs"]["first/001"].update(status="queued", call_id="fc-gpu")
+        self.assertEqual(snapshot()["status"], "uncertain")
+
+    def test_task_status_distinguishes_queued_delivery_and_terminal(self):
+        def snapshot():
+            return build_snapshot(self.directory, self.plan, self.current, lambda _: None)
+
+        self.current["jobs"]["first/001"].update(status="queued", call_id="fc-direct")
+        self.assertEqual(snapshot()["status"], "queued")
+        self.complete()
+        # Terminal jobs take precedence over a stale controller receipt.
+        self.current["cloud_runs"] = {"001": {"status": "uncertain", "controller_state": "terminal"}}
+        self.assertEqual(snapshot()["status"], "completed")
+        self.current["jobs"]["first/001"].pop("local_artifact")
+        self.assertEqual(snapshot()["status"], "delivering")
+        self.current["jobs"]["first/001"]["status"] = "failed"
+        self.assertEqual(snapshot()["status"], "failed")
+
     def test_parallel_stage_totals_do_not_become_wall_time_and_reuse_is_excluded(self):
         self.complete()
         spans = [self.span("first/001", "generate", 10, 20, 10000), self.span("last/001", "generate", 10, 20, 10000),
@@ -67,11 +101,12 @@ class MonitorDashboardTests(unittest.TestCase):
         self.plan["jobs"][0]["inputs"]["prompt"] = "</script><script>alert(1)</script>"
         state.save(self.directory / "plan.json", self.plan)
         render(self.root / "outputs")
-        html = (self.root / "outputs/监控008-dashboard.html").read_text(encoding="utf-8")
-        self.assertNotIn("</script><script>alert(1)", html)
-        self.assertIn("\\u003c/script>", html)
-        self.assertNotIn("location.reload", html)
-        self.assertIn("window.updateTaskMonitor", (self.root / ".runtime/monitor/008-dashboard.js").read_text(encoding="utf-8"))
+        feed = (self.root / ".runtime/monitor/008-dashboard.js").read_text(encoding="utf-8")
+        self.assertNotIn("</script><script>alert(1)", feed)
+        self.assertIn("\\u003c/script>", feed)
+        self.assertIn("window.updateTaskMonitor", feed)
+        self.assertTrue((self.root / "outputs/index.html").is_file())
+        self.assertFalse((self.root / "outputs/监控008-dashboard.html").exists())
 
     def test_image_default_is_one_k_and_explicit_video_workflow_is_preserved(self):
         task = self.root / "tasks/008-default-image.json"

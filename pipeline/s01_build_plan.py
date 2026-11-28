@@ -354,9 +354,27 @@ def _new_run(plan, *, root=ROOT, output="outputs"):
     runtime = bindings(plan)  # Fail before writing any Run if credentials are missing.
     directory = output / plan["project"] / plan["scene"]
     with state.lock(output, timeout=10), state.lock(directory, timeout=10):
+        # Publish the plan last: schedulers discover only committed scenes.
+        journal = directory / ".runner" / "registration.json"
+        if journal.exists():
+            pending = read_json(journal)
+            if pending["plan"] != plan:
+                raise ValueError("Interrupted registration belongs to a different plan")
+            if not (directory / "plan.json").exists():
+                state.save(directory / "state.json", pending["state"])
+                state.save(directory / "plan.json", plan)
+            journal.unlink()
         if directory.joinpath("plan.json").exists() or directory.joinpath("state.json").exists():
             if not (directory.joinpath("plan.json").is_file() and directory.joinpath("state.json").is_file()):
-                raise ValueError("Incomplete scene state; refusing overwrite")
+                # Historical initial registration wrote plan before state. Only
+                # repair its pristine layout; never reset an executed scene.
+                plan_path = directory / "plan.json"
+                runner = directory / ".runner"
+                pristine = (all(p.name in {"plan.json", ".runner", ".runner.lock"} for p in directory.iterdir())
+                            and (not runner.exists() or all(p.name == "inputs" for p in runner.iterdir())))
+                if not (plan_path.is_file() and pristine and read_json(plan_path) == plan):
+                    raise ValueError("Incomplete scene state; refusing overwrite")
+                state.save(directory / "state.json", _initial_state(plan, runtime))
             old = read_json(directory / "plan.json")
             saved = read_json(directory / "state.json")
             # Adding a default render label must not invalidate an identical frozen execution.
@@ -407,10 +425,15 @@ def _new_run(plan, *, root=ROOT, output="outputs"):
             if hashlib.sha256(data).hexdigest() != entry["artifact"]["sha256"]:
                 raise ValueError("Input changed since planning; plan again")
             state.write(state.local_path(directory, relative), data)
+        initial = _initial_state(plan, runtime)
+        state.save(journal, {"plan": plan, "state": initial})
+        state.save(directory / "state.json", initial)
         state.save(directory / "plan.json", plan)
-        state.save(directory / "state.json", {
-            "registered_at": utc_now(),
-            "plan_hash": plan["hash"],
-            "endpoints": {k: v["endpoint"] for k, v in runtime.items()},
-            "jobs": {job["key"]: {"status": "pending"} for job in plan["jobs"]}})
+        journal.unlink()
     return directory
+
+
+def _initial_state(plan, runtime):
+    return {"registered_at": utc_now(), "plan_hash": plan["hash"],
+            "endpoints": {k: v["endpoint"] for k, v in runtime.items()},
+            "jobs": {job["key"]: {"status": "pending"} for job in plan["jobs"]}}

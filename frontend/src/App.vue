@@ -11,8 +11,8 @@ import { themes } from './artist-palettes.js'
 import { livingColors } from './living-colors.js'
 import MediaViewer from './MediaViewer.vue'
 import Atelier from './Atelier.vue'
-import { getCatalog } from './api.js'
-import { mergeSnapshot, mergeTaskAssets, mergeCatalogTasks, mergeLiveAssets, galleryPreview, canFallbackToOriginal } from './catalog.js'
+import { useCatalogSync } from './useCatalogSync.js'
+import { galleryPreview, canFallbackToOriginal } from './catalog.js'
 const atelierSource=ref(null)
 function createFrom(a){atelierSource.value=a;close();navigate('atelier')}
 const props=defineProps({initial:Object})
@@ -58,13 +58,7 @@ const imageCount=computed(()=>assets.value.filter(a=>a.kind==='image').length)
 const videoCount=computed(()=>assets.value.length-imageCount.value)
 const counts=computed(()=>({running:tasks.value.filter(t=>t.snapshot?.status==='running').length,done:tasks.value.filter(t=>t.snapshot?.status==='completed').length}))
 function normalize(s){if(!s)return s;return {...s,jobs:(s.jobs||[]).map(j=>j.asset&&canonical.value[j.asset.url]?{...j,asset:{...j.asset,url:canonical.value[j.asset.url]}}:j)}}
-function updateTask(s, summary=false){
- const item=tasks.value.find(t=>t.snapshot.name===s.name);if(!item)return
- const next=mergeSnapshot(item.snapshot,s,summary)
- if(next===item.snapshot)return
- item.snapshot=next
- mergeTaskAssets(assets.value,s)
-}
+const { updateTask }=useCatalogSync(props.initial,assets,tasks,selected)
 watch([project,kind,query,sort,pageSize,layout],()=>{page.value=1;focus.value=0})
 watch(pageCount,n=>{page.value=Math.min(page.value,n)})
 watch(page,()=>{focus.value=0})
@@ -108,32 +102,15 @@ function previewError(e,a){const img=e.currentTarget;if(canFallbackToOriginal(a,
 function previewStyle(a){const dims=a.dimensions;return dims?.[0]&&dims?.[1]?{aspectRatio:dims[0]+' / '+dims[1]}:{}}
 function pages(){return [...new Set([1,...[page.value-1,page.value,page.value+1].filter(n=>n>0&&n<=pageCount.value),pageCount.value])].sort((a,b)=>a-b)}
 function keyboard(e){if(viewer.value||e.defaultPrevented||e.target?.closest?.('input,textarea,select,[contenteditable]'))return;if(view.value==='gallery'&&layout.value==='film'&&['ArrowLeft','ArrowRight'].includes(e.key)){e.preventDefault();focus.value=Math.max(0,Math.min(current.value.length-1,focus.value+(e.key==='ArrowLeft'?-1:1)));return}if(e.key==='/'&&!e.target?.closest?.('button')){e.preventDefault();document.querySelector('#search')?.focus()}}
-let catalogTimer,catalogScript,catalogTimeout
-function clearCatalog(){clearTimeout(catalogTimeout);catalogScript?.remove();catalogScript=null}
-let localCatalogTimer, catalogPending=false, catalogDisposed=false
-async function syncLocalCatalog(){
- if(catalogPending||catalogDisposed)return
- catalogPending=true
- try {
-  const data=await getCatalog()
-  if(catalogDisposed)return
-  if(Array.isArray(data.assets))assets.value=mergeLiveAssets(assets.value,data.assets)
-  mergeCatalogTasks(tasks.value,data.tasks)
-  if(!selected.value)selected.value=tasks.value[0]?.id||''
- } catch {} finally {catalogPending=false}
-}
-function loadCatalog(){if(!props.initial.catalog_url||catalogScript)return
- window.updateStudioCatalog=list=>{for(const t of list){let found=tasks.value.find(x=>x.id===t.id);if(!found){tasks.value.push({...t,snapshot:{...t.snapshot,jobs:[]}})}updateTask(t.snapshot,true)}clearCatalog()}
- catalogScript=document.createElement('script');catalogScript.src=props.initial.catalog_url+'?t='+Date.now();catalogScript.onerror=clearCatalog;catalogScript.onload=clearCatalog;document.body.appendChild(catalogScript);catalogTimeout=setTimeout(clearCatalog,8000)}
-onMounted(()=>{document.documentElement.dataset.theme=currentPalette.value.dark?'dark':'light';document.addEventListener('keydown',keyboard);if(!props.initial.live_studio && props.initial.catalog_url){loadCatalog();catalogTimer=setInterval(loadCatalog,5000)}if(props.initial.live_studio){syncLocalCatalog();localCatalogTimer=setInterval(syncLocalCatalog,15000)}})
-onUnmounted(()=>{catalogDisposed=true;routeAnimation?.kill();document.querySelectorAll('.transition-frame').forEach(el=>el.remove());document.removeEventListener('keydown',keyboard);clearInterval(catalogTimer);clearInterval(localCatalogTimer);clearCatalog();delete window.updateStudioCatalog})
+onMounted(()=>{document.documentElement.dataset.theme=currentPalette.value.dark?'dark':'light';document.addEventListener('keydown',keyboard)})
+onUnmounted(()=>{routeAnimation?.kill();document.querySelectorAll('.transition-frame').forEach(el=>el.remove());document.removeEventListener('keydown',keyboard)})
 </script>
 <template>
 <div class="studio creative" :data-display-font="displayFont" :data-palette="artistTheme" :data-view="view" :style="paletteStyle">
 <div v-if="view!=='monitor'" class="living-atmosphere" aria-hidden="true"><i/><i/><i/></div><header class="topbar"><button class="wordmark" @click="navigate('archive')"><span>Digital Film Archive<span class="archive-brand-sub">数字电影档案馆</span></span></button><nav class="main-nav" aria-label="主导航"><button :class="{active:view==='atelier'}" @click="navigate('atelier')">创作</button><button :class="{active:view==='archive'}" @click="navigate('archive')">馆藏</button><button :class="{active:view==='gallery'}" @click="browseAll">所有画面</button><button :class="{active:view==='explore'}" @click="navigate('explore')">探索</button><button :class="{active:view==='monitor'}" @click="navigate('monitor')"><Activity :size="17"/> 任务监控 <span v-if="counts.running" class="nav-count">{{counts.running}}</span></button></nav><div class="top-actions"><div class="font-switch" @keydown.esc.stop="fontPanel=false"><button class="font-toggle" aria-label="艺术字体切换" :aria-expanded="fontPanel" aria-controls="art-font-options" @click="fontPanel=!fontPanel"><span class="font-symbol">Aa</span><span class="font-current">{{activeFont.name}}</span></button><section v-if="fontPanel" id="art-font-options" class="font-panel" aria-label="艺术字体"><div class="font-panel-head"><div><strong>Typography</strong><small>实时切换艺术字体</small></div><button aria-label="关闭字体面板" @click="fontPanel=false"><X :size="17"/></button></div><div class="font-options"><button v-for="f in fontOptions" :key="f.id" :data-font-option="f.id" :aria-pressed="displayFont===f.id" @click="chooseFont(f.id)"><span class="font-sample">Dreams</span><span class="font-option-name">{{f.name}}</span><Check v-if="displayFont===f.id" :size="15"/></button></div><button class="font-reset" @click="chooseFont('dynapuff')">恢复默认 DynaPuff</button></section></div><a v-if="initial.bucket_url" class="cloud-link" :href="initial.bucket_url" target="_blank" rel="noopener noreferrer"><span class="dot"/> HF 存储 <ArrowUpRight :size="14"/></a><ArtistPalette :themes="themes" :model-value="artistTheme" :open="palettePanel" @update:model-value="choosePalette" @update:open="palettePanel=$event"/></div></header>
 <div class="shell" :class="{'archive-shell':view!=='monitor','production-shell':view==='monitor'}">
 <ArchiveHome v-if="view==='archive'" :assets="assets" :group-label="groupLabel" @album="transitionAlbum" @browse="browseAll"/>
-<Atelier v-if="view==='atelier'" :assets="assets" :source="atelierSource" :live="!!initial.live_studio" @browse="browseAll" @preview="a=>open(a,assets)"/>
+<Atelier v-if="view==='atelier'" :assets="assets" :source="atelierSource" :live="!!initial.live_studio" :catalog="initial.image_workflows" @browse="browseAll" @preview="a=>open(a,assets)"/>
 <Explore v-if="view==='explore'" :assets="assets" @preview="open"/>
 <aside v-if="view==='monitor'" class="sidebar production-rail" aria-label="制作档案目录">
   <div class="production-rail-title"><h2>Productions</h2><p>{{tasks.length}} 个任务 <span>·</span> {{counts.running}} 运行中 <span>·</span> {{counts.done}} 已完成</p></div>

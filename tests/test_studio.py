@@ -69,7 +69,6 @@ def test_feed_backed_task_initial_payload_is_summary_only(tmp_path):
     (runtime / "001-project.js").write_text(
         "window.updateTaskMonitor(" + json.dumps(snapshot,ensure_ascii=False) + ");",
         encoding="utf-8")
-    (root / "监控001-project.html").write_text("<!doctype html>",encoding="utf-8")
     data=collect(root,thumbs=False)
     task=data["tasks"][0]
     assert task["snapshot"]["name"]=="001-project"
@@ -99,6 +98,5 @@ def test_cloud_task_feed_never_keeps_local_thumbnail_path(tmp_path):
         "step":"image","asset":{"url":url,"local_url":"001-project/001_image.png",
         "thumb":"001-project/old-thumb.webp","kind":"image","filename":"001_image.png","bytes":900}}]}
     (runtime/"001-project.js").write_text("window.updateTaskMonitor("+json.dumps(snapshot)+");",encoding="utf-8")
-    (root/"监控001-project.html").write_text("<!doctype html>",encoding="utf-8")
     data=collect(root,thumbs=False)
     assert data["assets"][0]["thumb"]==url

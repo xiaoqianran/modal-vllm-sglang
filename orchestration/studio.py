@@ -84,7 +84,7 @@ def collect(root, previous=None, *, thumbs=True):
     old = {a.get("digest") or a.get("original_sha256"): a
            for a in previous.get("assets", []) if a.get("thumb") and not a["thumb"].startswith("data:")}
     # Reuse the former gallery's verified thumbnail cache when available.
-    for a in payload_from_html(root / "hf-gallery.html", "archive-data").get("assets", []):
+    for a in (read_json(root / ".runtime/studio-history-media.json", {}) or {}).get("assets", []):
         if a.get("thumb") and a.get("original_sha256"):
             old.setdefault(a["original_sha256"], a)
 
@@ -156,27 +156,13 @@ def collect(root, previous=None, *, thumbs=True):
         data = read_feed(path)
         if data and data.get("name") == path.stem:
             snapshots[path.stem] = (data, quote("../.runtime/monitor/" + path.name))
-    legacy = {}
-    for path in sorted([*root.glob("监控*.html"), *root.glob("*/监控*.html")]):
-        if ".runtime" in path.relative_to(root).parts or not path.name.startswith("监控"):
-            continue
-        # Only read historical HTML if a task feed does not already exist.
-        name = path.stem[2:]
-        legacy.setdefault(name, quote(path.relative_to(root).as_posix()))
-        if name not in snapshots:
-            data = payload_from_html(path, "initial-data")
-            if data.get("name") == name:
-                snapshots[name] = (data, None)
     for name, (snapshot, feed) in sorted(snapshots.items(), reverse=True):
-        if name not in legacy:
-            continue
         title_map = projects.setdefault(name, titles(root, name))
         summary_fields = ("name", "task_id", "status", "status_label", "counts", "total",
                           "downloaded", "updated_at", "elapsed_ms", "started_at", "finished_at")
         task_snapshot = ({key: snapshot[key] for key in summary_fields if key in snapshot}
                          if feed else snapshot)
-        tasks.append({"id": name, "feed": feed, "snapshot": task_snapshot,
-                      "legacy": legacy.get(name)})
+        tasks.append({"id": name, "feed": feed, "snapshot": task_snapshot})
         # Keep full job details in the separate monitor feed. The gallery only
         # needs a task summary; asset prompts are copied below for search/viewer.
         for job in snapshot.get("jobs", []):
@@ -265,8 +251,7 @@ def publish_catalog(root, snapshots):
                          "prompt": j.get("prompt"), "asset": j["asset"]} for j in snapshot.get("jobs", [])
                         if j.get("asset") and safe_url(j["asset"].get("url"))]
         tasks.append({"id": name, "snapshot": data,
-                      "feed": quote("../.runtime/monitor/" + name + ".js"),
-                      "legacy": quote("监控" + name + ".html")})
+                      "feed": quote("../.runtime/monitor/" + name + ".js")})
     payload = json.dumps(tasks, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
     payload = payload.replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
     path = root / ".runtime" / "studio-catalog.js"
@@ -281,6 +266,8 @@ def render(root, *, output=None, view="gallery", selected=None, thumbs=True):
         raise RuntimeError("Build Studio first: cd frontend && npm ci && npm run build")
     previous = payload_from_html(output, "studio-data")
     data = collect(root, previous, thumbs=thumbs)
+    from orchestration.studio_workflows import image_workflows
+    data["image_workflows"] = image_workflows(Path(__file__).resolve().parents[1])
     data.update(view=view, selected=selected,
                 catalog_url=".runtime/studio-catalog.js" if (root / ".runtime/studio-catalog.js").is_file() else None)
     payload = json.dumps(data, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
