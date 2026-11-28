@@ -132,6 +132,7 @@
     "sglang[diffusion] @ https://github.com/sgl-project/whl/releases/download/nightly-2026-11-24-1173264b58/sglang-0.5.24.dev20261124%2Bg1173264b58-cp312-cp312-manylinux_2_39_x86_64.whl#sha256=3c4e8dfb13c18bf3bf685f9029c0143a9ae74fe5c4124e7076f558f0ed2e6596"
   ],
   "uv_torch_backend": "cu130",
+  "uv_requirements": "sglang-20261124-cu130.txt",
   "uv_extra_index_url": "https://docs.sglang.ai/whl/cu130/",
   "uv_only_binary": true,
   "env": {

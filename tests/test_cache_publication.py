@@ -29,7 +29,7 @@ class AzureCacheTests(unittest.TestCase):
         from runtime.utils.files import read_json
         root = Path(__file__).resolve().parents[1]
         for directory, expected in (("models/001-moss-image", "hf"),
-                                    ("models/005-minimax-h3-image", "hf"),
+                                    ("models/005-minimax-h3-image-sglang", "hf"),
                                     ("models/002-pika-h3-flex", "sglang_overlay")):
             with self.subTest(directory=directory):
                 spec = validate(read_json(root / directory / "model.json"))

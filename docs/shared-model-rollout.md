@@ -23,9 +23,9 @@ ComfyUI 下载入口通过 `MODEL_VOLUME_NAME=modal-model-store-v2` 选择相同
 确保共享卷存在 `models--<owner>--<repo>/snapshots/<40位commit>/`，且每个快照文件已由上游发布。将对应服务的 `model.json` 设置 `model_storage=shared`，固定每个组件的 40 位 commit，然后运行：
 
 ```powershell
-uv run python tools/attach_shared_model.py models/005-minimax-h3-image/model.json
-uv run python tools/attach_shared_model.py models/005-minimax-h3-image/model.json --execute
-uv run python tools/check_shared_cache.py models/005-minimax-h3-image/model.json
+uv run python tools/attach_shared_model.py models/005-minimax-h3-image-sglang/model.json
+uv run python tools/attach_shared_model.py models/005-minimax-h3-image-sglang/model.json --execute
+uv run python tools/check_shared_cache.py models/005-minimax-h3-image-sglang/model.json
 ```
 
 第一条命令默认只输出执行计划。第二条只用 CPU、以只读形式挂载共享权重、核对源快照与必需文件，并将就绪清单写入可写服务卷；不会复制和重新下载权重。实际业务模型的共享快照尚未就绪时，这一步会明确报错，不能跳过。
@@ -33,9 +33,9 @@ uv run python tools/check_shared_cache.py models/005-minimax-h3-image/model.json
 **B. 模型尚未保存在共享卷：通过 benchmark 下载。**
 
 ```powershell
-uv run python tools/download_models.py models/005-minimax-h3-image/model.json --workers 3
-uv run python tools/download_models.py models/005-minimax-h3-image/model.json --workers 3 --execute
-uv run python tools/check_shared_cache.py models/005-minimax-h3-image/model.json
+uv run python tools/download_models.py models/005-minimax-h3-image-sglang/model.json --workers 3
+uv run python tools/download_models.py models/005-minimax-h3-image-sglang/model.json --workers 3 --execute
+uv run python tools/check_shared_cache.py models/005-minimax-h3-image-sglang/model.json
 ```
 
 `modal-benchmark==0.3.0` 在 V2 卷的独立下载目录中按清单发布固定版本权重；专用 CPU 发布容器只读挂载模型卷并写入旧服务卷上的 `model-ready.json`，最后另一个 CPU 容器再次完整核对。已有业务输出、遥测和 Pika 派生文件位置不变。**此路径当前按完整下载清单生成身份**：不同文件筛选组合可能重复占空间；对已有 HF 原生快照优先使用 A，不能宣称跨所有清单自动按文件去重。

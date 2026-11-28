@@ -140,7 +140,7 @@ class UnifiedModelsTests(unittest.TestCase):
         return path
 
     def test_all_capabilities_are_discovered_from_model_json(self):
-        self.assertEqual(set(SPECS), {"moss.t2i", "pika.t2va", "pika.fl2va", "minimax.t2i", "minimax.i2i"})
+        self.assertEqual(set(SPECS), {"moss.t2i", "pika.t2va", "pika.fl2va", "minimax.t2i", "minimax.i2i", "minimax-omni.t2i", "minimax-omni.i2i"})
         self.assertEqual(SPECS["pika.fl2va"]["inputs"]["first_frame"], "image")
         self.assertEqual(parameters(SPECS["pika.fl2va"], {})["task"], "fl2va")
 

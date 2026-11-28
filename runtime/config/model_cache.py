@@ -29,7 +29,7 @@ def migrate_legacy_cache(spec, volume, root):
         raise RuntimeError("Unsupported legacy cache manifest")
     record = {"version": 1, "cache_spec": intent_digest(component_specs(spec)), "components": {}}
     for name, config in component_specs(spec).items():
-        entry = old.get("image" if name == "model" else name, {}) if spec["service"] == "minimax" else old
+        entry = old.get("image" if name == "model" else name, {}) if spec["model"] == "MiniMaxAI/MiniMax-H3-Image" else old
         if entry.get("repo_id") != config["model"]:
             raise RuntimeError("Legacy cache model identity mismatch")
         if config.get("mode") == "sglang_overlay":
@@ -47,7 +47,7 @@ def migrate_legacy_cache(spec, volume, root):
             path = root / "hub" / relative.as_posix()
             if config["revision"] != "main" and path.name != config["revision"]:
                 raise RuntimeError("Legacy cache revision mismatch")
-            if spec["service"] == "minimax" and entry.get("revision") != config["revision"]:
+            if spec["model"] == "MiniMaxAI/MiniMax-H3-Image" and entry.get("revision") != config["revision"]:
                 raise RuntimeError("Legacy component revision mismatch")
         if not path.resolve().is_relative_to(root.resolve()):
             raise RuntimeError("Legacy cache path escapes root")
@@ -222,3 +222,25 @@ def command_argv(spec, paths):
                 raise ValueError(f"Unknown command placeholder: {arg}")
         argv.append(arg)
     return argv
+
+
+def local_encoder_view(paths):
+    """Create an engine-local checkpoint view without modifying shared weights."""
+    import tempfile
+    source = Path(paths["model"])
+    encoder = Path(paths["encoder"]) / "text_encoder"
+    if not encoder.is_dir():
+        raise RuntimeError("Missing local text encoder")
+    index = read_json(source / "model_index.json")
+    config = index.get("text_encoder")
+    if not isinstance(config, list) or len(config) < 2:
+        raise ValueError("Invalid text encoder metadata")
+    # Resolve the pinned encoder locally rather than allowing upstream HF lookup.
+    index["text_encoder"] = config[:2]
+    view = Path(tempfile.mkdtemp(prefix="minimax-omni-"))
+    for child in source.iterdir():
+        if child.name not in {"model_index.json", "text_encoder"}:
+            (view / child.name).symlink_to(child.resolve(), target_is_directory=child.is_dir())
+    (view / "text_encoder").symlink_to(encoder.resolve(), target_is_directory=True)
+    atomic_json(view / "model_index.json", index)
+    return view

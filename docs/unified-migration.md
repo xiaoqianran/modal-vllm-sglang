@@ -18,8 +18,8 @@ uv run python models/001-moss-image/download_model.py --execute --migrate-only
 uv run python models/001-moss-image/download_model.py --execute --check-only
 uv run python models/002-pika-h3-flex/download_model.py --execute --migrate-only
 uv run python models/002-pika-h3-flex/download_model.py --execute --check-only
-uv run python models/005-minimax-h3-image/download_model.py --execute --migrate-only
-uv run python models/005-minimax-h3-image/download_model.py --execute --check-only
+uv run python models/005-minimax-h3-image-sglang/download_model.py --execute --migrate-only
+uv run python models/005-minimax-h3-image-sglang/download_model.py --execute --check-only
 ```
 
 MOSS、Pika、MiniMax 均使用同一个轻量 CPU 缓存检查/迁移实现；

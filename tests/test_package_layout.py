@@ -32,13 +32,13 @@ class PackageLayoutTests(unittest.TestCase):
 
     def test_model_discovery_remains_unchanged(self):
         self.assertEqual(set(discover()), {
-            "moss.t2i", "pika.t2va", "pika.fl2va", "minimax.t2i"
+            "moss.t2i", "pika.t2va", "pika.fl2va", "minimax.t2i", "minimax.i2i", "minimax-omni.t2i", "minimax-omni.i2i"
         })
 
     def test_model_owned_validators_are_importable(self):
         for name in ("models.001-moss-image.model_impl.params",
                      "models.002-pika-h3-flex.model_impl.params",
-                     "models.005-minimax-h3-image.model_impl.params"):
+                     "models.005-minimax-h3-image-sglang.model_impl.params"):
             with self.subTest(name=name):
                 self.assertTrue(callable(importlib.import_module(name).validate))
 

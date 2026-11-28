@@ -17,6 +17,8 @@ The original registry baseline is
 `vllm/vllm-omni@sha256:f713b909f16cf8c7901f17c3aee3f471cbee5fbde5603b7dbe2631630887d7c2`.
 A source change does not alter existing deployed apps.
 
+MOSS configuration now pins vLLM/Omni 0.34.0 as an unverified upgrade candidate. The 0.32.0 measurements below remain historical. MiniMax Omni is a separate candidate service using 0.34.0, a local encoder view, and layer offload; GPU acceptance is pending.
+
 ## Native image configuration
 
 ```json
@@ -48,6 +50,27 @@ a small uv utility image; eliminating the engine import is not a guarantee
 that no OCI-related log lines will ever appear.
 Keep model weights in the existing Volume; changing an image does not
 require downloading the weights again.
+
+## Locked engine dependencies (Linux / CUDA)
+
+MOSS and MiniMax Omni reference `runtime/serving/locks/vllm-omni-0.34.0-cu130.txt` through `uv_requirements`. The model specifications retain their top-level engine pins. The shared builder pins uv 0.12.5 (verified official registry tag), rejects missing or stale locks and installs with `uv_pip_install(requirements=...)`, `--require-hashes`, the official PyPI index and explicit CUDA backend. Lock changes affect the deployment fingerprint of models that reference the lock.
+
+`uv_only_binary` accepts `true` (all packages) or a list of critical binary packages. Omni restricts vLLM, vLLM-Omni, PyTorch, FlashInfer and Triton to wheels. The existing pure-Python openai-whisper source distribution is permitted. Pika and MiniMax SGLang reference the shared `sglang-20261124-cu130.txt` lock and retain the binary-only policy.
+
+To refresh the Omni lock, create a temporary engine.in containing vllm==0.34.0, vllm-omni==0.34.0 and flashinfer-python==0.7.3 (one requirement per line). Resolve for the remote platform, not Windows:
+
+```bash
+uv pip compile --no-config --python-version 3.12 \
+  --python-platform x86_64-manylinux_2_39 --torch-backend cu130 \
+  --index-url https://pypi.org/simple \
+  --only-binary vllm,vllm-omni,torch,flashinfer-python,triton \
+  --generate-hashes --no-header --no-annotate engine.in \
+  -o runtime/serving/locks/vllm-omni-0.34.0-cu130.txt
+```
+
+To refresh the SGLang lock, use the existing official direct Wheel requirement from the model's uv_packages as the input, add --extra-index-url https://docs.sglang.ai/whl/cu130/, replace the binary package list with --only-binary=:all:, and output sglang-20261124-cu130.txt. Keep the direct Wheel URL and its SHA-256 fragment intact.
+
+On engine upgrades, use a new lock filename and update both model configurations. CUDA setup commands occupy separate layers so model-specific system dependencies do not invalidate shared prerequisites. Runtime source remains mounted last. The locked recipe requires real image-build and GPU acceptance before production rollout. Hashes authenticate dependency distributions, not isolated source-build outputs or every runtime-generated kernel.
 
 ## Safe rollout
 

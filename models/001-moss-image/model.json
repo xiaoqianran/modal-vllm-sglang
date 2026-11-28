@@ -18,11 +18,13 @@
   "image": "debian_slim",
   "python_version": "3.12",
   "uv_packages": [
-    "vllm==0.32.0",
-    "vllm-omni==0.32.0"
+    "vllm==0.34.0",
+    "vllm-omni==0.34.0"
   ],
   "uv_torch_backend": "cu130",
-  "build_commands": ["flashinfer install-cubin-wheel", "flashinfer install-jit-cache-wheel --cuda-version 13.0 --mode minimal --sm sm120"],
+  "uv_requirements": "vllm-omni-0.34.0-cu130.txt",
+  "uv_only_binary": ["vllm", "vllm-omni", "torch", "flashinfer-python", "triton"],
+  "build_commands": ["flashinfer install-cubin-wheel", "flashinfer install-jit-cache-wheel --cuda-version 13.0 --mode minimal --sm sm120", "apt-get update && apt-get install -y --no-install-recommends libxcb1 libgl1 libglib2.0-0 && rm -rf /var/lib/apt/lists/*", "python -c 'import cv2; from vllm_omni.entrypoints.cli.main import main; print(cv2.__version__)'"],
   "command": [
     "vllm",
     "serve",

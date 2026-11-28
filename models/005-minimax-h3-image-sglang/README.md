@@ -9,8 +9,8 @@ SGLang；独立下载 image 与 encoder，固定 6 步，默认 2048×1152（2k 
 # 离线校验
 uv run python run.py plan tasks/005-minimax-image-demo.json
 # CPU 准备新 Volume 的权重，然后部署
-uv run python models/005-minimax-h3-image/download_model.py --execute
-uv run python -m modal deploy models/005-minimax-h3-image/app.py
+uv run python models/005-minimax-h3-image-sglang/download_model.py --execute
+uv run python -m modal deploy models/005-minimax-h3-image-sglang/app.py
 # 此自检会启动 GPU，但不生成媒体
 uv run python run.py check-deployment minimax
 # 终端一保持 worker 运行
@@ -34,4 +34,4 @@ CPU 下载器默认仅输出计划，--execute --check-only 校验现有缓存�
 详见 [统一工作流说明](../../docs/workflow-runner.md) 与 [根目录说明](../../README.md)。
 
 GPU 服务当前为 4 vCPU、32 GiB RAM、RTX PRO 6000；32 GiB 是待验证配置，不代表实测峰值。
-下载使用 modal-benchmark 轻量 CPU Worker，尺寸校验位于 models/005-minimax-h3-image/model_impl/params.py。
+下载使用 modal-benchmark 轻量 CPU Worker，尺寸校验位于 models/005-minimax-h3-image-sglang/model_impl/params.py。

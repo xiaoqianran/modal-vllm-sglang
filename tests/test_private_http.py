@@ -9,7 +9,7 @@ from unittest.mock import patch
 from runtime.utils.http import modal_proxy_headers
 
 ROOT = Path(__file__).resolve().parents[1]
-APPS = ("models/001-moss-image", "models/002-pika-h3-flex", "models/005-minimax-h3-image")
+APPS = ("models/001-moss-image", "models/002-pika-h3-flex", "models/005-minimax-h3-image-sglang")
 
 
 class PrivateHttpTests(unittest.TestCase):

@@ -66,7 +66,7 @@ class DownloadCliTests(TestCase):
         self.assertEqual(version("modal-benchmark"), "0.4.9")
         from runtime.config.storage import VOLUME_MOUNT, VOLUME_VERSION, VOLUME_SUB_PATH
         for name in ("models/001-moss-image", "models/002-pika-h3-flex",
-                     "models/005-minimax-h3-image"):
+                     "models/005-minimax-h3-image-sglang"):
             with self.subTest(name=name):
                 task = plan(self.spec(name))
                 downloader = create_downloader(
@@ -91,7 +91,7 @@ class DownloadCliTests(TestCase):
 
     def test_free_plan_has_no_legacy_directory(self):
         for name, kind in (("models/001-moss-image", "hf"),
-                           ("models/005-minimax-h3-image", "hf"),
+                           ("models/005-minimax-h3-image-sglang", "hf"),
                            ("models/002-pika-h3-flex", "sglang_overlay")):
             with self.subTest(name=name):
                 result = plan(self.spec(name), 2)
@@ -122,7 +122,7 @@ class DownloadCliTests(TestCase):
 
     def test_all_model_download_entrypoints_use_one_cli(self):
         for folder in ("models/001-moss-image", "models/002-pika-h3-flex",
-                       "models/005-minimax-h3-image", "models/006-qwen38-pi"):
+                       "models/005-minimax-h3-image-sglang", "models/007-qwen38-pi"):
             with self.subTest(folder=folder), patch("tools.download_models.main") as delegate:
                 entrypoint = ROOT / folder / "download_model.py"
                 module = run_path(str(entrypoint))
@@ -148,7 +148,7 @@ class DownloadCliTests(TestCase):
                 downloader.assert_not_called()
 
     def test_legacy_qwen_requires_extra_download_opt_in(self):
-        model = str(ROOT / "models/006-qwen38-pi" / "model.json")
+        model = str(ROOT / "models/007-qwen38-pi" / "model.json")
         with patch("tools.download_models.run") as download:
             main([model])
             with self.assertRaises(SystemExit):
@@ -160,7 +160,7 @@ class DownloadCliTests(TestCase):
             self.assertEqual(download.call_count, 2)
 
     def test_invalid_download_policy_rejected(self):
-        spec = self.spec("models/006-qwen38-pi")
+        spec = self.spec("models/007-qwen38-pi")
         with self.assertRaisesRegex(ValueError, "download_policy"):
             validate({**spec, "download_policy": "random"})
 
@@ -173,7 +173,7 @@ class DownloadCliTests(TestCase):
 
     def test_per_model_worker_defaults_and_cli_override(self):
         expected = {"models/001-moss-image": "auto",
-                    "models/005-minimax-h3-image": "auto",
+                    "models/005-minimax-h3-image-sglang": "auto",
                     "models/002-pika-h3-flex": "auto"}
         for folder, workers in expected.items():
             with self.subTest(folder=folder):
@@ -203,16 +203,35 @@ class DownloadCliTests(TestCase):
                 with self.assertRaises(ValueError):
                     plan(spec)
 
-    def test_model_names_match_directories(self):
-        for folder in ("001-moss-image", "002-pika-h3-flex", "005-minimax-h3-image"):
-            spec = self.spec("models/" + folder)
-            self.assertEqual(spec["service_directory"], folder)
-            self.assertEqual(spec["app_name"], folder)
-            self.assertEqual(spec["endpoint_label"], folder + "-serve")
-            self.assertEqual(spec["cache_directory"], "/data/models/" + folder)
+    def test_model_names_preserve_remote_identity(self):
+        # Source folders may change without renaming deployed Apps or caches.
+        # Both MiniMax engines deliberately share the existing weight directory.
+        identities = (
+            ("001-moss-image", "001-moss-image", "001-moss-image"),
+            ("002-pika-h3-flex", "002-pika-h3-flex", "002-pika-h3-flex"),
+            ("005-minimax-h3-image-sglang", "005-minimax-h3-image", "005-minimax-h3-image"),
+            ("006-minimax-h3-image-vllm", "006-minimax-h3-image-vllm", "005-minimax-h3-image"),
+        )
+        for folder, app, cache in identities:
+            with self.subTest(folder=folder):
+                spec = self.spec("models/" + folder)
+                self.assertEqual(spec["service_directory"], folder)
+                from tools.download_models import preparation_app_name
+                self.assertEqual(preparation_app_name(spec, "download"), "download-" + app)
+                self.assertEqual(preparation_app_name(spec, "prepare"), "prepare-" + app)
+                self.assertEqual(spec["app_name"], app)
+                self.assertEqual(spec["endpoint_label"], app + "-serve")
+                self.assertEqual(spec["cache_directory"], "/data/models/" + cache)
+
+    def test_preparation_names_fall_back_for_legacy_specs(self):
+        from tools.download_models import preparation_app_name
+        spec = {"service": "example"}
+        self.assertEqual(preparation_app_name(spec, "download"), "download-example")
+        self.assertEqual(preparation_app_name({**spec, "service_directory": "001-example"}, "prepare"),
+                         "prepare-001-example")
 
     def test_hf_publishes_and_verifies_in_one_rpc(self):
-        spec = self.spec("models/005-minimax-h3-image")
+        spec = self.spec("models/005-minimax-h3-image-sglang")
         d, app = self.setup_downloader(spec)
         with (
             patch("modal_benchmark.hf.create_downloader", return_value=d) as create,
