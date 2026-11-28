@@ -28,7 +28,8 @@ class DeliveryWake:
     """Bounded metadata-only dispatcher. V3 scan recovers dropped wake hints."""
     def __init__(self, spawn):
         from queue import Queue
-        from threading import Thread
+        from threading import Thread, Event
+        self.stopped = Event()
         self.queue = Queue(maxsize=64)
         self.spawn = spawn
         self.thread = Thread(target=self._run, daemon=True, name="preview-delivery-wake")
@@ -38,14 +39,24 @@ class DeliveryWake:
         from queue import Full
         ids = [r["delivery_id"] for r in rows if r.get("delivery_id")]
         if ids:
-            try:
-                self.queue.put_nowait(ids)
-            except Full:
-                print("PREVIEW_DELIVERY_WAKE_DEFERRED", len(ids), flush=True)
+            self.submit_ids(ids)
+
+    def submit_ids(self, ids):
+        from queue import Full
+        if self.stopped.is_set():
+            return
+        try:
+            self.queue.put_nowait(ids)
+        except Full:
+            print("PREVIEW_DELIVERY_WAKE_DEFERRED", len(ids), flush=True)
 
     def _run(self):
-        while True:
-            ids = self.queue.get()
+        from queue import Empty
+        while not self.stopped.is_set():
+            try:
+                ids = self.queue.get(timeout=.25)
+            except Empty:
+                continue
             if ids is None:
                 return
             try:
@@ -62,6 +73,7 @@ class DeliveryWake:
         # No waiting for CPU archive or an unavailable dispatch endpoint.
         # Every intent is already durable before generation starts.
         self.thread.join(timeout=0.25)
+        self.stopped.set()
 
 
 def spawn_delivery(ids):

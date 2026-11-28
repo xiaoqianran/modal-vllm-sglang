@@ -11,7 +11,7 @@ from orchestration import model_capabilities
 from orchestration.input_store import LIFECYCLE, MANAGED_PREFIX
 from orchestration.protocol import VERSION, run_id, state_path
 from runtime.config.storage import VOLUME_SUB_PATH, volume_key
-from runtime.tasks.artifacts import image_reference
+from runtime.tasks.artifacts import image_reference, IMAGE_FIELDS, image_limit
 from runtime.tasks.job_client import check_record
 from runtime.tasks.task_lifecycle import CALL_TERMINAL, call_input_status
 from runtime.utils.volume_records import put_once as _put_once
@@ -89,7 +89,7 @@ def validate_payload(payload, identity, volume_name):
         if spec["service"] != cap["service"]:
             raise ValueError("Workflow model binding mismatch")
         for field, binding in job["inputs"].items():
-            if field not in ("first_frame", "last_frame"):
+            if field not in IMAGE_FIELDS:
                 continue
             if not isinstance(binding, dict):
                 raise ValueError("Untracked workflow input")
@@ -100,7 +100,7 @@ def validate_payload(payload, identity, volume_name):
             else:
                 if binding.get("storage") != "volume" or binding.get("type") != "image":
                     raise ValueError("Workflow input has not been persisted")
-                ref = image_reference({k: binding[k] for k in ("path", "sha256", "size")})
+                ref = image_reference({k: binding[k] for k in ("path", "sha256", "size")}, max_bytes=image_limit(field))
                 if ref["path"].startswith(MANAGED_PREFIX) and (
                         payload.get("input_lifecycle") != LIFECYCLE
                         or ref["path"] != MANAGED_PREFIX + ref["sha256"]):

@@ -16,6 +16,7 @@ from runtime.telemetry.collector import enqueue
 from runtime.telemetry.recorder import local_recorder
 from runtime.config.storage import volume_key
 from runtime.utils.files import read_json
+from runtime.tasks.artifacts import image_reference, IMAGE_FIELDS, image_limit
 
 
 class Backend(sdk.Backend):
@@ -100,7 +101,7 @@ def payload_for(directory, plan, item, backend, preparation=None):
     keys = {job["key"] for job in plan["jobs"]}
     uploaded = {}
     for job in plan["jobs"]:
-        for field in ("first_frame", "last_frame"):
+        for field in IMAGE_FIELDS:
             binding = job["inputs"].get(field)
             if binding is None:
                 continue
@@ -108,10 +109,11 @@ def payload_for(directory, plan, item, backend, preparation=None):
                 if binding["job"] not in keys:
                     raise ValueError("Cross-shot dependency is not supported")
             elif binding.get("storage") == "volume":
-                from runtime.tasks.artifacts import image_reference
-                ref = image_reference({k: binding[k] for k in ("path", "sha256", "size")})
+                ref = image_reference({k: binding[k] for k in ("path", "sha256", "size")}, max_bytes=image_limit(field))
                 if ref["path"].startswith(MANAGED_PREFIX):
                     raise ValueError("Import managed inputs through local staging, not a borrowed cloud reference")
+                if field == "image" and hasattr(backend, "prepare_edit_original"):
+                    ref = sdk.resolve_edit_binding(directory, binding, backend, managed=True)
                 job["inputs"][field] = {**ref, "storage": "volume", "type": "image"}
             else:
                 digest = binding["sha256"]

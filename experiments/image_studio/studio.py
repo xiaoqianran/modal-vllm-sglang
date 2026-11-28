@@ -1,6 +1,5 @@
 """Private image workbench. Web UI and workers share only durable asset IDs."""
 import base64
-import binascii
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import io
@@ -15,7 +14,6 @@ import uuid
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 from starlette.concurrency import run_in_threadpool
-import httpx
 from PIL import Image, ImageOps
 
 MAX_UPLOAD = 12 * 1024 * 1024
@@ -91,59 +89,105 @@ def save_asset(store, data, *, parent=None, prompt="", normalize=False):
     return meta
 
 
-class H3:
-    def __init__(self, endpoint, headers=None, transport=None):
-        if not endpoint:
-            raise ValueError("IMAGE_STUDIO_H3_URL is required")
-        self.endpoint = endpoint.rstrip("/")
-        self.headers = headers or {}
-        self.transport = transport
+class SDKH3:
+    """Production SDK; private assets stay on Modal, never the public HF bucket."""
+    def __init__(self, backend=None):
+        from orchestration.sdk import Backend
+        self.backend = backend or Backend()
 
-    def render(self, job, source=None):
-        payload = {"prompt": job["prompt"], "size": job["size"], "seed": job["seed"],
-                   "num_inference_steps": 6, "generator_device": "cpu",
-                   "response_format": "b64_json"}
-        with httpx.Client(headers=self.headers, timeout=httpx.Timeout(720, connect=15),
-                          transport=self.transport) as client:
-            if source is None:
-                reply = client.post(self.endpoint + "/v1/images/generations", json=payload)
+    def render_asset(self, store, job):
+        from orchestration.sdk import model_specs, cloud_artifact
+        from orchestration.deployment_state import model_source_version
+        from runtime.serving.deployment_probe import probe_name
+        from runtime.serving.preview_batch import stage_bytes
+        from runtime.tasks.task_spec import prepare, result_prefix, execution_signature
+        from runtime.tasks.task_identity import intent_digest
+        from runtime.tasks.artifacts import read_image
+        import math
+        key = f"jobs/{job['id']}.json"
+        current = json_get(store, key)
+        record = current.get("gpu")
+        if record is None:
+            spec = model_specs()["minimax"]
+            fingerprint = self.backend.fingerprint(spec)
+            version = intent_digest([model_source_version(spec), spec, fingerprint])
+            if self.backend.modal.Function.from_name(spec["app_name"], probe_name(version)).remote() != version:
+                raise RuntimeError("H3 deployment version mismatch")
+            width, height = map(int, job["size"].split("x"))
+            scale = max(1.0, math.sqrt(1048576 / (width * height)))
+            width, height = (math.ceil(x * scale / 32) * 32 for x in (width, height))
+            if max(width, height) > 8192 or width * height > MAX_PIXELS:
+                raise ValueError("Unsupported edit canvas")
+            operation = "i2i" if job["parent_id"] else "t2i"
+            item = {"id": job["id"], "operation": operation, "prompt": job["prompt"],
+                    "seed": job["seed"], "params": {"size": f"{width}x{height}"}}
+            if job["parent_id"]:
+                parent = asset_path(job["parent_id"])
+                meta = json_get(store, parent + "/meta.json")
+                ref = meta.get("artifact")
+                if ref is None:
+                    # Old private uploads are staged once on CPU. No HF publication.
+                    blob = store.read(parent + "/image")
+                    ref = stage_bytes(self.backend.volume,
+                                      {"path": "workflow-inputs/" + meta["sha256"],
+                                       "sha256": meta["sha256"], "size": len(blob)}, blob)
+                item["image_artifact"] = ref
+            _, signature = prepare(spec, item)
+            prefix = result_prefix(spec, "private-studio", "001-main", operation)
+            record = {"id": item["id"], "prefix": prefix, "intent_hash": signature,
+                      "execution_hash": execution_signature(signature, fingerprint),
+                      "cache_fingerprint": fingerprint, "status": "uncertain"}
+            # Keep evidence before admission; on crash never blindly replay.
+            json_put(store, key, {**current, "gpu": record})
+            existing = self.backend.preflight_result(record)
+            if existing is not None:
+                if existing["status"] != "completed":
+                    raise RuntimeError("Previous GPU submission is unresolved")
             else:
-                blob, mime = source
-                ext = {"image/webp": "webp", "image/jpeg": "jpg", "image/png": "png"}[mime]
-                payload["prompt"] = "<Picture 1> " + payload["prompt"]
-                reply = client.post(self.endpoint + "/v1/images/edits", data=payload,
-                                    files={"image": (f"source.{ext}", blob, mime)})
-            reply.raise_for_status()
-        try:
-            encoded = reply.json()["data"][0]["b64_json"]
-            if not isinstance(encoded, str) or len(encoded) > 4 * ((MAX_OUTPUT + 2) // 3):
-                raise ValueError("Invalid encoded image size")
-            return base64.b64decode(encoded, validate=True)
-        except (KeyError, IndexError, TypeError, binascii.Error) as exc:
-            raise ValueError("Invalid image service response") from exc
+                record["call_id"] = self.backend.submit(spec, item, prefix, fingerprint,
+                                                        deployment_version=version)
+                record["status"] = "queued"
+                json_put(store, key, {**current, "gpu": record})
+        deadline = time.monotonic() + 1300
+        while True:
+            result = self.backend.poll(record)
+            if result is not None:
+                break
+            if time.monotonic() >= deadline:
+                raise TimeoutError("Studio GPU call is unresolved")
+            time.sleep(.5)
+        if result["status"] != "completed":
+            raise RuntimeError("Studio GPU call failed")
+        artifact = cloud_artifact({**record, "result": result}, "image")
+        ref = {k: artifact[k] for k in ("path", "sha256", "size")}
+        # Verify dimensions and bytes on CPU, then store metadata only.
+        blob = read_image(ref, self.backend.volume)
+        _, mime, width, height = inspect_image(blob)
+        meta = {"id": job["id"], "parent_id": job["parent_id"], "prompt": job["prompt"],
+                "mime": mime, "width": width, "height": height, "sha256": ref["sha256"],
+                "artifact": ref}
+        json_put(store, asset_path(meta["id"]) + "/meta.json", meta)
+        return meta
 
 
 def run_job(store, engine, job):
     job_id, parent = job["id"], job["parent_id"]
     key = f"jobs/{job_id}.json"
-    if time.time() - job["submitted_at"] > 1800:
-        json_put(store, key, {**job, "status": "failed", "error": "排队超时，未开始推理。"})
+    current = json_get(store, key)
+    if current.get("status") == "ready":
         return
-    json_put(store, key, {**job, "status": "rendering"})
+    if not current.get("gpu") and time.time() - job["submitted_at"] > 1800:
+        json_put(store, key, {**current, "status": "failed", "error": "排队超时，未开始推理。"})
+        return
+    json_put(store, key, {**current, "status": "rendering"})
     try:
-        source = None
-        if parent:
-            prefix = asset_path(parent)
-            meta = json_get(store, prefix + "/meta.json")
-            source = (store.read(prefix + "/image"), meta["mime"])
-        output = engine.render(job, source)
-        result = save_asset(store, output, parent=parent, prompt=job["prompt"])
+        result = engine.render_asset(store, job)
     except Exception as exc:
         # Keep engine/endpoint/credential details out of the browser response.
         print(f"Image Studio {job_id}: {type(exc).__name__}", flush=True)
-        json_put(store, key, {**job, "status": "failed", "error": "推理失败，原图未改动。"})
+        json_put(store, key, {**json_get(store, key), "status": "failed", "error": "推理失败，原图未改动。"})
         return
-    json_put(store, key, {**job, "status": "ready", "asset": result})
+    json_put(store, key, {**json_get(store, key), "status": "ready", "asset": result})
 
 
 def create_app(store, submit, password):
@@ -178,6 +222,10 @@ def create_app(store, submit, password):
     @app.get("/assets/{asset_id}")
     def asset(asset_id: str):
         prefix, meta = get_asset(asset_id)
+        if meta.get("artifact"):
+            from runtime.serving.modal_setup import model_volume
+            from runtime.tasks.artifacts import read_image
+            return Response(read_image(meta["artifact"], model_volume()), media_type=meta["mime"])
         return Response(store.read(prefix + "/image"), media_type=meta["mime"])
 
     @app.post("/uploads", status_code=201)
@@ -252,13 +300,7 @@ def create_app(store, submit, password):
 
 def local_app():
     store = DiskStore(os.environ.get("IMAGE_STUDIO_ROOT", ".runtime/image-studio"))
-    engine = H3(os.environ.get("IMAGE_STUDIO_H3_URL"), endpoint_headers())
+    engine = SDKH3()
     executor = ThreadPoolExecutor(max_workers=1)
     return create_app(store, lambda job: executor.submit(run_job, store, engine, job),
                       os.environ.get("IMAGE_STUDIO_PASSWORD"))
-
-
-def endpoint_headers():
-    return {header: os.environ[var] for header, var in
-            (("Modal-Key", "IMAGE_STUDIO_H3_MODAL_KEY"), ("Modal-Secret", "IMAGE_STUDIO_H3_MODAL_SECRET"))
-            if os.environ.get(var)}

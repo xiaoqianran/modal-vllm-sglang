@@ -118,7 +118,7 @@ class Handler(BaseHTTPRequestHandler):
                 length = int(self.headers.get("Content-Length", 0))
             except ValueError:
                 return self._fail(400, "Invalid Content-Length")
-            if not 0 < length <= MAX_REQUEST:
+            if not 0 < length <= MAX_REQUEST + (1024 * 1024 if edit else 0):
                 return self._fail(413, "Request too large or empty")
             body = self.rfile.read(length)
             endpoint = "/v1/videos" if SPEC["kind"] == "video" else "/v1/images/generations"
@@ -163,6 +163,17 @@ class Handler(BaseHTTPRequestHandler):
                 # Read the complete engine response before replying to the caller.
                 # Reject malformed success responses without inventing a task ID.
                 if 200 <= code < 300:
+                    if SPEC["kind"] == "image" and SPEC.get("image_output_directory"):
+                        result = json.loads(response)
+                        for entry in result.get("data", []):
+                            if not entry.get("b64_json") or not entry.get("file_path"):
+                                continue
+                            path = Path(entry["file_path"])
+                            root = Path(SPEC["image_output_directory"]).resolve()
+                            if path.is_absolute() and not path.is_symlink() and path.resolve().parent == root:
+                                path.unlink(missing_ok=True)
+                            entry.pop("file_path", None)
+                        response = json.dumps(result).encode("utf-8")
                     if SPEC["kind"] == "video":
                         result = json.loads(response)
                         value = result.get("id") if isinstance(result, dict) else None

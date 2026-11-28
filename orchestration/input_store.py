@@ -5,7 +5,7 @@ import io
 from orchestration import state
 from runtime.config.storage import volume_key
 from runtime.tasks.artifacts import image_reference
-from runtime.utils.media import image_format
+from runtime.utils.media import image_format, MAX_EDIT_IMAGE
 
 # Only new dependency-managed workflows stage to this namespace.
 # Old CAS and direct submissions remain outside its lifecycle.
@@ -28,7 +28,7 @@ def _verify(chunks, ref):
 def stage_input(volume, session, directory, artifact, *, managed=False):
     prefix = MANAGED_PREFIX if managed else "workflow-inputs/"
     ref = image_reference({"path": prefix + artifact["sha256"],
-                           "sha256": artifact["sha256"], "size": artifact["size"]})
+                           "sha256": artifact["sha256"], "size": artifact["size"]}, max_bytes=MAX_EDIT_IMAGE)
     # Snapshot and validate the very bytes that will be uploaded; avoid a
     # validate-file then reopen race. Even a cache hit checks the local binding.
     path = state.local_path(directory, artifact["path"])

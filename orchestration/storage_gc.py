@@ -10,7 +10,8 @@ import time
 from orchestration import workflow_recovery as recovery
 from orchestration.input_store import MANAGED_PREFIX, LIFECYCLE, _verify
 from runtime.config.storage import volume_key
-from runtime.tasks.artifacts import image_reference
+from runtime.tasks.artifacts import image_reference, IMAGE_FIELDS, image_limit
+from runtime.utils.media import MAX_EDIT_IMAGE
 from runtime.tasks.job_client import remote_record, check_record
 from runtime.tasks.task_identity import intent_digest
 
@@ -44,11 +45,11 @@ def _refs(manifest):
     """Track exact paths, not hashes shared with the protected legacy namespace."""
     refs = {}
     for job in manifest["payload"]["plan"]["jobs"]:
-        for field in ("first_frame", "last_frame"):
+        for field in IMAGE_FIELDS:
             binding = job["inputs"].get(field)
             if not isinstance(binding, dict) or "job" in binding:
                 continue
-            ref = image_reference({k: binding[k] for k in ("path", "sha256", "size")})
+            ref = image_reference({k: binding[k] for k in ("path", "sha256", "size")}, max_bytes=image_limit(field))
             previous = refs.setdefault(ref["path"], {"ref": ref, "jobs": []})
             if previous["ref"] != ref:
                 raise ValueError("Conflicting input reference in one workflow")
@@ -164,7 +165,7 @@ def plan_gc(volume, volume_name, *, min_age=DEFAULT_AGE, as_of=None):
             errors.append({"path": path, "error": "Unrecognized managed input; never delete"})
             continue
         try:
-            ref = image_reference({"path": path, "sha256": digest, "size": entry["bytes"]})
+            ref = image_reference({"path": path, "sha256": digest, "size": entry["bytes"]}, max_bytes=MAX_EDIT_IMAGE)
             if type(entry["mtime"]) is not int or entry["mtime"] < 0:
                 raise ValueError("Invalid object modification time")
         except ValueError as exc:

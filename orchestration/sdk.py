@@ -14,7 +14,7 @@ from runtime.tasks.task_identity import intent_digest
 from runtime.tasks.task_spec import prepare, result_prefix, execution_signature
 from runtime.tasks.job_client import remote_cache_fingerprint, remote_record, check_record, recovery_path
 from runtime.tasks.result_integrity import verify_remote_media
-from runtime.tasks.artifacts import image_reference
+from runtime.tasks.artifacts import image_reference, IMAGE_FIELDS, image_limit
 from runtime.utils.files import read_json
 from runtime.telemetry.recorder import local_recorder
 from runtime.telemetry.schema import utc_now
@@ -60,6 +60,23 @@ def request_resume(directory):
         state.save(directory / "state.json", current)
 
 
+class EditOriginalMissing(FileNotFoundError):
+    """All authorized cloud original locations are positively absent."""
+
+
+def resolve_edit_binding(directory, binding, backend, *, managed=False):
+    ref = image_reference({k: binding[k] for k in ("path", "sha256", "size")}, max_bytes=image_limit("image"))
+    try:
+        return backend.prepare_edit_original(ref)
+    except EditOriginalMissing:
+        fallback = binding.get("fallback")
+        if fallback is None:
+            raise
+        if (fallback["sha256"], fallback["size"]) != (ref["sha256"], ref["size"]):
+            raise ValueError("Local fallback identity mismatch")
+        return backend.upload(directory, fallback, managed=managed)
+
+
 class Backend:
     def __init__(self):
         import modal
@@ -81,8 +98,29 @@ class Backend:
     def upload(self, directory, artifact, *, managed=False):
         return stage_input(self.volume, self.session, directory, artifact, managed=managed)
 
+    def prepare_edit_original(self, ref):
+        from runtime.serving.preview_batch import prepare_original
+        from runtime.config.storage import volume_key
+        # Existence probe consumes only the first streamed chunk; GPU verifies
+        # full content. Only a positive miss may trigger the HF restore.
+        try:
+            stream = iter(self.volume.read_file(volume_key("/" + ref["path"])))
+            try:
+                next(stream)
+            finally:
+                if hasattr(stream, "close"):
+                    stream.close()
+            return ref
+        except FileNotFoundError:
+            if "/private-studio/" in ref["path"]:
+                raise
+            result = prepare_original(self.volume, None, ref)
+            if result["source"] == "missing":
+                raise EditOriginalMissing(ref["path"])
+            return result["artifact"]
+
     def submit(self, spec, item, prefix, fingerprint, *, deployment_version=None):
-        for field in ("first_frame_artifact", "last_frame_artifact"):
+        for field in tuple(name + "_artifact" for name in IMAGE_FIELDS):
             ref = item.get(field)
             if ref and ref["path"].startswith(MANAGED_PREFIX) and not getattr(self, "managed_workflow", False):
                 raise ValueError("Managed input requires a durable workflow controller")
@@ -321,7 +359,7 @@ def item_for(directory, job, records, spec, backend):
             "prompt": inputs["prompt"], "seed": inputs["seed"],
             "params": {key: job["params"][key] for key in spec["options"] if key in job["params"]}}
     item["_telemetry"] = {"task_id": f"{directory.parent.name}/{directory.name}", "job_key": job["key"]}
-    for field in ("first_frame", "last_frame"):
+    for field in IMAGE_FIELDS:
         if field not in inputs:
             continue
         binding = inputs[field]
@@ -330,13 +368,17 @@ def item_for(directory, job, records, spec, backend):
             if upstream["status"] != "completed":
                 return None
             artifact = upstream["artifacts"][binding["output"]]
-            ref = image_reference({key: artifact[key] for key in ("path", "sha256", "size")})
+            ref = image_reference({key: artifact[key] for key in ("path", "sha256", "size")}, max_bytes=image_limit(field))
         elif binding.get("storage") == "volume":
-            ref = image_reference({key: binding[key] for key in ("path", "sha256", "size")})
+            ref = image_reference({key: binding[key] for key in ("path", "sha256", "size")}, max_bytes=image_limit(field))
+            if field == "image" and hasattr(backend, "prepare_edit_original"):
+                ref = resolve_edit_binding(directory, binding, backend)
         else:
             recorder = local_recorder(state.telemetry_directory(directory), **item["_telemetry"])
             with recorder.span("transfer", operation="upload_frames"):
                 ref = backend.upload(directory, binding)
+        if field == "image" and "job" in binding and hasattr(backend, "prepare_edit_original"):
+            ref = backend.prepare_edit_original(ref)
         if ref["path"].startswith(MANAGED_PREFIX) and not getattr(backend, "managed_workflow", False):
             raise ValueError("Managed input requires a durable workflow controller")
         item[field + "_artifact"] = ref

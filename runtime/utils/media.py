@@ -3,6 +3,7 @@ import base64
 import binascii
 
 MAX_FRAME = 20 * 1024 * 1024
+MAX_EDIT_IMAGE = 64 * 1024 * 1024
 
 
 def image_format(data):

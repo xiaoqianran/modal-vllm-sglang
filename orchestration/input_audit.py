@@ -7,7 +7,7 @@ from pathlib import Path
 import re
 
 from runtime.config.storage import VOLUME_SUB_PATH, volume_key
-from runtime.tasks.artifacts import image_reference
+from runtime.tasks.artifacts import image_reference, IMAGE_FIELDS, image_limit
 from runtime.tasks.task_identity import intent_digest
 from runtime.utils.files import read_json
 
@@ -37,21 +37,21 @@ def audit(volume, volume_name, roots):
                 # A plan covers future as well as active jobs. Its local
                 # frozen input might not have been uploaded yet.
                 for job in plan["jobs"]:
-                    for field in ("first_frame", "last_frame"):
+                    for field in IMAGE_FIELDS:
                         binding = job["inputs"].get(field)
                         if not isinstance(binding, dict) or "job" in binding:
                             continue
                         if binding.get("storage") == "volume":
-                            ref = image_reference({k: binding[k] for k in ("path", "sha256", "size")})
+                            ref = image_reference({k: binding[k] for k in ("path", "sha256", "size")}, max_bytes=image_limit(field))
                             if (not ref["path"].startswith("workflow-inputs/")
-                                    or ref["path"].startswith("workflow-inputs/managed-v1/")):
+                                    or ref["path"].startswith(("workflow-inputs/managed-v1/", "workflow-inputs/preview-originals/"))):
                                 continue
                             if ref["path"] != "workflow-inputs/" + ref["sha256"]:
                                 raise ValueError("Noncanonical CAS input path")
                             explicit.add(ref["sha256"])
                         else:
                             ref = image_reference({"path": "workflow-inputs/" + binding["sha256"],
-                                                   "sha256": binding["sha256"], "size": binding["size"]})
+                                                   "sha256": binding["sha256"], "size": binding["size"]}, max_bytes=image_limit(field))
                         referenced.setdefault(ref["sha256"], []).append({
                             "plan": str(path), "job": job["key"], "field": field, "size": ref["size"]})
                 plans += 1
@@ -64,7 +64,7 @@ def audit(volume, volume_name, roots):
         for entry in volume.iterdir(prefix.rstrip("/"), recursive=False):
             path = entry.path.removeprefix("/")
             # SDK directory listings may return the directory itself.
-            if path in {prefix.rstrip("/"), prefix + "managed-v1"} and int(entry.type) == 2:
+            if path in {prefix.rstrip("/"), prefix + "managed-v1", prefix + "preview-originals"} and int(entry.type) == 2:
                 continue
             digest = path.removeprefix(prefix)
             if (not path.startswith(prefix) or not re.fullmatch("[0-9a-f]{64}", digest)

@@ -14,7 +14,7 @@ from runtime.tasks.task_spec import prepare, execution_signature
 
 
 def execute(spec, items, prefix, volume, cache_fingerprint="unverified", recorder=None,
-            background_telemetry=False, ensure_engine=None):
+            background_telemetry=False, ensure_engine=None, result_writer=None):
     from runtime.serving.inference_api import ImageGenerationClient, SGLangVideoClient
     parts = prefix.split("/")
     for part in parts:
@@ -24,7 +24,10 @@ def execute(spec, items, prefix, volume, cache_fingerprint="unverified", recorde
     if not prepared or len({x[0]["id"].lower() for x in prepared}) != len(prepared):
         raise ValueError("Nonempty batch with unique IDs required")
     port = spec.get("proxy_port", spec.get("port", 8000) + 1)
-    client = (ImageGenerationClient if spec["kind"] == "image" else SGLangVideoClient)(f"http://127.0.0.1:{port}")
+    client = (ImageGenerationClient(f"http://127.0.0.1:{port}", **({"output_directory": spec["image_output_directory"]} if spec.get("image_output_directory") else {}))
+              if spec["kind"] == "image" else SGLangVideoClient(f"http://127.0.0.1:{port}"))
+    if result_writer is not None and len(prepared) != 1:
+        raise ValueError("Deferred publication requires one formal item")
     for item, payload, signature in prepared:
         context = item.get("_telemetry", {})
         telemetry = (recorder or Recorder()).bind(**{key: context[key] for key in ("task_id", "job_key") if key in context})
@@ -70,6 +73,11 @@ def execute(spec, items, prefix, volume, cache_fingerprint="unverified", recorde
             raise RuntimeError("Remote task failed; create a new task to generate again")
         if action == "uncertain":
             raise RuntimeError("Uncertain submission; inspect remote metadata before creating a new task")
+        source = None
+        if action != "resume" and "image_artifact" in payload:
+            from runtime.tasks.artifacts import read_image
+            with telemetry.span("transfer", operation="read_edit_original"):
+                source = read_image(payload.pop("image_artifact"), volume, Path("/data"))
         if action != "resume" and any(key.endswith("_artifact") for key in payload):
             from runtime.tasks.artifacts import resolve_frames
             with telemetry.span("transfer", operation="read_frames"):
@@ -87,7 +95,10 @@ def execute(spec, items, prefix, volume, cache_fingerprint="unverified", recorde
             try:
                 if spec["kind"] == "image":
                     with telemetry.span("generate", operation="image"):
-                        data, _ = client.generate(payload, timeout=spec.get("timeout", 3600))
+                        if source is not None:
+                            data, _ = client.edit(payload, source, timeout=spec.get("timeout", 3600))
+                        else:
+                            data, _ = client.generate(payload, timeout=spec.get("timeout", 3600))
                 else:
                     with telemetry.span("generate", operation="video_submit") as fields:
                         job = client.submit(payload, timeout=spec.get("timeout", 3600))
@@ -110,6 +121,29 @@ def execute(spec, items, prefix, volume, cache_fingerprint="unverified", recorde
                 client.wait(job, timeout=spec.get("timeout", 3600), poll=0.5, on_status=remember_failure)
             with telemetry.span("generate", operation="video_fetch"):
                 data = client.content(job)
+        if result_writer is not None and spec["kind"] == "image":
+            def write(blob):
+                from runtime.utils.files import atomic_write
+                suffix = media_suffix(blob, "image")
+                target = folder / (item["id"] + suffix)
+                digest = hashlib.sha256(blob).hexdigest()
+                if target.exists() and sha256_file(target) != digest:
+                    raise FileExistsError(f"Refusing overwrite: {target}")
+                row = {"id": item["id"], "file": target.name, "status": "collecting",
+                       "bytes": len(blob), "sha256": digest,
+                       "execution_seconds": time.perf_counter() - started,
+                       "intent_hash": signature, "execution_hash": execution_hash}
+                if telemetry.writer is not None:
+                    row["telemetry"] = telemetry.writer.reference()
+                atomic_json(metadata, row)
+                if not target.exists():
+                    atomic_write(target, blob)
+                def finish():
+                    row["status"] = "completed"
+                    atomic_json(metadata, row)
+                return row, finish
+            yield result_writer.enqueue_publication(data, write)
+            continue
         suffix = media_suffix(data, spec["kind"])
         target = folder / (item["id"] + suffix)
         digest = hashlib.sha256(data).hexdigest()

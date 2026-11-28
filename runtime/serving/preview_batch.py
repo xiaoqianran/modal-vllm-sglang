@@ -45,17 +45,18 @@ def verified_bytes(chunks, ref):
 def read_original(volume, root, ref):
     """Mounted data first, then the authoritative committed Volume view."""
     ref = reference(ref)
-    root = Path(root).resolve()
-    path = (root / ref["path"]).resolve()
-    if not path.is_relative_to(root):
-        raise ValueError("Original escapes mount")
-    if path.is_file():
-        try:
-            with path.open("rb") as stream:
-                return verified_bytes(iter(lambda: stream.read(1024 * 1024), b""), ref)
-        except ValueError:
-            # A stale mount can differ from the authoritative committed bytes.
-            pass
+    if root is not None:
+        root = Path(root).resolve()
+        path = (root / ref["path"]).resolve()
+        if not path.is_relative_to(root):
+            raise ValueError("Original escapes mount")
+        if path.is_file():
+            try:
+                with path.open("rb") as stream:
+                    return verified_bytes(iter(lambda: stream.read(1024 * 1024), b""), ref)
+            except ValueError:
+                # A stale mount can differ from the authoritative committed bytes.
+                pass
     return verified_bytes(volume.read_file(volume_key("/" + ref["path"])), ref)
 
 
@@ -132,6 +133,21 @@ def stage_local(volume, asset, local_path):
     return stage_bytes(volume, ref, data)
 
 
+class SerializedCommitVolume:
+    """One commit lock per container; forward all other Volume methods."""
+    def __init__(self, volume):
+        from threading import Lock
+        self.volume = volume
+        self.lock = Lock()
+
+    def commit(self):
+        with self.lock:
+            return self.volume.commit()
+
+    def __getattr__(self, name):
+        return getattr(self.volume, name)
+
+
 class PreviewWriter:
     """Single bounded writer: validate/write/commit off the inference thread.
 
@@ -157,6 +173,7 @@ class PreviewWriter:
         self.pending = self.pending_bytes = 0
         self.closed, self.error = False, None
         self.records = []
+        self.futures = set()
         self.metrics = dict(commits=0, commit_seconds=0.0, write_seconds=0.0,
                             enqueue_wait_seconds=0.0, peak_pending=0,
                             peak_pending_bytes=0, flush_wait_seconds=0.0)
@@ -175,6 +192,18 @@ class PreviewWriter:
         suffix, _ = image_format(blob)
         relative = f"{self.prefix}/{pair['group']}/{pair['case']}/{kind}{suffix}"
         item = (pair, kind, blob, seconds, source, relative)
+        self._admit(item, blob)
+        return relative
+
+    def enqueue_publication(self, blob, write):
+        from concurrent.futures import Future
+        future = Future()
+        self._admit((write, "__formal__", blob, 0, future, None), blob, future=future)
+        return future
+
+    def _admit(self, item, blob, *, future=None):
+        if not isinstance(blob, bytes) or not 0 < len(blob) <= MAX_ORIGINAL:
+            raise ValueError("Generated image exceeds writer limit")
         started = perf_counter()
         with self.cv:
             self.cv.wait_for(lambda: self.error is not None or self.closed or
@@ -183,6 +212,8 @@ class PreviewWriter:
             self.check()
             if self.closed:
                 raise RuntimeError("Preview writer is closed")
+            if future is not None:
+                self.futures.add(future)
             self.queue.append(item)
             self.pending += 1
             self.pending_bytes += len(blob)
@@ -190,9 +221,6 @@ class PreviewWriter:
             self.metrics["peak_pending"] = max(self.metrics["peak_pending"], self.pending)
             self.metrics["peak_pending_bytes"] = max(self.metrics["peak_pending_bytes"], self.pending_bytes)
             self.cv.notify_all()
-        # Only an immutable locator, not a receipt. The writer resolves the
-        # digest before writing the dependent edit, in FIFO order.
-        return relative
 
     def _write(self, item, known):
         from PIL import Image
@@ -228,6 +256,7 @@ class PreviewWriter:
 
     def _run(self):
         known, batch, batch_size, deadline = {}, [], 0, None
+        publications = []
         try:
             while True:
                 item = None
@@ -249,7 +278,11 @@ class PreviewWriter:
                 if item is not None:
                     if not batch:
                         deadline = perf_counter() + self.flush_interval
-                    row = self._write(item, known)
+                    if item[1] == "__formal__":
+                        row, finish = item[0](item[2])
+                        publications.append((item[4], row, finish))
+                    else:
+                        row = self._write(item, known)
                     batch.append(row)
                     batch_size += len(item[2])
                     # Drop image bytes once written, but retain admission credit
@@ -262,16 +295,27 @@ class PreviewWriter:
                 if batch:
                     start = perf_counter()
                     self.volume.commit()
+                    if publications:
+                        # Media and collecting evidence must be committed before
+                        # publishing completed receipts for formal jobs.
+                        for _, _, finish in publications:
+                            finish()
+                        self.volume.commit()
                     elapsed = perf_counter() - start
-                    self.metrics["commits"] += 1
+                    self.metrics["commits"] += 1 + bool(publications)
                     self.metrics["commit_seconds"] += elapsed
                     for row in batch:
                         row["batch_commit_seconds"] = elapsed
                     with self.cv:
-                        self.records.extend(batch)
+                        self.records.extend(row for row in batch if "artifact" in row)
                         self.pending -= len(batch)
                         self.pending_bytes -= batch_size
                         self.cv.notify_all()
+                    for future, row, _ in publications:
+                        with self.cv:
+                            self.futures.discard(future)
+                        future.set_result(row)
+                    publications.clear()
                     if self.on_commit is not None:
                         try:
                             self.on_commit(batch)
@@ -284,7 +328,12 @@ class PreviewWriter:
             with self.cv:
                 self.error = exc
                 self.queue.clear()
+                futures = list(self.futures)
+                self.futures.clear()
                 self.cv.notify_all()
+            for future in futures:
+                if not future.done():
+                    future.set_exception(RuntimeError("Publication uncertain; inspect committed evidence"))
 
     def close(self):
         started = perf_counter()

@@ -8,6 +8,7 @@ from pathlib import Path
 from runtime.tasks.task_identity import intent_digest
 from runtime.utils.files import read_json, sha256_file
 from runtime.utils.media import image_format
+from runtime.tasks.artifacts import image_reference, image_limit
 from runtime.telemetry.schema import utc_now
 from orchestration import model_capabilities, state
 
@@ -205,15 +206,28 @@ def build_plan(task_path, *, root=ROOT):
                 elif expected == "integer":
                     model_capabilities.integer(value, key)
                 else:
-                    fields(value, {"file"})
+                    cloud = None
+                    if isinstance(value, dict) and "artifact" in value:
+                        fields(value, {"artifact"}, {"file"} if field == "image" else ())
+                        cloud = {**image_reference(value["artifact"], max_bytes=image_limit(field)),
+                                 "type": "image", "storage": "volume"}
+                        if "file" not in value:
+                            inputs[field] = cloud
+                            continue
+                    else:
+                        fields(value, {"file"})
                     path = state.local_path(root, value["file"])
-                    if not path.is_file() or not 0 < path.stat().st_size <= 20 * 1024 * 1024:
+                    if not path.is_file() or not 0 < path.stat().st_size <= image_limit(field):
                         raise ValueError(f"Invalid input image: {path}")
                     _, mime = image_format(path.read_bytes())
                     digest = sha256_file(path)
                     value = {"type": "image", "path": f".runner/inputs/{digest}", "sha256": digest,
                              "size": path.stat().st_size, "mime": mime}
+                    if cloud is not None and (cloud["sha256"], cloud["size"]) != (digest, value["size"]):
+                        raise ValueError("Local fallback must match the exact original bytes")
                     imports[value["path"]] = {"source": path.relative_to(root).as_posix(), "artifact": value}
+                    if cloud is not None:
+                        value = {**cloud, "fallback": value}
                 inputs[field] = copy.deepcopy(value)
             if "seed" not in inputs:
                 # Stable per identity, independent of item order or batch size.

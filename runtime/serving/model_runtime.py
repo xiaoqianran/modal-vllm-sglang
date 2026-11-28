@@ -118,6 +118,13 @@ class ModelRuntime:
                 )
         except BaseException:
             self._stop_lazy_gateway()
+            if hasattr(self, "result_writer"):
+                try:
+                    self.result_writer.close()
+                except Exception:
+                    pass
+            if hasattr(self, "delivery_wake"):
+                self.delivery_wake.close()
             if hasattr(self, "resources"):
                 self.resources.stop()
             try:
@@ -139,6 +146,17 @@ class ModelRuntime:
         startup = spec.get("startup_timeout", 3600)
         started = time.perf_counter()
         self.batch_lock = threading.Lock()
+        if spec.get("enable_image_edits"):
+            from runtime.serving.preview_batch import PreviewWriter
+            # Serialize commits across inference checkpoints, writer and telemetry.
+            from runtime.serving.preview_batch import SerializedCommitVolume
+            self.volume = SerializedCommitVolume(self.volume)
+            self.result_writer = PreviewWriter(self.volume, Path("/data"), "", None,
+                                               flush_interval=0.05)
+            from runtime.serving.preview_delivery import DeliveryWake
+            from runtime.delivery.v3 import notify
+            self.delivery_wake = DeliveryWake(lambda events: [
+                notify(event["id"], event["app"]) for event in events])
         self.engine_lock = threading.Lock()
         self.stopping = threading.Event()
         self.resources = ResourceMonitor(
@@ -299,6 +317,8 @@ class ModelRuntime:
         with telemetry.span("wait", reason="lock"):
             self.batch_lock.acquire()
         try:
+            if hasattr(self, "result_writer"):
+                self.result_writer.check()
             started = time.perf_counter()
             print(json.dumps({
                 "event": "generate_one",
@@ -311,6 +331,7 @@ class ModelRuntime:
                 spec, [item], prefix, self.volume, self.cache_fingerprint,
                 recorder=telemetry, background_telemetry=True,
                 ensure_engine=self._ensure_engine,
+                result_writer=getattr(self, "result_writer", None),
             ))
             print(json.dumps({
                 "event": "generate_one_completed",
@@ -337,33 +358,33 @@ class ModelRuntime:
             raise
         finally:
             self.batch_lock.release()
+        from concurrent.futures import Future
+        if isinstance(record, Future):
+            record = record.result()
+            publish_telemetry(telemetry, Path("/data").joinpath(*prefix.split("/"), item["id"] + ".json"),
+                              record, self.volume, background=True)
         event = item.get("_delivery_v3")
         if isinstance(event, dict) and record.get("status") == "completed":
             try:
-                from runtime.delivery.v3 import notify
-                notify(event["id"], event["app"])
+                if hasattr(self, "delivery_wake"):
+                    self.delivery_wake.submit_ids([event])
+                else:
+                    from runtime.delivery.v3 import notify
+                    notify(event["id"], event["app"])
             except Exception as exc:
                 print("DELIVERY_EVENT_DEFERRED", type(exc).__name__, flush=True)
         return record
 
     def _preview_render(self, prompt, source, size, min_generation_area):
-        import base64
-        import httpx
-        endpoint = f"http://127.0.0.1:{self.spec['proxy_port']}/v1/images"
+        from runtime.serving.inference_api import ImageGenerationClient
+        client = ImageGenerationClient(f"http://127.0.0.1:{self.spec['proxy_port']}",
+                                       output_directory=self.spec.get("image_output_directory"))
         payload = dict(prompt=prompt, size=size, seed=42, num_inference_steps=6,
                        generator_device="cpu", response_format="b64_json")
         if min_generation_area is not None:
-            payload['min_generation_area'] = min_generation_area
-        with httpx.Client(timeout=720) as client:
-            if source is None:
-                response = client.post(endpoint + "/generations", json=payload)
-            else:
-                payload["prompt"] = "<Picture 1> " + prompt
-                response = client.post(endpoint + "/edits", data=payload,
-                                       files={"image": ("source.png", source, "image/png")})
-            if response.is_error:
-                raise RuntimeError(f"Gateway {response.status_code}: {response.text[:600]}")
-            return base64.b64decode(response.json()["data"][0]["b64_json"])
+            payload["min_generation_area"] = min_generation_area
+        return (client.generate(payload, timeout=720) if source is None
+                else client.edit(payload, source, timeout=720))[0]
 
     @modal.method()
     def preview_batch(self, project, pairs, archive=False, expected_deployment_version=None):
@@ -389,6 +410,13 @@ class ModelRuntime:
         from runtime.serving.process_lifecycle import stop_process
 
         self._stop_lazy_gateway()
+        if hasattr(self, "result_writer"):
+            try:
+                self.result_writer.close()
+            except Exception as exc:
+                print("RESULT_WRITER_CLOSE_FAILED", type(exc).__name__, flush=True)
+        if hasattr(self, "delivery_wake"):
+            self.delivery_wake.close()
         if hasattr(self, "resources") and self.resources.thread.is_alive():
             self.resources.stop()
         if hasattr(self, "telemetry") and self.telemetry.writer is not None:

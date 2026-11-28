@@ -15,7 +15,8 @@ def warm_image_engine(spec, *, timeout):
     print(json.dumps({"event": "snapshot_warmup_start", "service": spec["service"],
                       "params": item["params"]}), flush=True)
     data, _ = ImageGenerationClient(
-        f"http://127.0.0.1:{spec.get('port', 8000)}"
+        f"http://127.0.0.1:{spec.get('port', 8000)}",
+        output_directory=spec.get("image_output_directory")
     ).generate(payload, timeout=timeout)
     print(json.dumps({"event": "snapshot_warmup_completed", "service": spec["service"],
                       "seconds": time.perf_counter() - started, "bytes": len(data)}), flush=True)

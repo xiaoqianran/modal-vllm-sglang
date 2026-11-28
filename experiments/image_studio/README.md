@@ -4,9 +4,9 @@
 
 ## 与现有项目的关系
 
-- 沿用现有 MiniMax H3 Image SGLang 配置和模型缓存，验证模型官方的 JSON 生图及 multipart 改图接口，不在 Web 进程加载模型。
-- 网关透传改图是显式开关，旧生图和旧视频服务默认不受影响。实验模型 App 与生产 App 名称不同；复用缓存前须让预览部署指向有该版本权重的同一模型 Volume/命名空间。
-- 浏览器端先拿任务号再轮询，GPU 推理与页面连接分开；图片和任务保存在独立的私有 Modal Volume。本设备近期历史列表存在浏览器里。预览暂不写入现有 HF 画廊，不公开私人原图，也不自动删除。
+- 沿用现有 MiniMax H3 Image SGLang 配置和模型缓存，通过正式 SDK 生图与改图，不在 Web 进程加载模型。
+- 正式 MiniMax H3 Image 模型 App 同时提供生图和改图接口，工作台使用正式 SDK 调用与持久化提交记录，不另设 HTTP 推理实现。
+- 浏览器端先拿任务号再轮询，GPU 推理与页面连接分开；任务、原始上传和私有索引保存在独立的私有 Modal Volume，生成资产直接引用正式模型 Volume 的 private-studio 命名空间。本设备近期历史列表存在浏览器里。预览暂不写入现有 HF 画廊，不公开私人原图，也不自动删除。
 - 第一版只做单张指令改图，不承诺遮罩外像素不变；没有跨设备项目列表、区域遮罩及多用户。派发结果不确定时不自动重交；如果排队或渲染长时间未更新，界面显示超时。中文指令及保真度需要真机图像回归；目前没有额外 LLM 自动改写指令。
 
 ## CPU 验证（不用 Modal 账户、GPU 或模型权重）
@@ -23,6 +23,6 @@ python -m unittest discover -s tests -p 'test_generation_gateway.py'
 
 ## Modal 私人预览部署
 
-1. 用现有项目的 Modal 环境运行 `uv run python -m modal deploy experiments/image_studio/deploy_engine.py`。确认目标是新 App `image-studio-h3-preview`，不是生产模型；部署和首次推理可能计费。
-2. 在目标 Modal 环境创建 Secret `image-studio-preview`。填写独立强密码 `IMAGE_STUDIO_PASSWORD`、步骤 1 的真实 Modal Web URL `IMAGE_STUDIO_H3_URL`，以及该 Web 端点要求的 Proxy Token `IMAGE_STUDIO_H3_MODAL_KEY` 和 `IMAGE_STUDIO_H3_MODAL_SECRET`。不要把这些值加到 Git 或发在聊天里。
+1. 在同一 Modal 工作区使用 `python run.py prepare minimax --retry` 部署正式 App `005-minimax-h3-image`。SDK 会验证版本与模型缓存身份。
+2. 创建 Secret `image-studio-preview`，设置独立强密码 `IMAGE_STUDIO_PASSWORD`。不再需要模型 Web URL 或 Proxy Token。不要把密码加入 Git 或发在聊天里。
 3. `uv run python -m modal deploy experiments/image_studio/deploy.py` 后打开输出的 HTTPS URL。登录用户名是 `studio`，密码是步骤 2 设的值。不要共享该用户名和密码。先测一张图和连续两次小范围修改，再接历史画廊。

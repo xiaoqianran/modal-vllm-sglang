@@ -16,6 +16,20 @@ from runtime.tasks.task_identity import intent_digest
 from runtime.utils.files import read_json
 from runtime.telemetry.recorder import cloud_recorder
 
+def wait_for_progress(plan, records, backend, poll):
+    """For a serial same-model edit chain, wait on its existing Modal call."""
+    if len(plan["services"]) == 1 and any(job["uses"].endswith(".i2i") for job in plan["jobs"]):
+        active = [r for r in records.values() if r["status"] == "queued" and r.get("call_id")]
+        if len(active) == 1 and hasattr(backend, "session"):
+            try:
+                backend.call_handle(active[0]["call_id"]).get(timeout=poll)
+            except Exception:
+                # Reconcile through the normal durable polling path.
+                pass
+            return
+    time.sleep(poll)
+
+
 def run(payload, identity, *, backend=None, root=Path("/data"), timeout=85000, poll=2,
         durable=False, previous=None, single_pass=False):
     """Single claimed owner. Restore only an authoritative checkpoint on takeover."""
@@ -95,7 +109,7 @@ def run(payload, identity, *, backend=None, root=Path("/data"), timeout=85000, p
                 # ledger/results. Publish once per round, before sleeping.
                 # Terminal rounds are published once in finally with telemetry.
                 checkpoint(directory, records)
-                time.sleep(poll)
+                wait_for_progress(plan, records, backend, poll)
         except BaseException:
             workflow_status = "uncertain"
             raise

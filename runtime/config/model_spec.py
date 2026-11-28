@@ -115,7 +115,7 @@ def validate(spec):
             raise ValueError("cache_implementation is only for specialized Overlay models")
         if validator_module and not validator_module.startswith(implementation + "."):
             raise ValueError("Cache implementation and validator must belong to the same model")
-    for key in ("model", "prompt", "seed", "first_frame", "last_frame"):
+    for key in ("model", "prompt", "seed", "first_frame", "last_frame", "image"):
         if key in spec["defaults"] or key in spec["options"]:
             raise ValueError(f"{key} belongs to task inputs")
     for key in ("port", "proxy_port"):
@@ -202,8 +202,12 @@ def validate(spec):
         if not IDENTIFIER.fullmatch(name) or not isinstance(config, dict):
             raise ValueError("Invalid operation declaration")
         inputs = config.get("inputs", {"prompt": "string"})
-        if inputs.get("prompt") != "string" or any(k not in {"prompt", "first_frame", "last_frame"} or v not in {"string", "image"} for k, v in inputs.items()):
+        if inputs.get("prompt") != "string" or any(k not in {"prompt", "first_frame", "last_frame", "image"} or v not in {"string", "image"} for k, v in inputs.items()):
             raise ValueError("Unsupported operation inputs")
+        if "image" in inputs and (name != "i2i" or spec["kind"] != "image" or spec.get("enable_image_edits") is not True or inputs["image"] != "image" or set(inputs) != {"prompt", "image"}):
+            raise ValueError("Image editing requires an enabled image operation")
+        if name == "i2i" and "image" not in inputs:
+            raise ValueError("Image editing requires an image input")
         parameters(spec, {}, name)
     return spec
 

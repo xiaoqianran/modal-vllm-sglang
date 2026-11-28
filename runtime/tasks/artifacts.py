@@ -5,11 +5,16 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path, PurePosixPath
 import re
 
-from runtime.utils.media import MAX_FRAME, image_format
+from runtime.utils.media import MAX_FRAME, MAX_EDIT_IMAGE, image_format
 from runtime.config.storage import volume_key
 
+IMAGE_FIELDS = ("first_frame", "last_frame", "image")
 
-def image_reference(value):
+def image_limit(field):
+    return MAX_EDIT_IMAGE if field == "image" else MAX_FRAME
+
+
+def image_reference(value, *, max_bytes=MAX_FRAME):
     if not isinstance(value, dict) or set(value) != {"path", "sha256", "size"}:
         raise ValueError("Cloud image needs path, sha256 and size")
     path = value["path"]
@@ -20,12 +25,12 @@ def image_reference(value):
         raise ValueError("Invalid cloud image path")
     if not isinstance(value["sha256"], str) or not re.fullmatch("[0-9a-f]{64}", value["sha256"]):
         raise ValueError("Invalid cloud image SHA256")
-    if type(value["size"]) is not int or not 0 < value["size"] <= MAX_FRAME:
-        raise ValueError("Cloud image must be 1 byte to 20 MiB")
+    if type(value["size"]) is not int or not 0 < value["size"] <= max_bytes:
+        raise ValueError(f"Cloud image must be 1 byte to {max_bytes // (1024 * 1024)} MiB")
     return dict(value)
 
 
-def _verified_frame(chunks, ref):
+def verified_image(chunks, ref):
     data = bytearray()
     digest = hashlib.sha256()
     for chunk in chunks:
@@ -36,10 +41,11 @@ def _verified_frame(chunks, ref):
     if len(data) != ref["size"] or digest.hexdigest() != ref["sha256"]:
         raise ValueError("Cloud image content mismatch")
     image_format(data)
-    return base64.b64encode(data).decode("ascii")
+    return bytes(data)
 
 
-def _read_frame(ref, volume, mount_root):
+def read_image(ref, volume, mount_root=None):
+    ref = image_reference(ref, max_bytes=MAX_EDIT_IMAGE)
     # A snapshot/container mount can lag behind the committed SDK view.
     # Reuse only exact, content-verified mounted bytes; otherwise use the
     # existing authoritative SDK read. Never reload open model mmap files.
@@ -49,10 +55,14 @@ def _read_frame(ref, volume, mount_root):
             local = (root / ref["path"]).resolve()
             if local.is_relative_to(root) and local.is_file():
                 with local.open("rb") as stream:
-                    return _verified_frame(iter(lambda: stream.read(1024 * 1024), b""), ref)
+                    return verified_image(iter(lambda: stream.read(1024 * 1024), b""), ref)
         except (OSError, ValueError):
             pass
-    return _verified_frame(volume.read_file(volume_key("/" + ref["path"])), ref)
+    return verified_image(volume.read_file(volume_key("/" + ref["path"])), ref)
+
+
+def _read_frame(ref, volume, mount_root):
+    return base64.b64encode(read_image(ref, volume, mount_root)).decode("ascii")
 
 
 def resolve_frames(payload, volume, *, mount_root=None):

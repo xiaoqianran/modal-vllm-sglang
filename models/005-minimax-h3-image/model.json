@@ -4,6 +4,7 @@
   "revision": "5f90473023975e6271b0ed1dd84c4e88e4bbc6d3",
   "gpu": "RTX-PRO-6000",
   "cpu": 4,
+  "max_inputs": 4,
   "memory": 24576,
   "port": 30000,
   "proxy_port": 30020,
@@ -17,8 +18,13 @@
   "service": "minimax",
   "app_name": "005-minimax-h3-image",
   "operation": "t2i",
+  "operations": {
+    "t2i": {"inputs": {"prompt": "string"}},
+    "i2i": {"inputs": {"prompt": "string", "image": "image"}}
+  },
   "kind": "image",
   "enable_image_edits": true,
+  "image_output_directory": "/tmp/h3-engine-output",
   "model": "MiniMaxAI/MiniMax-H3-Image",
   "image": "debian_slim",
   "uv_packages": [
@@ -38,7 +44,9 @@
     "--port",
     "{port}",
     "--warmup-mode",
-    "off"
+    "off",
+    "--output-path",
+    "/tmp/h3-engine-output"
   ],
   "defaults": {
     "size": "2048x1152",

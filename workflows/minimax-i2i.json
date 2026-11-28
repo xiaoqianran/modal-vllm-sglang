@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "id": "minimax-i2i",
+  "steps": [
+    {
+      "id": "edit",
+      "uses": "minimax.i2i",
+      "inputs": {
+        "prompt": {
+          "ref": "input.prompt"
+        },
+        "image": {
+          "ref": "input.image"
+        }
+      }
+    }
+  ],
+  "outputs": {
+    "image": {
+      "ref": "edit.image"
+    }
+  }
+}
