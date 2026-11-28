@@ -14,6 +14,7 @@ from runtime.tasks.task_lifecycle import SubmissionRejected, recovery_action
 class GatewayTests(unittest.TestCase):
     def setUp(self):
         self.submissions = 0
+        self.forwarded = None
         self.status = "running"
         self.submit_code = 200
         self.status_code = 200
@@ -35,7 +36,8 @@ class GatewayTests(unittest.TestCase):
                 self.wfile.write(body)
 
             def do_POST(self):
-                self.rfile.read(int(self.headers["Content-Length"]))
+                body = self.rfile.read(int(self.headers["Content-Length"]))
+                case.forwarded = (self.path, self.headers.get("Content-Type"), body)
                 case.submissions += 1
                 case.entered.set()
                 case.release.wait(5)
@@ -98,6 +100,30 @@ class GatewayTests(unittest.TestCase):
             first.result(3)
             second.result(3)
         self.assertEqual(self.submissions, 2)
+
+    def test_edit_endpoint_is_opt_in_and_keeps_the_multipart_boundary(self):
+        import urllib.error
+        import urllib.request
+
+        self.spec["kind"] = "image"
+        self.response = {"data": []}
+        content_type = "multipart/form-data; boundary=studio-test"
+        body = b"--studio-test\r\nContent-Disposition: form-data; name=prompt\r\n\r\nedit\r\n--studio-test--\r\n"
+        url = self.endpoint + "/v1/images/edits"
+        def send(mime):
+            request = urllib.request.Request(url, body, {"Content-Type": mime}, method="POST")
+            return urllib.request.urlopen(request, timeout=2)
+        with self.assertRaises(urllib.error.HTTPError) as denied:
+            send(content_type)
+        self.assertEqual(denied.exception.code, 404)
+        self.spec["enable_image_edits"] = True
+        with self.assertRaises(urllib.error.HTTPError) as rejected:
+            send("application/json")
+        self.assertEqual(rejected.exception.code, 415)
+        self.assertEqual(self.submissions, 0)
+        with send(content_type) as reply:
+            self.assertEqual(reply.status, 200)
+        self.assertEqual(self.forwarded, ("/v1/images/edits", content_type, body))
 
     def test_unknown_acceptance_does_not_poison_unrelated_requests(self):
         for response, code in (({}, 200), ({"error": "engine failed"}, 500)):
