@@ -1,0 +1,75 @@
+{
+  "version": 1,
+  "name": "031-minimax-omni-landscape-12",
+  "workflow": "minimax-omni-t2i",
+  "render": {
+    "aspect_ratio": "16:9",
+    "resolution": "4k"
+  },
+  "delivery": {
+    "provider": "huggingface",
+    "bucket": "seachen/modal-vllm-sglang-assets"
+  },
+  "items": [
+    {
+      "id": "001",
+      "seed": 731001,
+      "prompt": "A single landscape photograph for a wordless feature-film establishing frame, viewed from a low rocky shore of a still alpine lake just before sunrise. One immense pyramidal snow peak stands slightly right of center, with lower jagged ridges stretching left; dark submerged stones and a narrow strip of frost-crusted grass occupy the bottom edge, and the lake reflects the mountain with a slight distortion from fine ripples. A thin veil of cold mist lies horizontally above the far shore, leaving the peak and reflection unobstructed. The first peach-colored sunlight touches only the upper snow slopes from screen left, while the valley remains in cool blue shadow. Slate rock, wind-carved snow, translucent water and restrained fine film grain; realistic atmospheric depth, a quiet natural tonal roll-off, no artificial light. The image is one continuous landscape frame. The image contains no text, letters or numbers."
+    },
+    {
+      "id": "002",
+      "seed": 731998,
+      "prompt": "A wide coastal landscape for a silent cinema frame, viewed from the grassy shoulder of a high sea cliff. A sequence of steep dark cliffs runs from the left foreground toward a distant headland at the right third, with open Atlantic water below and a narrow footpath following the grass near the lower edge. Long ocean swells break against the cliff bases in thin white foam, while a luminous opening near the low western horizon casts a soft amber band across the water. The sky above is layered mauve, smoky rose and pale gold, with shadowed cloud undersides and a few distinct shafts of light touching the distant headland. Salt-weathered rock, bent coastal grasses and subtle haze keep the scale believable; natural film color, not exaggerated saturation. The image is one continuous landscape frame. The image contains no text, letters or numbers."
+    },
+    {
+      "id": "003",
+      "seed": 732995,
+      "prompt": "A horizontal wilderness cinema photograph taken at eye level inside an old cedar forest in early morning. Tall straight trunks form an uneven rhythm across the frame, a shallow fern-lined stream curves from lower left toward a small opening in the central middle distance, and wet stones are individually readable in the foreground. Low, delicate fog threads between the distant trees rather than covering the whole scene. A single oblique shaft of warm morning light enters from an opening at upper right, illuminating a few suspended droplets and a patch of chartreuse moss; the rest of the forest is quiet in cool evergreen tones. Fine bark fissures, damp fern fronds and clear shallow water, gentle local contrast and physically coherent shadows; an intimate, unposed natural landscape. The image is one continuous landscape frame. The image contains no text, letters or numbers."
+    },
+    {
+      "id": "004",
+      "seed": 733992,
+      "prompt": "A wide desert road-movie establishing photograph from an elevated roadside viewpoint. A narrow empty asphalt road enters at the lower right, bends gently through rolling ochre dunes and disappears at a notch between two distant red sandstone mesas on the left third. Fine wind-shaped sand ripples occupy the nearest dune, and the slopes alternate between warm copper sunlit faces and long blue-violet shadows. The low sun sits outside the frame on the left, lighting airborne dust only along a few ridge crests; a large clear pale sky fills the upper third, with restrained high wisps of cloud. The road has no signs or markings, and its perspective remains continuous. Dry mineral surfaces, natural dust haze and warm film-negative highlights convey silence and enormous distance. The image is one continuous landscape frame. The image contains no text, letters or numbers."
+    },
+    {
+      "id": "005",
+      "seed": 734989,
+      "prompt": "A quiet lakeside film still at blue hour from a slightly elevated shore, with a single small weathered timber cabin on the right third beside a dark lake, the cabin reflected softly in the water beneath it. The left half opens onto the smooth lake and distant mountain silhouettes; a sparse line of bare birches marks the far bank. A narrow worn wooden jetty extends a short distance into the water from the cabin, and two small amber windows provide the only artificial light. Soft cobalt twilight, a faint residual silver glow above the horizon and a narrow low mist band give subtle separation to the mountain layers. The warm window light falls only on the nearby wall and boards, not on distant scenery. Fine aged timber grain and believable low-light exposure; restrained color, tranquil negative space. The image is one continuous landscape frame. The image contains no text, letters or numbers."
+    },
+    {
+      "id": "006",
+      "seed": 735986,
+      "prompt": "A horizontal landscape photograph for an autumn cinema sequence, viewed from just above a bend in a mountain creek. Clear running water leads from the lower center through rounded slate boulders toward a narrow opening at the center-left, framed by golden aspens and rust-red undergrowth on both banks. A few fallen leaves are caught among wet stones rather than scattered uniformly. The distant hillside rises behind the tree line, its muted ochre tones fading naturally into cool air. Overcast sunlight breaks through a small gap in the clouds from upper left, making selected wet leaves glow while preserving fine shadow detail under the canopy. Transparent water with realistic currents and reflections, textured mineral rock, muted golden ochre and deep burgundy, soft cinematic contrast. The image is one continuous landscape frame. The image contains no text, letters or numbers."
+    },
+    {
+      "id": "007",
+      "seed": 736983,
+      "prompt": "A wide northern winter night landscape for a wordless cinema frame. Low camera viewpoint across a frozen fjord, with a few broad cracked blue ice plates in the lower foreground and a dark mountain ridge along the lower third. A single broad green aurora curtain sweeps diagonally from upper left to the far right horizon, with delicate violet at its faint outer edge, above a sparse field of sharp stars. A narrow opening of black water near the middle reflects a subdued streak of green rather than a perfect mirror. Snow and ice are dimly illuminated by diffuse auroral light, while the distant rock faces remain nearly black. No moon or artificial lighting. Restrained natural night exposure, translucent ice texture, visible atmospheric gradation and modest fine grain; vast silence and convincing scale. The image is one continuous landscape frame. The image contains no text, letters or numbers."
+    },
+    {
+      "id": "008",
+      "seed": 737980,
+      "prompt": "A single wide natural-history cinema photograph from a sheltered ledge inside a humid tropical gorge. One tall waterfall drops through a notch in dark rock at the center-left into a deep green-blue plunge pool, with layered broad leaves framing the upper left and lower right without covering the falls. Water splashes at the base and becomes a fine mist drifting into the right middle distance. Wet moss covers selected rock shelves, and a narrow cascade drains out of the pool at lower center. Diffuse daylight enters from the open canopy above the waterfall, gently lighting the upper falling water and the closest glossy leaves; the gorge walls remain shaded in deep emerald and neutral charcoal. Realistic gravity, droplet detail, rock strata and leaf veins; soft humid atmospheric depth, no fluorescent colors. The image is one continuous landscape frame. The image contains no text, letters or numbers."
+    },
+    {
+      "id": "009",
+      "seed": 738977,
+      "prompt": "A horizontal volcanic coast photograph for a dramatic cinema establishing shot, taken just above a broad black-sand beach. A cluster of vertical basalt columns rises on the left, while a long low peninsula and distant volcanic ridges recede toward the right. A shallow wave has just withdrawn from the near shore, leaving a thin reflective film over dark granular sand and a few scattered pebbles. Heavy slate storm clouds dominate the upper half, parted near the right horizon by a narrow opening of muted copper light. Pale sea foam curls around the base of the columns; distant spray blends gently into the hazy sea. Sharp rock joints, wet sand texture and believable reflections with subdued silver highlights; desaturated cinematic tones and natural dramatic weather without lava or artificial effects. The image is one continuous landscape frame. The image contains no text, letters or numbers."
+    },
+    {
+      "id": "010",
+      "seed": 739974,
+      "prompt": "A broad highland meadow landscape for a peaceful feature-film frame, photographed from a low ridge overlooking several gently rolling hills. Fine tawny grasses and small pale alpine flowers fill the lower foreground; a narrow unpaved trail begins at the bottom left and follows a ridge toward the central middle distance. Beyond the ridge, blue-gray mountain ranges overlap in distinct layers and scattered low clouds pool inside deep valleys. Late-afternoon light enters from the upper right, softly tracing the grass seed heads and turning the near ridge honey-gold, while the far hills are progressively cooler. The open upper sky is pale blue with a few thin cloud strands. Believable wind-bent grass, tactile soil, subdued atmospheric perspective and gentle film contrast; an expansive yet intimate sense of altitude. The image is one continuous landscape frame. The image contains no text, letters or numbers."
+    },
+    {
+      "id": "011",
+      "seed": 740971,
+      "prompt": "A wide coastal drama establishing frame seen from a distant rocky bluff. One weathered white lighthouse stands on a narrow dark headland at the right third, its base and attached low keeper building firmly anchored to the rock. The left half is open rough sea; diagonal lines of whitecaps and a long breaking wave emphasize the incoming storm. A bank of charcoal clouds extends across the top, with a thin strip of pale warm daylight at the horizon illuminating the lighthouse's seaward face and leaving the landward face in shadow. The lantern is lit, a modest warm point visible against cool air; no exaggerated beam in clear daylight. Salt-stained masonry, dark slick rock and fine windblown spray, restrained slate-blue and ivory palette with natural luminance separation. The image is one continuous landscape frame. The image contains no text, letters or numbers."
+    },
+    {
+      "id": "012",
+      "seed": 741968,
+      "prompt": "A wide pastoral cinema still photographed from a slightly raised farm track overlooking a quiet rural valley at late summer sunset. A single mature oak stands slightly left of center at the boundary between two softly rolling fields, one golden with cut stubble and the other muted green. Parallel harvest furrows enter from the lower right and curve gently toward the tree, guiding the eye toward distant hills and a faint row of farm roofs near the horizon. The setting sun is just outside the frame at screen right, casting long delicate shadows across the field and warming the grass tips. A few dusty rose clouds hang over a pale amber horizon, fading into soft blue overhead. Natural field texture, restrained halation in the brightest sky, atmospheric layers and fine film grain; an ending frame that feels calm rather than sentimental. The image is one continuous landscape frame. The image contains no text, letters or numbers."
+    }
+  ]
+}

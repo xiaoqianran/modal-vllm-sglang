@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "name": "030-minimax-omni-smoke-1-landscape",
+  "workflow": "minimax-omni-t2i",
+  "render": {
+    "aspect_ratio": "16:9",
+    "resolution": "4k"
+  },
+  "delivery": {
+    "provider": "huggingface",
+    "bucket": "seachen/modal-vllm-sglang-assets"
+  },
+  "items": [
+    {
+      "id": "001",
+      "seed": 731001,
+      "prompt": "A single landscape photograph for a wordless feature-film establishing frame, viewed from a low rocky shore of a still alpine lake just before sunrise. One immense pyramidal snow peak stands slightly right of center, with lower jagged ridges stretching left; dark submerged stones and a narrow strip of frost-crusted grass occupy the bottom edge, and the lake reflects the mountain with a slight distortion from fine ripples. A thin veil of cold mist lies horizontally above the far shore, leaving the peak and reflection unobstructed. The first peach-colored sunlight touches only the upper snow slopes from screen left, while the valley remains in cool blue shadow. Slate rock, wind-carved snow, translucent water and restrained fine film grain; realistic atmospheric depth, a quiet natural tonal roll-off, no artificial light. The image is one continuous landscape frame. The image contains no text, letters or numbers."
+    }
+  ]
+}
