@@ -55,9 +55,18 @@ def publish_originals(root, requests, *, metrics=None, provider_factory=Observed
     results=[None]*len(requests)
     entries,mappings,prepared,cache,outcomes={},{},{},{},{}
     with (TemporaryDirectory(prefix="hf-originals-") if workspace is None else nullcontext(workspace)) as work:
+        from runtime.archive.works import check_original_slot, media_path, publish_task
+        published_tasks = {}
         for i,req in enumerate(requests):
             try:
                 artifact,settings=req["artifact"],req["delivery"]
+                work_job = req.get("work")
+                if work_job and work_job["id"] not in published_tasks:
+                    publish_task(provider, work_job["id"], req["work_task"],
+                                 Path(work) / "definitions" / work_job["id"])
+                    published_tasks[work_job["id"]] = req["work_task"]
+                if work_job and published_tasks[work_job["id"]] != req["work_task"]:
+                    raise ValueError("Conflicting work task definition")
                 source=mounted_source(root,artifact)
                 if local_inputs is not None:
                     if workspace is None:
@@ -68,7 +77,7 @@ def publish_originals(root, requests, *, metrics=None, provider_factory=Observed
                             "stored_sha256": artifact["sha256"], "stored_bytes": artifact["size"]}, snapshot):
                         raise ValueError("Source snapshot integrity mismatch")
                     source = snapshot
-                key=(artifact["sha256"],artifact["size"],source.suffix.lower(),settings["compression"],settings["min_saving"])
+                key=(artifact["sha256"],artifact["size"],source.suffix.lower(),settings["compression"],settings["min_saving"],bool(work_job))
                 if key in cache:
                     if local_inputs is None and sha256_file(source)!=artifact["sha256"]:
                         raise ValueError("Source checksum mismatch")
@@ -77,18 +86,39 @@ def publish_originals(root, requests, *, metrics=None, provider_factory=Observed
                     media=prepare_media(source,Path(work)/str(i),settings["compression"],settings["min_saving"],
                                         expected_sha256=artifact["sha256"],
                                         _verified_snapshot=local_inputs is not None,
-                                        lookup=lambda m,s:lookup_encoding(provider,m,s))
+                                        lookup=None if work_job else lambda m,s:lookup_encoding(provider,m,s))
                     cache[key]=media
-                remote=asset_path(media)
+                remote=media_path(work_job, media.upload_file.suffix) if work_job else asset_path(media)
+                if work_job and settings["compression"] == "adaptive_lossless":
+                    check_original_slot(provider, work_job, remote)
                 if media.remote_only:
                     outcomes[remote]=(public_url(bucket,remote),"sha256",True)
                 else:
                     entries.setdefault(remote,(media.upload_file,media.stored_sha256))
-                    if source.suffix.lower()==".png" and settings["compression"]=="adaptive_lossless":
+                    if not work_job and source.suffix.lower()==".png" and settings["compression"]=="adaptive_lossless":
                         mappings.setdefault(remote,{})[mapping_path(media,settings["min_saving"])]=mapping_bytes(media)
                 prepared[i]=(media,remote,artifact)
             except Exception as exc:
                 results[i]=error_row(exc)
+        slots = {}
+        for i, (media, remote, _) in prepared.items():
+            work_job = requests[i].get("work")
+            if work_job:
+                slot = (work_job["id"], work_job["item"], work_job["step"])
+                slots.setdefault(slot, []).append(i)
+        for group in slots.values():
+            signatures = {(prepared[i][1], prepared[i][0].original_sha256,
+                           prepared[i][0].stored_sha256) for i in group}
+            if len(signatures) == 1:
+                continue
+            # Reject every conflicting row before uploading any bytes for this
+            # slot. Other independent work slots in the batch can still finish.
+            for i in group:
+                _, remote, _ = prepared.pop(i)
+                entries.pop(remote, None)
+                mappings.pop(remote, None)
+                outcomes.pop(remote, None)
+                results[i] = error_row(ValueError("Conflicting originals for one work step"))
         entries={k:v for k,v in entries.items() if k not in outcomes}
         seen=set()
         lock=Lock()

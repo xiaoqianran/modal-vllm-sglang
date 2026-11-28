@@ -235,7 +235,10 @@ def committed_receipt(intent, row):
         raise ValueError("Receipt source differs from delivery intent")
     validate_media_record(loc, {"id": loc["id"], "file": filename, "bytes": artifact["size"],
                                 "sha256": artifact["sha256"]})
-    return outbox.validate_receipt(row, {"artifact": artifact, "delivery": intent["delivery"]})
+    request = {"artifact": artifact, "delivery": intent["delivery"]}
+    if "work" in intent:
+        request["work"] = intent["work"]
+    return outbox.validate_receipt(row, request)
 
 
 def ready(store, source, identity, modal=None, *, owner=None):
@@ -267,6 +270,18 @@ def ready(store, source, identity, modal=None, *, owner=None):
         return None
     try:
         request = outbox.resolve(source, intent, modal, ledger=store, terminal_lookup=terminal_status)
+        if request and not request.get("terminal") and "work" in intent:
+            from runtime.archive.works import task_path, validate_task
+            work = intent["work"]
+            task = outbox.read(store, task_path(work["id"]))
+            if task is None:
+                # A delayed definition is retriable, not permission to publish
+                # incomplete metadata or retry GPU inference.
+                raise FileNotFoundError("Missing work task definition")
+            task = validate_task(work["id"], task)
+            if not any(j["item"] == work["item"] and j["step"] == work["step"] for j in task["jobs"]):
+                raise ValueError("Delivery step is absent from the frozen work definition")
+            request["work_task"] = task
     except Exception as exc:
         outbox.failure(store, intent, n, exc)
         return None

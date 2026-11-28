@@ -12,7 +12,7 @@ from runtime.serving.snapshot_warmup import warm_image_engine
 from runtime.utils.files import read_json
 from tools.run_image_batch import run_batch
 
-SPEC = validate(read_json(Path(__file__).resolve().parents[1] / "models/005-minimax-h3-image/model.json"))
+SPEC = validate(read_json(Path(__file__).resolve().parents[1] / "models/005-minimax-h3-image-sglang/model.json"))
 
 
 class ImageBatchTests(unittest.TestCase):

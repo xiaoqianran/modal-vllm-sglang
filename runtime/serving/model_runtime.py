@@ -39,7 +39,8 @@ def build_image(spec, *, offline):
                          python_version=spec.get("python_version"),
                          uv_torch_backend=spec.get("uv_torch_backend"),
                          uv_extra_index_url=spec.get("uv_extra_index_url"),
-                         uv_only_binary=spec.get("uv_only_binary", False))
+                         uv_only_binary=spec.get("uv_only_binary", False),
+                         uv_requirements=spec.get("uv_requirements"))
 
 
 def serve(self):
@@ -64,6 +65,9 @@ class ModelRuntime:
         try:
             if paths is None:
                 paths, self.cache_fingerprint = verify_cache(spec, phase="engine_start")
+            if spec.get("local_encoder_view"):
+                from runtime.config.model_cache import local_encoder_view
+                paths = {**paths, "model": local_encoder_view(paths)}
             self.process = subprocess.Popen(command_argv(spec, paths))
             wait_for_health(
                 self.process,
@@ -146,17 +150,18 @@ class ModelRuntime:
         startup = spec.get("startup_timeout", 3600)
         started = time.perf_counter()
         self.batch_lock = threading.Lock()
-        if spec.get("enable_image_edits"):
-            from runtime.serving.preview_batch import PreviewWriter
-            # Serialize commits across inference checkpoints, writer and telemetry.
+        # Media publication is a runtime concern, independent of edit capability.
+        if spec["kind"] in {"image", "video"}:
             from runtime.serving.preview_batch import SerializedCommitVolume
-            self.volume = SerializedCommitVolume(self.volume)
-            self.result_writer = PreviewWriter(self.volume, Path("/data"), "", None,
-                                               flush_interval=0.05)
             from runtime.serving.preview_delivery import DeliveryWake
             from runtime.delivery.v3 import notify
+            self.volume = SerializedCommitVolume(self.volume)
             self.delivery_wake = DeliveryWake(lambda events: [
                 notify(event["id"], event["app"]) for event in events])
+        if spec["kind"] == "image":
+            from runtime.serving.preview_batch import PreviewWriter
+            self.result_writer = PreviewWriter(self.volume, Path("/data"), "", None,
+                                               flush_interval=0.05)
         self.engine_lock = threading.Lock()
         self.stopping = threading.Event()
         self.resources = ResourceMonitor(

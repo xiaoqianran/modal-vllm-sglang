@@ -32,8 +32,15 @@ def call_input_status(modal_api, call_id, *, input_id=None):
         graph = modal_api.FunctionCall.from_id(call_id).get_call_graph()
     except Exception:
         return None
-    matches = [node for node in graph if node.function_call_id == call_id
-               and (input_id is None or node.input_id == input_id)]
+    # Modal returns the root of the entire call tree even for a child call.
+    # Search nested inputs as well; an absent or ambiguous match proves nothing.
+    matches = []
+    pending = list(graph)
+    while pending:
+        node = pending.pop()
+        if node.function_call_id == call_id and (input_id is None or node.input_id == input_id):
+            matches.append(node)
+        pending.extend(getattr(node, "children", ()))
     return matches[0].status.name if len(matches) == 1 and isinstance(matches[0].status, InputStatus) else None
 
 

@@ -131,7 +131,9 @@ def backfill_video_batch(bucket, receipts, *, volume_root=None, local_inputs=Non
                         or not 0 < size <= MAX_SOURCE_BYTES or not HEX.fullmatch(digest)
                         or PurePosixPath(row["path"]).suffix.lower() != ".mp4"):
                     raise DerivativeInputError("Invalid video receipt")
-                cached = lookup_video_poster(provider, digest, size)
+                from runtime.archive.works import derivative_path
+                sibling = derivative_path(row["path"])
+                cached = None if sibling else lookup_video_poster(provider, digest, size)
                 if cached:
                     results[url] = {"source_sha256": digest, "status": "poster",
                                     "poster": cached, "reused": True}
@@ -163,10 +165,13 @@ def backfill_video_batch(bucket, receipts, *, volume_root=None, local_inputs=Non
                                                         "error reading header")):
                         raise DerivativeInputError("Video decoder rejected input") from exc
                     raise
+                if sibling:
+                    poster = {**poster, "path": sibling}
                 poster = {**poster, "url": public_url(bucket, poster["path"]),
                           "verification": "sha256"}
                 entries.setdefault(poster["path"], (file, poster["sha256"]))
-                mappings.setdefault(poster["path"], {})[index_path(digest)] = poster_mapping(digest, size, poster)
+                if not sibling:
+                    mappings.setdefault(poster["path"], {})[index_path(digest)] = poster_mapping(digest, size, poster)
                 prepared[url] = (digest, poster)
             except DerivativeInputError as exc:
                 results[url] = {"error": str(exc), "invalid_input": True}

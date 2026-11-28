@@ -63,6 +63,11 @@ def make_intent(job, record, plan):
         raise ValueError("Invalid delivery generation identity")
     payload = {"schema": SCHEMA, "locator": locator, "project": safe_id(plan["project"]),
                "kind": CAPABILITIES[job["uses"]]["output"], "delivery": settings}
+    from runtime.archive.works import work_job, media_path
+    work = work_job(plan, job)
+    if work is not None:
+        media_path(work, ".png" if payload["kind"] == "image" else ".mp4")
+        payload["work"] = work
     return {"id": intent_digest(payload), **payload}
 
 def register(volume, intent):
@@ -90,6 +95,9 @@ def validate_intent(intent, identity):
     if intent["kind"] not in {"image","video"} or normalize_delivery(intent["delivery"])!=intent["delivery"]:
         raise ValueError("Invalid delivery policy")
     safe_id(intent["project"])
+    if "work" in intent:
+        from runtime.archive.works import media_path
+        media_path(intent["work"], ".png" if intent["kind"] == "image" else ".mp4")
     return intent
 
 def resolve(volume, intent, modal_api=None, *, ledger=None, terminal_lookup=None):
@@ -119,12 +127,25 @@ def resolve(volume, intent, modal_api=None, *, ledger=None, terminal_lookup=None
             check_record(loc,result)
     if result["status"] != "completed":
         return {"terminal": True} if result["status"] in {"failed","cancelled"} else None
-    return {"artifact":{"storage":"volume","type":intent["kind"],"path":loc["prefix"]+"/"+result["file"],
-                        "size":result["bytes"],"sha256":result["sha256"]},
-            "delivery":intent["delivery"],"project":intent["project"]}
+    request = {"artifact":{"storage":"volume","type":intent["kind"],"path":loc["prefix"]+"/"+result["file"],
+                            "size":result["bytes"],"sha256":result["sha256"]},
+               "delivery":intent["delivery"],"project":intent["project"]}
+    if "work" in intent:
+        request["work"] = intent["work"]
+    return request
 
 def validate_receipt(row, request):
     from runtime.archive.huggingface import public_url
+    from runtime.archive.works import media_path
+    from pathlib import PurePosixPath
+    path_value = row.get("path", "")
+    digest = row.get("stored_sha256", "")
+    if request.get("work"):
+        address_ok = path_value == media_path(request["work"], PurePosixPath(path_value).suffix)
+    else:
+        address_ok = bool(re.fullmatch(r"assets/sha256/[0-9a-f]{2}/[0-9a-f]{64}\.(png|jpg|webp|mp4)", path_value)
+                          and path_value.split("/")[-1].split(".")[0] == digest
+                          and path_value.split("/")[-2] == digest[:2])
     if (row.get("status")!="archived" or row.get("verification")!="sha256"
             or row.get("source_artifact")!=request["artifact"] or row.get("bucket")!=request["delivery"]["bucket"]
             or row.get("original_sha256")!=request["artifact"]["sha256"]
@@ -132,9 +153,8 @@ def validate_receipt(row, request):
             or row.get("kind")!=request["artifact"]["type"]
             or type(row.get("stored_bytes")) is not int or row["stored_bytes"]<=0
             or not re.fullmatch(r"[0-9a-f]{64}",row.get("stored_sha256",""))
-            or not re.fullmatch(r"assets/sha256/[0-9a-f]{2}/[0-9a-f]{64}\.(png|jpg|webp|mp4)",row.get("path",""))
-            or row["path"].split("/")[-1].split(".")[0]!=row["stored_sha256"]
-            or row["path"].split("/")[-2]!=row["stored_sha256"][:2]
+            or not address_ok
+            or (row["kind"] == "video") != path_value.endswith(".mp4")
             or row.get("url")!=public_url(row["bucket"],row["path"])):
         raise ValueError("Invalid durable archive receipt")
     return row
@@ -272,9 +292,11 @@ def validate_derivative(derived, row):
         from runtime.archive.huggingface import public_url
         poster=derived["poster"]
         digest=poster["sha256"]
+        from runtime.archive.works import derivative_path
+        expected = derivative_path(row.get("path")) or f"thumbnails/sha256/{digest[:2]}/{digest}.webp"
         if (not re.fullmatch(r"[0-9a-f]{64}",digest)
                 or poster["verification"]!="sha256"
-                or poster["path"]!=f"thumbnails/sha256/{digest[:2]}/{digest}.webp"
+                or poster["path"]!=expected
                 or poster["url"]!=public_url(row["bucket"],poster["path"])):
             raise ValueError("Invalid video poster")
         return {**row,"poster":poster,"derivative_status":"complete"}
