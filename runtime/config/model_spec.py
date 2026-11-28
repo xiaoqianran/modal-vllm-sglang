@@ -124,6 +124,9 @@ def validate(spec):
     for key in ("cpu", "memory", "timeout", "startup_timeout", "scaledown_window", "max_inputs", "target_inputs", "max_containers", "telemetry_interval"):
         if key in spec and (type(spec[key]) is not int or spec[key] <= 0):
             raise ValueError(f"{key} must be a positive integer")
+    if "buffer_containers" in spec and (type(spec["buffer_containers"]) is not int
+            or not 0 <= spec["buffer_containers"] < spec.get("max_containers", 1)):
+        raise ValueError("buffer_containers must be a nonnegative integer below max_containers")
     if spec.get("target_inputs", 1) > spec.get("max_inputs", 1):
         raise ValueError("target_inputs must not exceed max_inputs")
     if spec.get("startup_timeout", 3600) <= 180:

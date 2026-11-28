@@ -33,6 +33,8 @@ def main():
     check = sub.add_parser("check-deployment", help="Check model deployments; starts GPU, generates no media")
     check.add_argument("service", nargs="+")
     check.add_argument("--dry-run", action="store_true")
+    scaling = sub.add_parser("check-scaling", help="Read deployed autoscaler settings and backlog without starting GPU containers")
+    scaling.add_argument("service", nargs="+")
     worker = sub.add_parser("worker", help="Schedule registered SDK scenes using already published deployments")
     worker.add_argument("--output", default="outputs")
     worker.add_argument("--poll", type=float, default=2)
@@ -123,6 +125,17 @@ def main():
                 request_resume(directory)
                 print(f"Registered: {directory}", flush=True)
             print("Registration complete. Keep `python run.py worker` running to execute jobs.", flush=True)
+            return
+        elif args.command == "check-scaling":
+            from orchestration.sdk import model_specs
+            from orchestration.scaling import inspect_scaling
+            specs = model_specs()
+            if any(service not in specs for service in args.service):
+                raise ValueError("Unknown service; choose from " + ", ".join(sorted(specs)))
+            results = [inspect_scaling(specs[service]) for service in args.service]
+            print(json.dumps(results, ensure_ascii=False, indent=2))
+            if any(not result["matches"] for result in results):
+                raise SystemExit(1)
             return
         elif args.command == "check-deployment":
             from orchestration.sdk import check_deployment, model_specs

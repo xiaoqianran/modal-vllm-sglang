@@ -45,6 +45,8 @@ class DeployOnlyTests(unittest.TestCase):
         self.assertEqual(len(registrations), 1)
         keywords = {k.arg: k.value for k in registrations[0].keywords}
         self.assertEqual(ast.unparse(keywords["max_containers"]), "spec.get('max_containers', 1)")
+        self.assertEqual(ast.unparse(keywords["buffer_containers"]), "spec.get('buffer_containers', 0)")
+        self.assertEqual(keywords["min_containers"].value, 0)
         concurrent_calls = [n for n in ast.walk(tree) if isinstance(n, ast.Call)
                             and isinstance(n.func, ast.Attribute) and n.func.attr == "concurrent"]
         self.assertEqual(len(concurrent_calls), 1)
@@ -71,8 +73,10 @@ class DeployOnlyTests(unittest.TestCase):
                 if omni:
                     self.assertEqual(spec["max_inputs"], 2)
                     self.assertEqual(spec["target_inputs"], 1)
+                    self.assertEqual(spec["buffer_containers"], 1)
                 else:
                     self.assertNotIn("target_inputs", spec)
+                    self.assertEqual(spec.get("buffer_containers", 0), 0)
 
     def test_no_temporary_gpu_app_entrypoints(self):
         for folder in MODELS:
