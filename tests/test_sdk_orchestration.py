@@ -267,11 +267,28 @@ class SDKWorkflowTests(unittest.TestCase):
                 with self.assertRaises(OSError):
                     tick(directory, self.backend, {}, pool)
             self.backend.poll = lambda record: None
-            tick(directory, self.backend, {}, pool)
+            with patch.object(self.backend, "accepted_submission_call", return_value=None):
+                tick(directory, self.backend, {}, pool)
         records = sdk.snapshot(directory)[1]["jobs"]
         self.assertEqual(records["first/001"]["status"], "uncertain")
         self.assertEqual(records["last/001"]["status"], "queued")
         self.assertEqual(len(self.backend.submissions), 1)
+
+    def test_lost_submit_reply_recovers_existing_call_without_respawn(self):
+        directory = self.create()
+        self.backend.collect_outputs = False
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            with patch.object(self.backend, "submit", side_effect=OSError("Lost reply")):
+                with self.assertRaises(OSError):
+                    tick(directory, self.backend, {}, pool)
+            with patch.object(self.backend, "poll", return_value=None), patch.object(
+                self.backend, "accepted_submission_call", return_value="fc-recovered",
+            ), patch.object(self.backend, "submit", wraps=self.backend.submit) as submit:
+                tick(directory, self.backend, {}, pool)
+                self.assertEqual(submit.call_count, 1)  # Only the other, unsubmitted job.
+        record = sdk.snapshot(directory)[1]["jobs"]["first/001"]
+        self.assertEqual(record["status"], "queued")
+        self.assertEqual(record["call_id"], "fc-recovered")
 
     def test_remote_config_rejection_is_terminal_and_preserves_call_id(self):
         directory = self.create()
@@ -293,13 +310,50 @@ class SDKWorkflowTests(unittest.TestCase):
         drain(directory, backend=self.backend, timeout=3, poll=0.001)
         target = state.media_directory(directory) / "001_first.png"
         target.unlink()
+        # A normal idle scan must not hash or re-download settled history.
+        self.assertEqual(state.pending_items(*sdk.snapshot(directory)), [])
+        sdk.request_resume(directory)
+        self.assertIn("001", state.pending_items(*sdk.snapshot(directory)))
         result = drain(directory, backend=self.backend, timeout=3, poll=0.001)
         self.assertEqual(target.read_bytes(), PNG)
         self.assertEqual(result["download_errors"], 0)
         target.write_bytes(b"unrelated content")
+        sdk.request_resume(directory)
         result = drain(directory, backend=self.backend, timeout=3, poll=0.001)
         self.assertEqual(result["download_errors"], 1)
         self.assertEqual(target.read_bytes(), b"unrelated content")
+        self.assertEqual(len(self.backend.submissions), 3)
+
+    def test_explicit_collection_detects_missing_and_modified_local_files_without_rehashing_unchanged(self):
+        import os
+        from runtime.utils.files import sha256_file
+
+        directory = self.create()
+        self.backend.videos_complete = True
+        drain(directory, backend=self.backend, timeout=3, poll=0.001)
+        target = state.media_directory(directory) / "001_first.png"
+        before = sdk.snapshot(directory)[1]["jobs"]["first/001"]["local_artifact"]
+        self.assertEqual(before["file_stamp"], state.local_media_stamp(target))
+
+        with patch("runtime.delivery.local.sha256_file", wraps=sha256_file) as digest, \
+                patch.object(self.backend, "download", wraps=self.backend.download) as download:
+            drain(directory, backend=self.backend, timeout=3, poll=0.001)
+            digest.assert_not_called()
+            download.assert_not_called()
+
+        target.unlink()
+        result = drain(directory, backend=self.backend, timeout=3, poll=0.001)
+        self.assertEqual(target.read_bytes(), PNG)
+        self.assertEqual(result["download_errors"], 0)
+
+        # A same-size replacement must still be hashed and refused, not overwritten.
+        info = target.stat()
+        corrupt = b"x" * len(PNG)
+        target.write_bytes(corrupt)
+        os.utime(target, ns=(info.st_atime_ns, info.st_mtime_ns + 2_000_000_000))
+        result = drain(directory, backend=self.backend, timeout=3, poll=0.001)
+        self.assertEqual(result["download_errors"], 1)
+        self.assertEqual(target.read_bytes(), corrupt)
         self.assertEqual(len(self.backend.submissions), 3)
 
     def test_batch_advances_other_scene_while_first_video_is_pending(self):

@@ -19,6 +19,12 @@ from runtime.config.storage import runtime_volume_name, VOLUME_MOUNT, VOLUME_VER
 from runtime.utils.files import read_json
 
 
+def preparation_app_name(spec, action):
+    """Keep remote preparation names independent of source directory renames."""
+    identity = spec.get("app_name") or spec.get("service_directory") or spec["service"]
+    return f"{action}-{identity}"
+
+
 def cache_implementation(spec):
     """Import a model-local cache plugin named in its validated model.json."""
     name = spec.get("cache_implementation")
@@ -60,7 +66,7 @@ def run(spec: dict, *, workers: int | str | None = None) -> dict:
     workers = task["workers"]
     shared = shared_storage(spec)
     downloader = create_downloader(
-        app=modal.App('download-' + spec.get('service_directory', spec['service'])),
+        app=modal.App(preparation_app_name(spec, "download")),
         volume_name=task["volume"], mount_path=VOLUME_MOUNT,
         sub_path=VOLUME_SUB_PATH,
         volume_version=VOLUME_VERSION, max_workers=8 if workers == "auto" else workers, verification_mode="xet",
@@ -122,7 +128,7 @@ def run_cache_maintenance(spec, *, migrate_only=False):
     image = (modal.Image.debian_slim(python_version="3.12")
              .env({"PYTHONPATH": "/opt"})
              .add_local_dir(str(PROJECT_ROOT / "runtime"), "/opt/runtime", copy=False, ignore=['**/__pycache__/**', '**/*.pyc', '**/*.pyo']))
-    app = modal.App("prepare-" + spec.get("service_directory", spec["service"]))
+    app = modal.App(preparation_app_name(spec, "prepare"))
     from runtime.serving.remote_workers import cache_maintenance_entry
 
     maintenance = app.function(

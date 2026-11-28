@@ -37,9 +37,9 @@ class OutputLayoutTests(unittest.TestCase):
         self.assertEqual(len(backend.submissions), 3)
         self.assertEqual(state.resolve_task(self.root, "outputs/006-layout"), directory)
         render(self.root / "outputs")
-        html = (self.root / "outputs/监控006-layout.html").read_text(encoding="utf-8")
+        html = (self.root / ".runtime/monitor/006-layout.js").read_text(encoding="utf-8")
         self.assertIn("006-layout/001_video.mp4", html)
-        self.assertIn("<video controls", html)
+        self.assertIn('"kind": "video"', html)
         self.assertTrue((directory / "task.json").exists())
         self.assertTrue(list((self.root / ".runtime/logs/tasks").glob("*.jsonl")))
         second = self.root / "tasks/006-other.json"
@@ -47,6 +47,6 @@ class OutputLayoutTests(unittest.TestCase):
         task["name"] = "006-other"
         state.save(second, task)
         runner.new_run(runner.build_plan(second, root=self.root), root=self.root)
-        self.assertTrue((self.root / "outputs/监控006-other.html").exists())
-        self.assertNotIn("<h2>006-other</h2>", (self.root / "outputs/监控006-layout.html").read_text(encoding="utf-8"))
+        self.assertTrue((self.root / ".runtime/monitor/006-other.js").exists())
+        self.assertNotIn("006-other", (self.root / ".runtime/monitor/006-layout.js").read_text(encoding="utf-8"))
         self.assertFalse((self.root / "outputs/监控.html").exists())

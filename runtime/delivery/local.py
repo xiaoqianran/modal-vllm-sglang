@@ -13,8 +13,11 @@ def download_to_local(volume, directory, job, record, fields):
     target = state.media_directory(directory) / (state.output_stem(job) + suffix)
     artifact = record["artifacts"][kind]
     with state.lock(directory, filename=".download-" + intent_digest(job["key"]) + ".lock"):
+        before = None
         if target.exists():
-            if sha256_file(target) != artifact["sha256"]:
+            before = state.local_media_stamp(target)
+            if (before is None or before[2] != artifact["size"]
+                    or sha256_file(target) != artifact["sha256"]):
                 raise FileExistsError("Local output differs from cloud artifact")
             fields["reused"] = True
         else:
@@ -22,5 +25,8 @@ def download_to_local(volume, directory, job, record, fields):
                 volume, volume_key("/" + artifact["path"]), target,
                 expected_sha256=artifact["sha256"], kind=kind,
                 refuse_existing=True, max_bytes=artifact["size"]))
-    return {**artifact, "storage": "local",
-            "path": target.relative_to(state.media_directory(directory)).as_posix()}
+        stamp = state.local_media_stamp(target)
+        if stamp is None or stamp[2] != artifact["size"] or (before is not None and stamp != before):
+            raise OSError("Local output changed before collection receipt")
+        return {**artifact, "storage": "local", "file_stamp": stamp,
+                "path": target.relative_to(state.media_directory(directory)).as_posix()}

@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-MODELS = ("models/001-moss-image", "models/002-pika-h3-flex", "models/005-minimax-h3-image")
+MODELS = ("models/001-moss-image", "models/002-pika-h3-flex", "models/005-minimax-h3-image-sglang")
 
 
 class DeployOnlyTests(unittest.TestCase):

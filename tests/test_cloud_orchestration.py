@@ -55,6 +55,24 @@ class CloudTests(unittest.TestCase):
                 return read_json(path) if path.exists() else None
         return Local()
 
+    def test_explicit_recovery_consumes_request_and_tracks_new_controller(self):
+        backend = self.local_backend(FakeBackend())
+        backend.modal = Mock()
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            cloud_client.tick_shot(self.directory, "001", backend, {}, pool)
+            cloud_client.save_receipt(self.directory, "001", recovery_requested=True, status="uncertain",
+                                      controller_state="terminal", deployment_version="a" * 64)
+            with patch("orchestration.workflow_recovery.load_plan", return_value={}), patch(
+                "tools.recover_workflow.resume", return_value={"call_id": "fc-recovered"}
+            ) as resume:
+                cloud_client.tick_shot(self.directory, "001", backend, {}, pool)
+                cloud_client.tick_shot(self.directory, "001", backend, {}, pool)
+                resume.assert_called_once_with(backend.volume, {}, backend.modal, "a" * 64)
+        receipt = sdk.snapshot(self.directory)[1]["cloud_runs"]["001"]
+        self.assertEqual(receipt["call_id"], "fc-recovered")
+        self.assertFalse(receipt["recovery_requested"])
+        self.assertEqual(len(backend.accepted), 1)
+
     def test_cloud_finishes_video_with_no_local_worker_then_downloads_on_restart(self):
         model = FakeBackend()
         model.videos_complete = True

@@ -1,4 +1,4 @@
-# 006-qwen38-pi
+# 007-qwen38-pi
 
 本目录通过 GitHub 仓库调用现有 Qwen3.8 SGLang Modal 部署，默认不依赖本机其他仓库目录。
 
@@ -8,16 +8,16 @@ GitHub: https://github.com/xiaoqianran/Qwen3.8-27B-RTX-6000-PRO-SGLang-DSpark
 
 ```powershell
 # 安全预览（不连接 GitHub，不部署）
-uv run --no-sync python models/006-qwen38-pi/app.py deploy --dry-run
+uv run --no-sync python models/007-qwen38-pi/app.py deploy --dry-run
 
 # 自动 GitHub 浅克隆至用户缓存，调用后端 Modal 部署
-uv run --no-sync python models/006-qwen38-pi/app.py deploy
+uv run --no-sync python models/007-qwen38-pi/app.py deploy
 
 # 主动同步 GitHub 最新代码后部署
-uv run --no-sync python models/006-qwen38-pi/app.py deploy --update-backend
+uv run --no-sync python models/007-qwen38-pi/app.py deploy --update-backend
 
 # 测试未推送的本地修改（路径可任意）
-uv run --no-sync python models/006-qwen38-pi/app.py deploy --backend-path D:\somewhere\backend
+uv run --no-sync python models/007-qwen38-pi/app.py deploy --backend-path D:\somewhere\backend
 ```
 
 默认克隆 main 到用户目录 .cache/qwen38-pi/backend，后续复用缓存；--update-backend 才会拉取最新代码，且拒绝覆盖本地未提交修改。--cache-dir 可修改缓存位置，--ref 可指定首次克隆的分支。真实部署会打印使用的 commit。
@@ -27,7 +27,7 @@ uv run --no-sync python models/006-qwen38-pi/app.py deploy --backend-path D:\som
 默认设置 QWEN38_PI_LORA=1 和 QWEN38_SPECULATIVE_ALGORITHM=DFLASH；默认使用 lmsysorg/sglang:nightly-dev-cu13-20260823-eec794bc（后端定义的 Pi LoRA + DFlash2 兼容镜像）。必须先用后端的下载入口准备 Target 和 Draft。密钥、Volume、LoRA 权重由后端负责。原 download_model.py/model.json 暂保留，仅用于旧版模型缓存准备，不属于新部署入口。
 
 此目录的 `download_model.py` 也使用统一轻量 CLI：默认仅打印计划；旧缓存的检查、迁移分别使用
-`uv run python models/006-qwen38-pi/download_model.py --execute --check-only`
+`uv run python models/007-qwen38-pi/download_model.py --execute --check-only`
 和 `--execute --migrate-only`。为了避免误下载旧版 vLLM 权重，旧模式下载必须额外明确
 `--allow-archived-download`（旧别名 `--allow-legacy-qwen`）；这不等于下载或部署当前 SGLang 后端。
 

@@ -171,7 +171,7 @@ class CompatibilityTests(unittest.TestCase):
             parameters(spec, {'seconds': 6, 'target': spec['defaults']['target']})
 
     def test_existing_deployment_class_names_are_registered(self):
-        for folder, name in [('models/001-moss-image', 'Moss'), ('models/002-pika-h3-flex', 'Pika'), ('models/005-minimax-h3-image', 'H3')]:
+        for folder, name in [('models/001-moss-image', 'Moss'), ('models/002-pika-h3-flex', 'Pika'), ('models/005-minimax-h3-image-sglang', 'H3')]:
             with registrations() as (classes, _):
                 app, model = create_app(Path(__file__).resolve().parents[1] / folder / 'model.json')
             self.assertIs(classes[(app, name)], model)

@@ -8,5 +8,6 @@ import './artist-palettes.css'
 import './production.css'
 import './living-colors.css'
 import './spatial.css'
+import './atelier.css'
 const raw = document.getElementById('studio-data').textContent
 createApp(App, { initial: raw.startsWith('__STUDIO') ? {assets:[],tasks:[]} : JSON.parse(raw) }).mount('#app')

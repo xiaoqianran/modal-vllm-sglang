@@ -35,6 +35,17 @@ class MemorySnapshotTests(unittest.TestCase):
         cls = model._get_user_cls()
         obj = cls()
         stack.enter_context(patch.object(cls, '_load_spec', return_value=validate({**SPEC, 'memory_snapshot': mode})))
+
+        def close_runtime():
+            # Run before restoring mocks; failed starts and explicit stops already clean up.
+            stopping = getattr(obj, 'stopping', None)
+            if stopping is not None and not stopping.is_set():
+                cls.stop._get_raw_f()(obj)
+            writer = getattr(obj, 'result_writer', None)
+            if writer is not None:
+                self.assertFalse(writer.thread.is_alive(), 'Result writer must stop with its runtime')
+
+        stack.callback(close_runtime)
         return cls, obj, cache, popen, health, stop, monitor, resources
 
     def test_capture_has_no_runtime_threads_or_gateway_and_restore_reuses_engine(self):
@@ -87,7 +98,11 @@ class MemorySnapshotTests(unittest.TestCase):
     def test_recovery_only_container_can_stop_without_engine(self):
         cls, obj, cache, popen, health, stop, monitor, resources = self.lifecycle('off')
         cls.start._get_raw_f()(obj)
+        writer = obj.result_writer
+        self.assertTrue(writer.thread.is_alive())
+        self.assertFalse(writer.thread.daemon)
         cls.stop._get_raw_f()(obj)
+        self.assertFalse(writer.thread.is_alive())
         popen.assert_not_called()
         stop.assert_not_called()
         obj.gateway_server.server_close.assert_called_once()

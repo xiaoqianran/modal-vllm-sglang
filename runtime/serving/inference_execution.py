@@ -121,7 +121,11 @@ def execute(spec, items, prefix, volume, cache_fingerprint="unverified", recorde
                 client.wait(job, timeout=spec.get("timeout", 3600), poll=0.5, on_status=remember_failure)
             with telemetry.span("generate", operation="video_fetch"):
                 data = client.content(job)
+        # Keep oversized images and videos on the existing synchronous path;
+        # the bounded writer must not introduce a new output-size restriction.
         if result_writer is not None and spec["kind"] == "image":
+            from runtime.serving.preview_batch import MAX_ORIGINAL
+        if result_writer is not None and spec["kind"] == "image" and len(data) <= MAX_ORIGINAL:
             def write(blob):
                 from runtime.utils.files import atomic_write
                 suffix = media_suffix(blob, "image")

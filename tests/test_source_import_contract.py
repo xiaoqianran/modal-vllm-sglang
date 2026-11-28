@@ -41,7 +41,7 @@ class SourceImportContractTests(unittest.TestCase):
             self.assertIn("serve", dir(snapshot))
 
     def test_real_media_specs_keep_deployed_class_name_and_independent_ports(self):
-        for folder in ("001-moss-image", "002-pika-h3-flex", "005-minimax-h3-image"):
+        for folder in ("001-moss-image", "002-pika-h3-flex", "005-minimax-h3-image-sglang"):
             spec = read_json(ROOT / "models" / folder / "model.json")
             for mode in ("off", "gpu"):
                 with self.subTest(folder=folder, mode=mode), tempfile.TemporaryDirectory() as tmp:

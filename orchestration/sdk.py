@@ -53,10 +53,15 @@ def check_deployment(spec, *, dry_run=False):
 def request_resume(directory):
     """Wake collection in a running worker; never spawn or wait for generation."""
     directory = Path(directory)
-    snapshot(directory)
+    plan, _ = snapshot(directory)
+    from runtime.delivery import destinations
     with state.lock(directory, timeout=10):
         current = read_json(directory / "state.json")
         current["collection_epoch"] = current.get("collection_epoch", 0) + 1
+        if "local" in destinations(plan):
+            for record in current["jobs"].values():
+                if record.get("status") == "completed" and record.get("local_artifact"):
+                    record["local_recheck_epoch"] = current["collection_epoch"]
         state.save(directory / "state.json", current)
 
 
@@ -160,6 +165,11 @@ class Backend:
     def call_handle(self, call_id):
         return self.session.handle(("call", call_id), lambda: self.modal.FunctionCall.from_id(call_id))
 
+    def accepted_submission_call(self, record):
+        """Return the immutable ledger receipt already observed by poll()."""
+        key = (record["prefix"], record["id"], record["execution_hash"])
+        return record.get("call_id") or self.session.accepted_call(key)
+
     def _committed_result(self, record, *, recover=False):
         result = remote_record(self.volume, record["prefix"], record["id"])
         if result:
@@ -219,7 +229,7 @@ class Backend:
         from modal.exception import TimeoutError as ModalTimeoutError
         try:
             result = self.call_handle(call_id).get(timeout=0)
-        except (TimeoutError, ModalTimeoutError) as exc:
+        except Exception as exc:
             if type(exc) in (TimeoutError, ModalTimeoutError):
                 return None
             self.session.forget_handle(("call", call_id))
@@ -228,14 +238,20 @@ class Backend:
             if committed is not None:
                 self.session.forget_accepted_call(submission)
                 return committed
-            raise
-        except Exception:
-            self.session.forget_handle(("call", call_id))
-            self.session.forget_ledger(identity)
-            committed = self._committed_result(record, recover=True)
-            if committed is not None:
+            # An explicit platform failure is different from a lost RPC reply.
+            # Never infer failure merely from a missing Volume receipt.
+            from runtime.tasks.task_lifecycle import terminal_call_status
+            terminal = terminal_call_status(self.modal, call_id)
+            if terminal in {"FAILURE", "INIT_FAILURE", "TERMINATED", "TIMEOUT"}:
+                committed = self._committed_result(record, recover=True)
+                if committed is not None:
+                    self.session.forget_accepted_call(submission)
+                    return committed
+                # Keep the immutable call receipt; do not automatically respawn.
                 self.session.forget_accepted_call(submission)
-                return committed
+                return {**{k: record[k] for k in ("id", "intent_hash", "execution_hash")},
+                        "status": "failed", "call_id": call_id, "terminal_status": terminal,
+                        "error": f"{terminal}: {type(exc).__name__}: {exc}"[:2000]}
             raise
         self.session.forget_handle(("call", call_id))
         self.session.forget_ledger(identity)
@@ -266,9 +282,32 @@ class Backend:
         return self.session.handle(("delivery-ledger", plan["delivery_volume"]),
                                    lambda: v3.ledger(self.modal, plan))
 
+    def ensure_work_definition(self, plan):
+        """Publish the complete definition once, before splitting the scene."""
+        from runtime.archive.works import task_definition, task_path, validate_task, work_id
+        from runtime.delivery import outbox
+        work = plan.get("work")
+        if not work:
+            return
+        identity = work["id"]
+        # A cloud shot has only a subset of the original plan. Its definition
+        # must already have been persisted by the submitting client.
+        if identity != work_id(plan):
+            return
+        store = self.delivery_store(plan)
+        key = ("work-task", plan["delivery_volume"], identity)
+        with self.session.keyed_lock(key):
+            if not self.session.input_verified(key):
+                outbox.immutable(store, task_path(identity),
+                                 validate_task(identity, task_definition(plan)))
+                self.session.remember_input(key)
+
     def register_delivery(self, job, record, plan):
         from runtime.delivery import outbox, v3
-        return v3.register(self.delivery_store(plan), outbox.make_intent(job, record, plan))
+        self.ensure_work_definition(plan)
+        store = self.delivery_store(plan)
+        intent = outbox.make_intent(job, record, plan)
+        return v3.register(store, intent)
 
     def note_delivery_call(self, intent, call_id, *, plan):
         from runtime.delivery import outbox
@@ -284,7 +323,7 @@ class Backend:
             raise ValueError("Delivery identity changed")
         if record.get("delivery_id") is None and outbox.read(
                 store, outbox.path(intent["id"], "intent.json")) is None:
-            v3.register(store, intent)
+            self.register_delivery(job, record, plan)
         request = archive_request(job, record, plan)
         row = outbox.receipt(store, intent, request)
         if row is not None:

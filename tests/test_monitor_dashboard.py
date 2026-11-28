@@ -101,11 +101,12 @@ class MonitorDashboardTests(unittest.TestCase):
         self.plan["jobs"][0]["inputs"]["prompt"] = "</script><script>alert(1)</script>"
         state.save(self.directory / "plan.json", self.plan)
         render(self.root / "outputs")
-        html = (self.root / "outputs/监控008-dashboard.html").read_text(encoding="utf-8")
-        self.assertNotIn("</script><script>alert(1)", html)
-        self.assertIn("\\u003c/script>", html)
-        self.assertNotIn("location.reload", html)
-        self.assertIn("window.updateTaskMonitor", (self.root / ".runtime/monitor/008-dashboard.js").read_text(encoding="utf-8"))
+        feed = (self.root / ".runtime/monitor/008-dashboard.js").read_text(encoding="utf-8")
+        self.assertNotIn("</script><script>alert(1)", feed)
+        self.assertIn("\\u003c/script>", feed)
+        self.assertIn("window.updateTaskMonitor", feed)
+        self.assertTrue((self.root / "outputs/index.html").is_file())
+        self.assertFalse((self.root / "outputs/监控008-dashboard.html").exists())
 
     def test_image_default_is_one_k_and_explicit_video_workflow_is_preserved(self):
         task = self.root / "tasks/008-default-image.json"

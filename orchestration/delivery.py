@@ -32,9 +32,11 @@ def schedule_deliveries(directory, plan, current, backend, deliveries, pool, *, 
             key = _key(directory, job["key"], destination)
             previous = deliveries.get(key)
             epoch = current.get("collection_epoch", 0)
-            if previous and previous["future"].done() and (
+            local_needed = destination == "local" and state.needs_local_delivery(record, directory=directory)
+            if previous and previous["future"].done() and previous["reported"] and (
                     previous["epoch"] != epoch or
-                    previous.get("next_poll", float("inf")) <= monotonic()):
+                    previous.get("next_poll", float("inf")) <= monotonic() or
+                    (local_needed and record.get("local_artifact") and not record.get("download_error"))):
                 del deliveries[key]
             if key in deliveries:
                 continue
@@ -43,6 +45,8 @@ def schedule_deliveries(directory, plan, current, backend, deliveries, pool, *, 
                 if not durable or record["cloud_archive"].get("derivative_status") != "pending":
                     continue
             if destination == "local":
+                if not local_needed:
+                    continue
                 update(directory, job["key"], download_error=None)
                 future = pool.submit(backend.download, directory, job, record, plan)
             else:
@@ -65,7 +69,8 @@ def collect_finished_deliveries(directory, deliveries):
             previous = saved["jobs"][key[1]]
             if destination == "local":
                 timestamp = {} if previous.get("local_artifact") else {"local_collected_at": utc_now()}
-                update(directory, key[1], local_artifact=artifact, download_error=None, **timestamp)
+                update(directory, key[1], local_artifact=artifact, download_error=None,
+                       local_verified_epoch=delivery["epoch"], **timestamp)
             elif artifact is None and delivery.get("durable"):
                 delivery["next_poll"] = monotonic() + 10
             else:
@@ -109,6 +114,9 @@ def publish_report(directory):
     with state.lock(directory, timeout=10):
         saved = read_json(directory / "state.json")
         if saved["plan_hash"] == plan["hash"]:
+            # Another item may have advanced while the snapshot lock was released.
+            # Publish the latest jobs under the same lock as the final timestamp.
+            result = report(plan, saved["jobs"])
             if saved.get("registered_at") and not saved.get("finished_at") and all(
                 record["status"] == "failed" or
                 (record["status"] == "completed" and all(
@@ -116,6 +124,16 @@ def publish_report(directory):
                 for record in saved["jobs"].values()
             ):
                 saved["finished_at"] = utc_now()
+                finished_now = True
+            else:
+                finished_now = False
+            report_path = directory / "report.json"
+            try:
+                previous = read_json(report_path)
+            except (FileNotFoundError, ValueError):
+                previous = None
+            if previous != result:
+                state.save(report_path, result)
+            if finished_now:
                 state.save(directory / "state.json", saved)
-            state.save(directory / "report.json", result)
     return result

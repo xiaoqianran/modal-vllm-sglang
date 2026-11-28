@@ -77,7 +77,7 @@ Task 级 `render` 覆盖 workflow 的默认尺寸，与 Task/item 的 `params.si
 
 ### 本地成品与监控
 
-日常只打开 `outputs/监控<任务名>.html` 查看对应任务，或到 `outputs/<任务名>/` 获取成品。
+打开 `outputs/index.html`，在任务监控中选择对应任务，或到 `outputs/<任务名>/` 获取成品。
 文件直接平铺为 `001_first.png`、`001_last.png`、`001_video.mp4`（单图步骤为 `001_image.png`）。
 004 首尾帧工作流使用 `864x480` 图片，对应当前 Pika 480p、16:9 的实际输出画布。
 登记前会检查生成首尾帧的短边、方向、宽高比及首尾尺寸一致性；发现不匹配会拒绝登记。
@@ -92,7 +92,8 @@ Task 级 `render` 覆盖 workflow 的默认尺寸，与 Task/item 的 `params.si
 * `logs/tasks/`：每任务状态变化事件；`logs/models/`：下载服务构建、部署日志。
 * `logs/.telemetry/`：已有结构化运行记录、指标索引和报告；远程详细下载日志仍可通过 Modal 查看。
 
-`worker` 每五秒更新本地监控数据；页面自动读取 `.runtime/monitor/<任务名>.js`，无需本地 HTTP 服务。
+活跃任务的监控数据最多每五秒刷新一次；已结束任务仅在状态、媒体或遥测等依赖变化时重建监控快照。
+页面读取 `.runtime/monitor/<任务名>.js`，无需本地 HTTP 服务。CLI worker 每 15 秒发现新登记或显式恢复的任务，不反复调度已结束的历史任务。
 手动刷新与自动刷新都只更新状态和耗时，不替换未变化的视频节点，保留播放位置和已展开的详情。
 监控展示任务及镜头已观测耗时、登记/提交/等待/启动/生成/云端保存/素材交接/下载阶段、实际尺寸、
 文件大小、已采集的下载字节与平均速度、提示词、参数和调用ID。任务总耗时按墙钟边界计算，不将并行阶段相加。
@@ -103,28 +104,20 @@ Task 级 `render` 覆盖 workflow 的默认尺寸，与 Task/item 的 `params.si
 恢复和状态命令可以直接指定 `outputs/<任务名>`；同名任务有多个场景时需指定 `.runtime/tasks/<project>/<scene>`。
 重启继续使用原调用 ID。当前只维护 `.runtime/tasks/` 状态与 `outputs/` 成品布局，旧目录迁移工具已移除；已有历史调试目录保存在 `.runtime/legacy/`。
 
-自动准备入口：登记 Task 后运行 worker，即可按需下载权重、构建镜像、部署模型及云端编排服务。
+### 显式准备与部署
+
+模型部署和任务执行相互独立。普通 worker 只选择已发布且与冻结任务配置匹配的模型版本，不自动下载权重、构建镜像或部署服务；源码变化也不会隐式触发部署。首次准备或需要更新模型时，显式运行 `prepare`：
 
 ```powershell
+uv run python run.py prepare moss pika orchestration
 uv run python run.py run tasks/006-moss-pika-demo.json
 uv run python run.py worker
 ```
 
-worker 自动扫描 `*/model.json`，默认最多并行准备两个服务；新模型无需额外注册准备流程，自动路径通过
-`orchestration/provision_entry.py` 使用通用工厂，不依赖模型目录内的薄入口。
-每个模型按需使用同名 `prepare-<service>` CPU 服务；有效的 Volume 缓存可直接复用，无需重部署 CPU 下载服务；缓存失效时才更新同名服务，
-下载重试复用服务，不再通过 `modal run` 反复创建临时 App。每个准备服务最多一个下载容器。
-任务仍需在 workflow 中引用模型能力并描述输入依赖；特殊推理协议仍需相应适配代码。
-准备期间 job 显示 `blocked`、`wait_reason=model`，已经就绪的模型可以先生成。
-CPU 下载器检查完整文件清单、复用有效缓存，自动路径会修复校验失败的缓存；部署版本包含源码、配置和权重指纹，
-通过 CPU 元数据函数核对，GPU 随实际生成启动。首次接管手动部署会更新为受版本管理的部署。
-
-准备失败最多尝试三次，原因保存在 Modal Dict `modal-vllm-sglang-orchestration-provisioning`。
-失败记录在 worker 重启后仍保持，避免无休止重试；版本校验超时例外：新批次可以核对源码、缓存指纹、远端版本及旧版本排空状态，完全一致时恢复 Ready，不重新部署。其他失败确认根因后通过 `run.py prepare --retry <service>` 显式重新准备。
-完成准备前需保持 worker 运行；正常退出会等待后台准备结束。准备完成后云端生成可独立继续。
-共享锁防止多 worker 同时准备同一应用；强制杀进程或机器掉电可能遗留 `lock:<app_name>`，
-需确认原准备进程及其云端下载已停止后清理该锁再重启，系统不会按超时强抢锁。
-模型配置或源码修改后重启 worker 重新核对版本。固定模型 revision 与镜像版本可保证更稳定的复现。
+准备流程仍由 `orchestration/provision_entry.py` 通用工厂、权重校验、部署探针和版本准入保护负责，默认最多并行准备两个服务。独立模型任务无需准备 orchestration。
+缺少兼容的已发布版本时，任务保持 `blocked` 并提示显式准备；已绑定版本的历史任务继续使用原版本，不静默切换。若旧版本未完成准备或已不可用，应先核对历史任务的冻结版本和部署状态，不能盲目重放生成。
+准备失败记录仍持久化；确认根因后可执行 `run.py prepare --retry <service>`。已有调用继续通过原 Call ID 和持久化结果恢复。模型配置变化需要显式部署匹配版本后再提交新任务。
+已完成的历史任务不在高频调度中重复读取媒体或计算 SHA-256。实际收集时，使用已校验文件的大小、修改时间和文件身份等元数据判断是否需要重新下载或校验；旧回执没有元数据时，在首次实际收集中建立基线。需要唤醒已退出活跃集合的历史任务或主动完整核验时，执行 `run.py resume <directory>`。缺失文件从 Volume 恢复，哈希不一致的已有文件拒绝覆盖。HF 原件、未完成衍生资产和必要终态证明仍会继续收集。
 
 004 分镜的 `tasks/004-pika-frames-demo.json` 是独立维护的多模型工作流任务；`tools/generate_storyboard.py` 只维护 `docs/004-before-rain/` 下的四份提示词文档与图片清单，不会覆盖任务 JSON。后续编辑镜头须分别检查任务与文档的一致性。
 
@@ -153,7 +146,9 @@ uv run python run.py telemetry report outputs/006-moss-pika-demo/001-main
 ```text
 models/001-moss-image/          MOSS：model.json + 两个薄入口
 models/002-pika-h3-flex/        Pika：同上，含文生视频与首尾帧能力
-models/005-minimax-h3-image/    MiniMax：同上，配置独立文本编码器
+models/005-minimax-h3-image-sglang/    MiniMax SGLang
+models/006-minimax-h3-image-vllm/      MiniMax vLLM-Omni (candidate)
+models/007-qwen38-pi/                 Qwen Pi
 runtime/                 四个按职责组织的公共包
   config/                模型配置、权重缓存、参数校验
   serving/               Modal GPU 服务、推理 API、网关及运行时
@@ -308,7 +303,7 @@ MOSS、Pika、MiniMax 默认采用 Modal 原生镜像 + 官方固定版本 wheel
 ```powershell
 # 仅 CPU，迁移已有同盘旧缓存；不会下载模型权重
 uv run python models/002-pika-h3-flex/download_model.py --execute --migrate-only
-uv run python models/005-minimax-h3-image/download_model.py --execute --migrate-only
+uv run python models/005-minimax-h3-image-sglang/download_model.py --execute --migrate-only
 # 部署后进行实时自检：会启动 GPU、加载模型，但不生成媒体
 uv run python run.py check-deployment pika
 uv run python run.py check-deployment minimax
@@ -359,7 +354,7 @@ python -m tools.build_cinematic_gallery --strict
 
 HF 图片从 Modal `model-store` 的 `/inference` 子目录经 CPU 归档直接上传
 `seachen/modal-vllm-sglang-assets`，**不经过 PC2 本地文件**。
-独立成品页面：`outputs/022-minimax-cinematic-atlas-12-gallery.html`。
+在 `outputs/index.html` 的画廊中查看该项目。
 画廊仅从已成功归档的真实 HF URL 构建；未完成的画面明确显示占位，
 `--strict` 要求 12 张全部发布后才返回成功。
 `worker --task` 仅调度指定 Task，不恢复仓库历史任务。

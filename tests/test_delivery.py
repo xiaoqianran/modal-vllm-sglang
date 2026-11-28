@@ -85,9 +85,9 @@ class DeliveryTests(unittest.TestCase):
         self.assertEqual(list((self.root / "outputs/006-hf-demo").iterdir()), [])
         from orchestration.monitor import render
         render(self.root / "outputs")
-        html = (self.root / "outputs/监控006-hf-demo.html").read_text(encoding="utf-8")
+        html = (self.root / ".runtime/monitor/006-hf-demo.js").read_text(encoding="utf-8")
         self.assertIn("https://huggingface.co/buckets/team/public/resolve/projects/", html)
-        self.assertIn("<video controls", html)
+        self.assertIn('"kind": "video"', html)
         sdk.request_resume(directory)
         drain(directory, backend=self.backend)
         self.assertEqual(len(calls), 3)

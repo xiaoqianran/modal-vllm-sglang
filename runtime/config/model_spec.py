@@ -147,8 +147,18 @@ def validate(spec):
         if not spec.get("uv_packages") or not isinstance(backend, str) or not re.fullmatch(r"cu\d{3}", backend):
             raise ValueError("uv_torch_backend requires uv_packages and an explicit CUDA backend, e.g. cu130")
     if "uv_only_binary" in spec:
-        if type(spec["uv_only_binary"]) is not bool or not spec.get("uv_packages"):
-            raise ValueError("uv_only_binary must be a boolean and requires uv_packages")
+        binary = spec["uv_only_binary"]
+        if (not spec.get("uv_packages") or
+                not (type(binary) is bool or (
+                    isinstance(binary, list) and binary and
+                    all(isinstance(name, str) and re.fullmatch(r"[a-z0-9][a-z0-9_.-]*", name)
+                        for name in binary) and len(set(binary)) == len(binary)))):
+            raise ValueError("uv_only_binary must be a boolean or unique package names and requires uv_packages")
+    if "uv_requirements" in spec:
+        lock = spec["uv_requirements"]
+        if (not spec.get("uv_packages") or not isinstance(lock, str)
+                or not re.fullmatch(r"[a-z0-9][a-z0-9_.-]*\.txt", lock)):
+            raise ValueError("uv_requirements must name an engine requirements file")
     if "uv_extra_index_url" in spec:
         from urllib.parse import urlsplit
         url = spec["uv_extra_index_url"]
@@ -190,6 +200,10 @@ def validate(spec):
         for key in ("allow_patterns", "required_files"):
             if key in config and (not isinstance(config[key], list) or not all(isinstance(p, str) and p and not Path(p).is_absolute() and ".." not in Path(p).parts for p in config[key])):
                 raise ValueError(f"{key} must contain relative file patterns")
+    if "local_encoder_view" in spec and (
+            type(spec["local_encoder_view"]) is not bool
+            or (spec["local_encoder_view"] and "encoder" not in components)):
+        raise ValueError("local_encoder_view requires an encoder component")
     if "snapshot_warmup" in spec:
         warmup = spec["snapshot_warmup"]
         if (spec["kind"] != "image"

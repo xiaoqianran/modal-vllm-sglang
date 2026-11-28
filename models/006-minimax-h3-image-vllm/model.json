@@ -6,47 +6,52 @@
   "cpu": 4,
   "max_inputs": 4,
   "memory": 24576,
-  "port": 30000,
-  "proxy_port": 30020,
+  "port": 8000,
+  "proxy_port": 8001,
   "timeout": 14400,
   "startup_timeout": 3600,
   "scaledown_window": 60,
   "memory_snapshot": "gpu",
-  "snapshot_warmup": {
-    "params": {"size": "2048x1152", "num_inference_steps": 6}
-  },
-  "service": "minimax",
-  "app_name": "005-minimax-h3-image",
+  "service": "minimax-omni",
+  "app_name": "006-minimax-h3-image-vllm",
   "operation": "t2i",
   "operations": {
-    "t2i": {"inputs": {"prompt": "string"}},
-    "i2i": {"inputs": {"prompt": "string", "image": "image"}}
+    "t2i": {
+      "inputs": {
+        "prompt": "string"
+      }
+    },
+    "i2i": {
+      "inputs": {
+        "prompt": "string",
+        "image": "image"
+      }
+    }
   },
   "kind": "image",
   "enable_image_edits": true,
-  "image_output_directory": "/tmp/h3-engine-output",
   "model": "MiniMaxAI/MiniMax-H3-Image",
   "image": "debian_slim",
   "uv_packages": [
-    "sglang[diffusion] @ https://github.com/sgl-project/whl/releases/download/nightly-2026-11-24-1173264b58/sglang-0.5.24.dev20261124%2Bg1173264b58-cp312-cp312-manylinux_2_39_x86_64.whl#sha256=3c4e8dfb13c18bf3bf685f9029c0143a9ae74fe5c4124e7076f558f0ed2e6596"
+    "vllm==0.34.0",
+    "vllm-omni==0.34.0"
   ],
   "command": [
-    "python",
-    "-m",
-    "sglang.multimodal_gen.runtime.entrypoints.cli.main",
+    "vllm",
     "serve",
-    "--model-path",
     "{model_path}",
-    "--text-encoder-path",
-    "{encoder_path}/text_encoder",
+    "--omni",
+    "--num-gpus",
+    "1",
     "--host",
     "0.0.0.0",
     "--port",
     "{port}",
-    "--warmup-mode",
-    "off",
-    "--output-path",
-    "/tmp/h3-engine-output"
+    "--served-model-name",
+    "{model}",
+    "--diffusion-offload-config",
+    "{\"mode\":\"layer\",\"components\":[\"text_encoder\"]}",
+    "--enforce-eager"
   ],
   "defaults": {
     "size": "2048x1152",
@@ -64,15 +69,10 @@
       "enum": [
         6
       ]
-    },
-    "min_generation_area": {
-      "type": "integer",
-      "minimum": 1024,
-      "maximum": 16777216
     }
   },
   "validator": "minimax",
-  "validator_module": "models.005-minimax-h3-image.model_impl.params",
+  "validator_module": "models.005-minimax-h3-image-sglang.model_impl.params",
   "cache": {
     "mode": "hf",
     "allow_patterns": [
@@ -105,17 +105,24 @@
     }
   },
   "cache_directory": "/data/models/005-minimax-h3-image",
-  "endpoint_label": "005-minimax-h3-image-serve",
+  "endpoint_label": "006-minimax-h3-image-vllm-serve",
   "modal_class": "H3",
-  "service_directory": "005-minimax-h3-image",
+  "service_directory": "006-minimax-h3-image-vllm",
   "python_version": "3.12",
   "uv_torch_backend": "cu130",
-  "uv_extra_index_url": "https://docs.sglang.ai/whl/cu130/",
-  "uv_only_binary": true,
-  "env": {
-    "CUDA_HOME": "/usr/local/lib/python3.12/site-packages/nvidia/cu13"
-  },
+  "uv_requirements": "vllm-omni-0.34.0-cu130.txt",
+  "uv_only_binary": ["vllm", "vllm-omni", "torch", "flashinfer-python", "triton"],
   "build_commands": [
-    "set -e; CUDA_ROOT=/usr/local/lib/python3.12/site-packages/nvidia/cu13; test -f \"$CUDA_ROOT/lib/libcudart.so.13\"; test -e \"$CUDA_ROOT/lib64\" || ln -s lib \"$CUDA_ROOT/lib64\"; test -e \"$CUDA_ROOT/lib/libcudart.so\" || ln -s libcudart.so.13 \"$CUDA_ROOT/lib/libcudart.so\"; test -f \"$CUDA_ROOT/lib64/libcudart.so\""
-  ]
+    "flashinfer install-cubin-wheel",
+    "flashinfer install-jit-cache-wheel --cuda-version 13.0 --mode minimal --sm sm120",
+    "apt-get update && apt-get install -y --no-install-recommends libxcb1 libgl1 libglib2.0-0 && rm -rf /var/lib/apt/lists/*",
+    "python -c 'import cv2; from vllm_omni.entrypoints.cli.main import main; print(cv2.__version__)'"
+  ],
+  "local_encoder_view": true,
+  "snapshot_warmup": {
+    "params": {
+      "size": "2048x1152",
+      "num_inference_steps": 6
+    }
+  }
 }

@@ -37,7 +37,7 @@ class ReadinessTests(unittest.TestCase):
         volume.assert_not_called()
 
     def test_live_deployment_info_must_match_spec_cache_and_methods(self):
-        for folder in ('models/002-pika-h3-flex', 'models/005-minimax-h3-image'):
+        for folder in ('models/002-pika-h3-flex', 'models/005-minimax-h3-image-sglang'):
             config = ROOT / folder / 'model.json'
             spec = validate(read_json(config))
             valid = {'spec_hash': intent_digest(spec), 'cache_fingerprint': 'prepared',

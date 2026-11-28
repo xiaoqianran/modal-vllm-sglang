@@ -13,7 +13,7 @@ from runtime.utils.files import read_json
 
 
 ROOT = Path(__file__).resolve().parents[1]
-CONFIG = ROOT / "models/006-qwen38-pi" / "model.json"
+CONFIG = ROOT / "models/007-qwen38-pi" / "model.json"
 
 
 @pytest.mark.parametrize("path, authorization, expected", [

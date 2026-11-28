@@ -48,7 +48,9 @@ def preview_url(receipt):
         digest = row["sha256"]
         if len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest):
             return ""
-        if row["verification"] != "sha256" or row["path"] != f"previews/sha256/{digest[:2]}/{digest}.webp":
+        from runtime.archive.works import derivative_path
+        expected = derivative_path(receipt.get("path")) or f"previews/sha256/{digest[:2]}/{digest}.webp"
+        if row["verification"] != "sha256" or row["path"] != expected:
             return ""
         url = public_url(receipt["bucket"], row["path"])
         return url if url == row["url"] else ""
@@ -61,6 +63,9 @@ def verified_preview(receipt, index=None):
     url = preview_url(receipt)
     if url:
         return url
+    from runtime.archive.works import parse_media
+    if parse_media(receipt.get("path")):
+        return ""  # Native work previews never depend on a global index.
     row = (index or {}).get(receipt.get("url"), {})
     if row.get("source_sha256") != receipt.get("stored_sha256"):
         return ""
@@ -137,7 +142,9 @@ def backfill_batch(bucket, receipts, *, volume_root=None, local_inputs=None):
                 suffix = PurePosixPath(row["path"]).suffix.lower()
                 if suffix not in {".png", ".jpg", ".jpeg", ".webp"}:
                     raise DerivativeInputError("Unsupported preview source")
-                cached = lookup_preview(provider, digest, size)
+                from runtime.archive.works import derivative_path
+                sibling = derivative_path(row["path"])
+                cached = None if sibling else lookup_preview(provider, digest, size)
                 if cached:
                     results[url] = {"source_sha256": digest, "status": "preview", "preview": cached, "reused": True}
                     continue
@@ -172,9 +179,12 @@ def backfill_batch(bucket, receipts, *, volume_root=None, local_inputs=None):
                     results[url] = {"source_sha256": digest, "status": "original"}
                     continue
                 file, preview = candidate
+                if sibling:
+                    preview = {**preview, "path": sibling}
                 entries.setdefault(preview["path"], (file, preview["sha256"]))
                 preview = {**preview, "url": public_url(bucket, preview["path"]), "verification": "sha256"}
-                mappings.setdefault(preview["path"], {})[preview_index_path(digest)] = preview_mapping(digest, size, preview)
+                if not sibling:
+                    mappings.setdefault(preview["path"], {})[preview_index_path(digest)] = preview_mapping(digest, size, preview)
                 prepared[url] = (digest, preview)
             except DerivativeInputError as exc:
                 results[url] = {"error": str(exc), "invalid_input": True}

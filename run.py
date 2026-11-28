@@ -11,7 +11,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("resolutions", help="List image presets and declared native video canvases; offline")
-    preparation = sub.add_parser("prepare", help="Prepare models; --retry explicitly retries a failed preparation")
+    preparation = sub.add_parser("prepare", help="Explicitly prepare/deploy models or orchestration; --retry retries failed preparation")
     preparation.add_argument("service", nargs="+")
     preparation.add_argument("--retry", action="store_true")
     for command in ("plan", "run"):
@@ -25,10 +25,15 @@ def main():
         p = sub.add_parser(command, help="Register recovery for the worker" if command == "resume" else
                            "Read the last saved progress without cloud access")
         p.add_argument("directory")
+    studio = sub.add_parser("studio", help="Start the on-demand local Vue + Python Studio")
+    studio.add_argument("--host", default="127.0.0.1")
+    studio.add_argument("--port", type=int, default=18765)
+    studio.add_argument("--no-browser", action="store_true")
+    studio.add_argument("--output", default="outputs")
     check = sub.add_parser("check-deployment", help="Check model deployments; starts GPU, generates no media")
     check.add_argument("service", nargs="+")
     check.add_argument("--dry-run", action="store_true")
-    worker = sub.add_parser("worker", help="Continuously schedule all registered SDK scenes")
+    worker = sub.add_parser("worker", help="Schedule registered SDK scenes using already published deployments")
     worker.add_argument("--output", default="outputs")
     worker.add_argument("--poll", type=float, default=2)
     worker.add_argument("--task", help="Only schedule this registered Task; avoid touching unrelated tasks")
@@ -41,6 +46,10 @@ def main():
     telemetry_report.add_argument("directory")
     args = parser.parse_args()
     try:
+        if args.command == "studio":
+            from orchestration.studio_server import serve
+            serve(host=args.host, port=args.port, open_browser=not args.no_browser, output=args.output)
+            return
         if args.command == "prepare":
             from orchestration.sdk import Backend, model_specs
             from orchestration.provisioning import Provisioner
@@ -102,19 +111,12 @@ def main():
             hf_buckets = {plan["delivery"]["bucket"] for plan in plans
                           if plan.get("delivery", {}).get("provider") in {"huggingface", "both"}}
             if hf_buckets:
-                import modal
                 from runtime.delivery import v3
+                from orchestration.delivery_preflight import check_delivery
                 checks = {(plan["delivery"]["bucket"], plan["delivery_app"], plan["delivery_volume"], plan["volume"])
                           for plan in plans if plan.get("delivery_protocol") == v3.PROTOCOL}
-                for bucket, delivery_app, delivery_volume, source_volume in sorted(checks):
-                    info = modal.Function.from_name(delivery_app, "check_bucket").remote(bucket, v3.PROTOCOL)
-                    source = modal.Volume.from_name(source_volume, version=2).hydrate()
-                    metadata = modal.Volume.from_name(delivery_volume, version=2).hydrate()
-                    if (not info.get("ready") or info.get("protocol") != v3.PROTOCOL
-                            or info.get("build") != v3.build_id()
-                            or info.get("volume_id") != source.object_id
-                            or info.get("delivery_volume_id") != metadata.object_id):
-                        raise ValueError("Delivery archive/storage unavailable; deploy current delivery")
+                for check in sorted(checks):
+                    check_delivery(*check)
             directories = [new_run(plan, output=args.output) for plan in plans]
             from orchestration.sdk import request_resume
             for directory in directories:

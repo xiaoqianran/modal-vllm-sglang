@@ -70,6 +70,18 @@ def node(owner, status):
     return SimpleNamespace(function_call_id=owner["call_id"], input_id=owner["input_id"], status=status)
 
 
+def test_nested_gpu_call_terminal_status_requires_exact_unique_input():
+    from runtime.tasks.task_lifecycle import call_input_status, terminal_call_status
+    child = SimpleNamespace(function_call_id="fc-child", input_id="in-child", status=InputStatus.TERMINATED, children=[])
+    parent = SimpleNamespace(function_call_id="fc-parent", input_id="in-parent", status=InputStatus.PENDING, children=[child])
+    modal_api = api(graph=[parent])
+    assert call_input_status(modal_api, "fc-parent") == "PENDING"
+    assert terminal_call_status(modal_api, "fc-child") == "TERMINATED"
+    assert terminal_call_status(modal_api, "fc-child", input_id="in-wrong") is None
+    parent.children.append(child)
+    assert terminal_call_status(modal_api, "fc-child") is None
+
+
 def checkpoint(f, jobs, status="running"):
     value = {"version": VERSION, "payload_hash": f.manifest["payload_hash"], "status": status, "jobs": jobs}
     f.vol.files[volume_key("/" + state_path(f.identity))] = json.dumps(value).encode()

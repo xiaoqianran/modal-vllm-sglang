@@ -1,5 +1,16 @@
 # Modal 多云模型下载与 SGLang 物化
 
+## MiniMax 双引擎目录与持久化身份
+
+本地源码目录不作为远端服务或缓存的身份。保留已发布的 SGLang App、准备服务名及权重路径，避免因移动源码目录而触发不必要的远端迁移。
+
+| 本地目录 / service_directory | 远端 app_name（download-/prepare- 使用此身份） | 权重缓存 |
+| --- | --- | --- |
+| `005-minimax-h3-image-sglang` | `005-minimax-h3-image` | `/data/models/005-minimax-h3-image` |
+| `006-minimax-h3-image-vllm` | `006-minimax-h3-image-vllm` | `/data/models/005-minimax-h3-image` |
+
+两种推理引擎的部署身份独立，权重路径共享。service_directory 对应源码目录；下载与维护 App 统一以 app_name 为命名基准，旧配置缺少 app_name 时依次回退到 service_directory、service。源码目录重命名不应修改已有 App、端点标签或缓存路径。
+
 ## Pika 下载启动优化（2026-11-22）
 
 当前 Pika 由 `model.json` 的 `cache_implementation` 指向自己的
@@ -70,7 +81,7 @@ uv run python tools/download_models.py models/002-pika-h3-flex/model.json --exec
 
 # 其他模型
 uv run python tools/download_models.py models/001-moss-image/model.json --execute
-uv run python tools/download_models.py models/005-minimax-h3-image/model.json --execute
+uv run python tools/download_models.py models/005-minimax-h3-image-sglang/model.json --execute
 ```
 
 Worker 配置优先级：`--workers auto|N` > `MODEL_HF_DOWNLOAD_WORKERS` > `model.json` 的 `download_workers` > 默认 3。MOSS、MiniMax、Pika 默认 auto（每轮根据缺失文件规划 1–8 个 Worker），Qwen 保持 2。显式整数可覆盖自动模式，由 Modal 选择可用云区域。

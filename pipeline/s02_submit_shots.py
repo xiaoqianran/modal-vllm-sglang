@@ -96,6 +96,8 @@ class Backend(sdk.Backend):
 
 
 def payload_for(directory, plan, item, backend, preparation=None):
+    if plan.get("work"):
+        backend.ensure_work_definition(plan)
     plan = copy.deepcopy(plan)
     plan["jobs"] = [job for job in plan["jobs"] if job["item"] == item]
     keys = {job["key"] for job in plan["jobs"]}
@@ -127,7 +129,8 @@ def payload_for(directory, plan, item, backend, preparation=None):
     plan["hash"] = intent_digest({key: value for key, value in plan.items() if key != "hash"})
     current = sdk.snapshot(directory)[1]
     initial = {key: {k: v for k, v in current["jobs"][key].items()
-                     if k not in {"local_artifact", "download_error", "local_collected_at", "cloud_archive", "archive_error", "archive_collected_at"}} for key in keys}
+                     if k not in {"local_artifact", "download_error", "local_collected_at", "local_recheck_epoch",
+                                   "local_verified_epoch", "cloud_archive", "archive_error", "archive_collected_at"}} for key in keys}
     payload = {"version": VERSION, "recovery_schema": 1, "input_lifecycle": LIFECYCLE,
                "plan": plan, "initial_jobs": initial}
     if preparation is not None:
@@ -163,8 +166,14 @@ def tick_direct(directory, plan, current, job, backend, downloads, pool):
     before_submit = None
     try:
         if provisioner is not None and record["status"] in {"pending", "blocked"}:
-            pinned = provisioner.batch_keys(plan["services"], plan["hash"])[service]
+            pinned_keys = provisioner.batch_keys(plan["services"], plan["hash"])
+            pinned = pinned_keys[service] if pinned_keys is not None else None
             key = receipt["preparation"] if receipt else pinned
+            if key is None:
+                sdk.update(directory, job_key, status="blocked", wait_reason="model",
+                           wait_detail=f"No compatible published deployment; run.py prepare {service}",
+                           model_wait_started_at=record.get("model_wait_started_at") or sdk.utc_now())
+                return
             ready = provisioner.registry.get(key, {})
             if ready.get("status") == "failed":
                 sdk.update(directory, job_key, status="failed",
@@ -184,7 +193,7 @@ def tick_direct(directory, plan, current, job, backend, downloads, pool):
                 runs = saved.setdefault("direct_runs", {})
                 changed = False
                 for step in plan["jobs"]:
-                    if (step["item"] not in runs and
+                    if (pinned is not None and step["item"] not in runs and
                             saved["jobs"][step["key"]]["status"] not in {"completed", "failed"}):
                         runs[step["item"]] = {
                             "id": "direct:" + run_id(plan, step["item"]),
@@ -248,6 +257,14 @@ def tick_shot(directory, item, backend, downloads, pool):
             if provisioner is not None:
                 cloud_key = provisioner.start(batch=plan["hash"])
                 preparation = provisioner.batch_keys(plan["services"], plan["hash"])
+                if cloud_key is None or preparation is None:
+                    for job in jobs:
+                        record = current["jobs"][job["key"]]
+                        if record["status"] in {"pending", "blocked"}:
+                            sdk.update(directory, job["key"], status="blocked", wait_reason="model",
+                                       wait_detail="No compatible published deployment; run.py prepare orchestration and required models",
+                                       model_wait_started_at=record.get("model_wait_started_at") or sdk.utc_now())
+                    return
                 readiness = provisioner.registry.get(cloud_key, {})
                 if readiness.get("status") == "failed":
                     for job in jobs:
@@ -279,9 +296,12 @@ def tick_shot(directory, item, backend, downloads, pool):
                     return
             payload = payload_for(directory, plan, item, backend, preparation)
             backend.persist_workflow(payload, identity)
-            receipt = {"id": identity, "payload_hash": intent_digest(payload), "status": "submitting"}
+            receipt = {"id": identity, "payload_hash": intent_digest(payload), "status": "submitting",
+                       "durable_plan": payload.get("recovery_schema") == 1}
             if preparation:
                 receipt["provisioning"] = preparation
+            if orchestration_version:
+                receipt["deployment_version"] = orchestration_version
             save_receipt(directory, item, **receipt)
             try:
                 recorder = local_recorder(state.telemetry_directory(directory), task_id=f"{plan['project']}/{plan['scene']}")
@@ -294,27 +314,50 @@ def tick_shot(directory, item, backend, downloads, pool):
                 save_receipt(directory, item, status="uncertain", error="Workflow acceptance unknown; never resubmit")
                 raise
         else:
+            if receipt.get("recovery_requested"):
+                save_receipt(directory, item, recovery_requested=False)
+                if receipt.get("controller_state") == "terminal" and receipt["status"] == "uncertain":
+                    from orchestration.workflow_recovery import load_plan
+                    from orchestration.deployment_state import source_version
+                    from tools.recover_workflow import resume
+                    manifest = load_plan(backend.volume, receipt["id"], plan["volume"],
+                                         expected_hash=receipt["payload_hash"])
+                    recovered = resume(backend.volume, manifest, backend.modal,
+                                       receipt.get("deployment_version") or source_version())
+                    if recovered.get("call_id"):
+                        save_receipt(directory, item, call_id=recovered["call_id"], status="uncertain",
+                                     controller_state="unconfirmed", error=None)
+                        return
             if receipt["status"] == "submitting":
                 save_receipt(directory, item, status="uncertain")
             if receipt["status"] not in {"completed", "failed"}:
-                remote = backend.poll_workflow(receipt)
+                try:
+                    remote = backend.poll_workflow(receipt)
+                except Exception:
+                    save_receipt(directory, item, status="uncertain", controller_state="unconfirmed")
+                    raise
                 if remote is not None:
                     if set(remote["jobs"]) != {job["key"] for job in jobs}:
                         raise ValueError("Unexpected cloud job identities")
                     with state.lock(directory, timeout=10):
                         current = read_json(directory / "state.json")
+                        changed = False
                         for key, record in remote["jobs"].items():
                             # Local downloads are a separate lifecycle.
                             local = {k: v for k, v in current["jobs"][key].items()
-                                     if k in {"local_artifact", "download_error", "local_collected_at", "cloud_archive", "archive_error", "archive_collected_at"}}
+                                     if k in {"local_artifact", "download_error", "local_collected_at", "local_recheck_epoch",
+                                               "local_verified_epoch", "cloud_archive", "archive_error", "archive_collected_at"}}
                             merged = {**record, **local}
                             if current["jobs"][key] != merged:
                                 state.record_event(directory, key, merged)
+                                changed = True
                             current["jobs"][key] = merged
-                        current["cloud_runs"][item].update(
-                            status=remote["status"], telemetry=remote.get("telemetry"),
-                            controller_state=remote.get("controller_state"), error=remote.get("error"))
-                        state.save(directory / "state.json", current)
+                        changes = dict(status=remote["status"], telemetry=remote.get("telemetry"),
+                                       controller_state=remote.get("controller_state"), error=remote.get("error"))
+                        controller = current["cloud_runs"][item]
+                        if changed or any(controller.get(key) != value for key, value in changes.items()):
+                            controller.update(changes)
+                            state.save(directory / "state.json", current)
         # Re-discover manifests from durable state, including terminal jobs after restart.
         _, current = sdk.snapshot(directory)
         task_id = f"{plan['project']}/{plan['scene']}"
@@ -326,52 +369,151 @@ def tick_shot(directory, item, backend, downloads, pool):
         return collect_outputs(directory, backend, downloads, pool, item=item)
 
 
-def worker(output, *, poll=2, backend=None, stop=None, task_name=None):
+def claim_scene(lifecycle, directory):
+    """Hold scheduling ownership until the owning worker releases the scene."""
+    try:
+        lifecycle.enter_context(state.lock(Path(directory) / ".runner", filename=".scheduler.lock"))
+    except RuntimeError as exc:
+        if not str(exc).startswith("Another runner holds "):
+            raise
+        return False
+    return True
+
+
+def worker(output, *, poll=2, backend=None, stop=None, task_name=None, selection=None, observed=None,
+           before_scene=None):
     if not math.isfinite(poll) or poll <= 0:
         raise ValueError("poll must be positive")
     if backend is None:
         backend = Backend()
         from orchestration.provisioning import Provisioner
-        backend.provisioner = Provisioner(backend)
-    active, downloads, scheduled = {}, {}, {}
+        backend.provisioner = Provisioner(backend, prepare_enabled=False)
+    active, downloads, scheduled, owned = {}, {}, {}, {}
+    checks = {}
+    known_paths, scene_cache = set(), {}
+    next_discovery = 0
     from runtime.telemetry.collector import start
     runtime = state.runtime_root(output)
-    start(runtime / "logs", backend.volume)
+    if selection is None:
+        start(runtime / "logs", backend.volume)
     from orchestration.monitor import render
     last_render = 0
+    render_pending = False
     # A slow network call occupies one delivery slot, never the scan loop or downloads.
-    with ExitStack() as lifecycle, ThreadPoolExecutor(max_workers=8) as network, ThreadPoolExecutor(max_workers=8) as pool:
+    def release_claims():
+        for claim in owned.values():
+            claim.close()
+
+    with ExitStack() as lifecycle, ThreadPoolExecutor(max_workers=8) as pool, ThreadPoolExecutor(max_workers=8) as network:
+        lifecycle.callback(release_claims)
         if getattr(backend, "provisioner", None) is not None:
             lifecycle.callback(backend.provisioner.close)
         while stop is None or not stop.is_set():
-            if time.monotonic() - last_render >= 5:
+            if (selection is None or selection() or render_pending) and time.monotonic() - last_render >= 5:
                 try:
                     render(output)
+                    render_pending = False
                 except (OSError, ValueError, KeyError) as exc:
                     print(f"Monitor: {exc}", flush=True)
                 last_render = time.monotonic()
             for key, future in list(active.items()):
                 if future.done():
+                    error = None
                     try:
                         future.result()
                     except Exception as exc:
+                        error = exc
                         print(f"{key}: {type(exc).__name__}: {exc}", flush=True)
                     del active[key]
+                    # The last Studio item may deselect itself in observed().
+                    # Give its terminal monitor feed one final refresh.
+                    render_pending = True
+                    if observed:
+                        try:
+                            observed(Path(key[0]), key[1], error)
+                        except (ValueError, OSError, KeyError, RuntimeError) as exc:
+                            observed(Path(key[0]), key[1], exc)
             candidates = []
-            for path in sorted((runtime / "tasks").glob("*/*/plan.json")):
+            if selection is None:
+                discover = time.monotonic() >= next_discovery
+                if discover:
+                    known_paths = set((runtime / "tasks").glob("*/*/plan.json"))
+                    next_discovery = time.monotonic() + 15
+                    scene_cache = {path: cached for path, cached in scene_cache.items() if path in known_paths}
+                # Inactive scenes are only stat'ed during periodic discovery.
+                paths = sorted(known_paths if discover else (
+                    path for path in known_paths if path not in scene_cache or scene_cache[path][1]))
+            else:
+                known_paths = {Path(directory) / "plan.json" for directory in selection()}
+                scene_cache = {path: cached for path, cached in scene_cache.items() if path in known_paths}
+                paths = sorted(known_paths)
+            for path in paths:
                 try:
-                    plan = read_json(path)
-                    if plan.get("transport") != "sdk":
-                        continue
-                    if task_name is not None and plan.get("name") != task_name:
-                        continue
-                    for item in dict.fromkeys(job["item"] for job in plan["jobs"]):
+                    stamp = (state.file_stamp(path), state.file_stamp(path.with_name("state.json")))
+                    cached = scene_cache.get(path)
+                    if cached is None or cached[0] != stamp:
+                        plan = read_json(path)
+                        items = []
+                        if plan.get("transport") == "sdk" and (task_name is None or plan.get("name") == task_name):
+                            current = read_json(path.with_name("state.json"))
+                            if current["plan_hash"] != plan["hash"]:
+                                # Registration/append may be replacing the plan and state.
+                                scene_cache.pop(path, None)
+                                continue
+                            items = state.pending_items(plan, current)
+                        scene_cache[path] = (stamp, items)
+                    for item in scene_cache[path][1]:
                         key = (str(path.parent), item)
                         if key not in active:
                             candidates.append(key)
                 except (ValueError, OSError, KeyError) as exc:
+                    scene_cache.pop(path, None)
                     print(f"{path}: {type(exc).__name__}", flush=True)
-            for key in sorted(candidates, key=lambda key: scheduled.get(key, 0))[:max(0, 8 - len(active))]:
+            wanted = {str(path.parent) for path in known_paths
+                      if path not in scene_cache or scene_cache[path][1]}
+            for directory in list(owned):
+                if directory in wanted or any(k[0] == directory for k in active):
+                    continue
+                check = checks.get(directory)
+                if check and not check[0].done():
+                    continue
+                # Never abandon an in-flight delivery because a scene was deselected.
+                keys = [key for key in scheduled if key[0] == directory]
+                if any(not delivery["future"].done() for key in keys
+                       for delivery in downloads.get(key, {}).values()):
+                    continue
+                checks.pop(directory, None)
+                owned.pop(directory).close()
+                for key in keys:
+                    scheduled.pop(key)
+                    downloads.pop(key, None)
+            for key in sorted(candidates, key=lambda key: scheduled.get(key, 0)):
+                if len(active) >= 8:
+                    break
+                directory = key[0]
+                if directory not in owned:
+                    claim = ExitStack()
+                    if not claim_scene(claim, directory):
+                        scheduled[key] = time.monotonic()
+                        if observed:
+                            observed(Path(directory), key[1], "另一个 Worker 正在调度此任务")
+                        continue
+                    owned[directory] = claim
+                if before_scene:
+                    check = checks.get(directory)
+                    if check is None:
+                        checks[directory] = (network.submit(before_scene, Path(directory)), time.monotonic())
+                        continue
+                    future, started = check
+                    if not future.done():
+                        continue
+                    error = future.exception()
+                    if error is not None:
+                        if observed:
+                            observed(Path(directory), key[1], error)
+                        if time.monotonic() - started >= 30:
+                            checks.pop(directory)
+                        continue
                 active[key] = network.submit(tick_shot, key[0], key[1], backend,
                                              downloads.setdefault(key, {}), pool)
                 scheduled[key] = time.monotonic()

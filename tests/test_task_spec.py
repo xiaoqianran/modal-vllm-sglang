@@ -25,7 +25,7 @@ from pathlib import Path
 from runtime.tasks import job_client
 from runtime.utils.files import read_json, atomic_json, download_volume_file
 from runtime.tasks.task_spec import ROOT, prepare
-for folder in ("models/001-moss-image", "models/002-pika-h3-flex", "models/005-minimax-h3-image"):
+for folder in ("models/001-moss-image", "models/002-pika-h3-flex", "models/005-minimax-h3-image-sglang"):
     spec = read_json(ROOT / folder / "model.json")
     payload, signature = prepare(spec, {"id": "001", "prompt": "boat", "seed": 42})
     expected = hashlib.sha256(json.dumps({"spec": spec, "operation": spec["operation"],
