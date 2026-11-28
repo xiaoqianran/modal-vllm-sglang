@@ -254,6 +254,7 @@
   setInterval(()=>{if(auto.checked)refresh();},5000);
   setInterval(()=>{
     const age=Math.max(0,Date.now()/1000-latest.updated_at), node=document.getElementById('connection');
+    if(latest.monitor_static){node.classList.remove('stale');text(node,'已保存的历史记录');return;}
     node.classList.toggle('stale',age>20);
     text(node,age>20?`数据已 ${Math.floor(age)} 秒未更新，请检查 worker`:`${auto.checked?'自动更新已开启':'自动更新已关闭'} · 视频播放不会被刷新打断`);
   },1000);

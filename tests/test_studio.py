@@ -69,7 +69,6 @@ def test_feed_backed_task_initial_payload_is_summary_only(tmp_path):
     (runtime / "001-project.js").write_text(
         "window.updateTaskMonitor(" + json.dumps(snapshot,ensure_ascii=False) + ");",
         encoding="utf-8")
-    (root / "监控001-project.html").write_text("<!doctype html>",encoding="utf-8")
     data=collect(root,thumbs=False)
     task=data["tasks"][0]
     assert task["snapshot"]["name"]=="001-project"
@@ -99,6 +98,32 @@ def test_cloud_task_feed_never_keeps_local_thumbnail_path(tmp_path):
         "step":"image","asset":{"url":url,"local_url":"001-project/001_image.png",
         "thumb":"001-project/old-thumb.webp","kind":"image","filename":"001_image.png","bytes":900}}]}
     (runtime/"001-project.js").write_text("window.updateTaskMonitor("+json.dumps(snapshot)+");",encoding="utf-8")
-    (root/"监控001-project.html").write_text("<!doctype html>",encoding="utf-8")
     data=collect(root,thumbs=False)
     assert data["assets"][0]["thumb"]==url
+
+
+
+def test_cloud_feed_keeps_verified_same_bucket_preview(tmp_path):
+    root = tmp_path / "outputs"
+    runtime = tmp_path / ".runtime/monitor"
+    runtime.mkdir(parents=True)
+    bucket = "example/public"
+    digest = "a" * 64
+    preview_digest = "b" * 64
+    original = public_url(bucket, f"assets/sha256/aa/{digest}.png")
+    preview_path = f"previews/sha256/bb/{preview_digest}.webp"
+    preview = public_url(bucket, preview_path)
+    candidates = [preview, public_url("other/public", preview_path),
+                  "001-project/old-thumb.webp", "https://example.com/preview.webp",
+                  public_url(bucket, f"previews/sha256/cc/{preview_digest}.webp")]
+    snapshot = {"name": "001-project", "status": "completed", "jobs": [
+        {"key": f"image/{i:03}", "item": f"{i:03}", "step": "image",
+         "asset": {"url": original, "thumb": candidate, "kind": "image", "filename": "image.png"}}
+        for i, candidate in enumerate(candidates)]}
+    (runtime / "001-project.js").write_text(
+        "window.updateTaskMonitor(" + json.dumps(snapshot) + ");", encoding="utf-8")
+    data = collect(root, thumbs=False)
+    assert len(data["assets"]) == len(candidates)
+    assert data["assets"][0]["thumb"] == preview
+    assert all(a["thumb"] == original for a in data["assets"][1:])
+    assert all(a["url"] == original for a in data["assets"])
