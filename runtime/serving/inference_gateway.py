@@ -104,12 +104,15 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _forward(self, method):
-        if not (self.path == "/health" or self.path == "/v1/models"
+        edit = (method == "POST" and self.path == "/v1/images/edits"
+                and SPEC["kind"] == "image" and SPEC.get("enable_image_edits") is True)
+        if not (edit or self.path == "/health" or self.path == "/v1/models"
                 or self.path == "/v1/images/generations"
                 or self.path == "/v1/videos"
                 or self.path.startswith("/v1/videos/")):
             return self._fail(404, "Unknown endpoint")
         body = None
+        content_type = "application/json"
         if method == "POST":
             try:
                 length = int(self.headers.get("Content-Length", 0))
@@ -119,17 +122,22 @@ class Handler(BaseHTTPRequestHandler):
                 return self._fail(413, "Request too large or empty")
             body = self.rfile.read(length)
             endpoint = "/v1/videos" if SPEC["kind"] == "video" else "/v1/images/generations"
-            if self.path != endpoint:
-                return self._fail(405, "Unsupported generation endpoint")
-            try:
-                payload = json.loads(body)
-                if not isinstance(payload, dict):
-                    raise ValueError("Request must be a JSON object")
-                if SPEC.get("frame_transport") == "keyframes":
-                    payload = prepare_request(payload, SPEC)
-                body = json.dumps(payload).encode("utf-8")
-            except (ValueError, json.JSONDecodeError) as exc:
-                return self._fail(400, exc)
+            if edit:
+                content_type = self.headers.get("Content-Type", "")
+                if not content_type.lower().startswith("multipart/form-data;"):
+                    return self._fail(415, "Image editing requires multipart/form-data")
+            else:
+                if self.path != endpoint:
+                    return self._fail(405, "Unsupported generation endpoint")
+                try:
+                    payload = json.loads(body)
+                    if not isinstance(payload, dict):
+                        raise ValueError("Request must be a JSON object")
+                    if SPEC.get("frame_transport") == "keyframes":
+                        payload = prepare_request(payload, SPEC)
+                    body = json.dumps(payload).encode("utf-8")
+                except (ValueError, json.JSONDecodeError) as exc:
+                    return self._fail(400, exc)
         ensure_engine = getattr(self.server, "ensure_engine", None)
         if ensure_engine is not None:
             try:
@@ -140,7 +148,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._fail(503, "Engine initialization failed", rejected=method == "POST")
         req = urllib.request.Request(
             UPSTREAM + self.path, data=body, method=method,
-            headers={"Content-Type": "application/json"} if body else {},
+            headers={"Content-Type": content_type} if body else {},
         )
         try:
             try:
