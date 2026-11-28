@@ -1,0 +1,60 @@
+{
+  "version": 1,
+  "name": "029-minimax-vllm-landscape-9-pairs-retry",
+  "workflow": "minimax-omni-t2i-i2i",
+  "render": {
+    "aspect_ratio": "16:9",
+    "resolution": "2k"
+  },
+  "delivery": {
+    "provider": "huggingface",
+    "bucket": "seachen/modal-vllm-sglang-assets"
+  },
+  "items": [
+    {
+      "id": "001",
+      "prompt": "A wide landscape cinema still from the rocky shore of an alpine lake at dawn, snow-covered peaks centered above a calm reflection, dark pines framing the left edge, thin mist over the water and soft gold on the summits. Natural photographic textures, physically coherent light, subtle film grain, realistic atmospheric depth. The image contains no text, letters or numbers.",
+      "edit_prompt": "Use <Picture 1> as the source landscape. Add a small wooden rowboat beside the near shore, strengthen the golden dawn light and low mist, and clarify the mountain reflection. Preserve the original camera viewpoint, framing, main landforms and photographic style. No other lettering is added."
+    },
+    {
+      "id": "002",
+      "prompt": "A wide coastal cinema still from a grassy headland overlooking steep dark cliffs, ocean surf below, a winding path on the right, layered pink and amber clouds and a luminous horizon. Natural photographic textures, physically coherent light, subtle film grain, realistic atmospheric depth. The image contains no text, letters or numbers.",
+      "edit_prompt": "Use <Picture 1> as the source landscape. Place a white lighthouse on the distant headland, add three distant seabirds and stronger foam below the cliffs. Preserve the original camera viewpoint, framing, main landforms and photographic style. No other lettering is added."
+    },
+    {
+      "id": "003",
+      "prompt": "A wide forest landscape at eye level, a shallow creek winding from foreground stones into a dense autumn woodland, amber leaves and cool reflected sky, delicate sunlight through the canopy. Natural photographic textures, physically coherent light, subtle film grain, realistic atmospheric depth. The image contains no text, letters or numbers.",
+      "edit_prompt": "Use <Picture 1> as the source landscape. Add a rustic wooden footbridge in the middle distance, scattered floating leaves and gentle visible sunbeams. Preserve the original camera viewpoint, framing, main landforms and photographic style. No other lettering is added."
+    },
+    {
+      "id": "004",
+      "prompt": "A wide desert landscape of monumental wind-shaped dunes, fine ripples in the foreground, elegant ridges across the middle distance and late-afternoon golden light with long cool shadows. Natural photographic textures, physically coherent light, subtle film grain, realistic atmospheric depth. The image contains no text, letters or numbers.",
+      "edit_prompt": "Use <Picture 1> as the source landscape. Add a tiny camel caravan along a distant dune ridge and subtle drifting sand along the foreground. Preserve the original camera viewpoint, framing, main landforms and photographic style. No other lettering is added."
+    },
+    {
+      "id": "005",
+      "prompt": "A wide night landscape across a snow-covered northern plain, jagged ice formations in the foreground, a distant dark ridge and a sweeping green aurora beneath a star-filled sky. Natural photographic textures, physically coherent light, subtle film grain, realistic atmospheric depth. The image contains no text, letters or numbers.",
+      "edit_prompt": "Use <Picture 1> as the source landscape. Add violet accents to the aurora and a small wooden cabin with warm windows in the middle distance. Preserve the original camera viewpoint, framing, main landforms and photographic style. No other lettering is added."
+    },
+    {
+      "id": "006",
+      "prompt": "A wide tropical rainforest landscape with a tall waterfall descending into a turquoise pool at center, mossy rocks, broad wet leaves framing the foreground and soft canopy light. Natural photographic textures, physically coherent light, subtle film grain, realistic atmospheric depth. The image contains no text, letters or numbers.",
+      "edit_prompt": "Use <Picture 1> as the source landscape. Add a faint rainbow within the waterfall mist and a cluster of vivid tropical flowers in the foreground. Preserve the original camera viewpoint, framing, main landforms and photographic style. No other lettering is added."
+    },
+    {
+      "id": "007",
+      "prompt": "A wide pastoral landscape of rolling English hills, stone cottages in the middle distance, a narrow wet lane curving through green meadows, and broken clouds after rain. Natural photographic textures, physically coherent light, subtle film grain, realistic atmospheric depth. The image contains no text, letters or numbers.",
+      "edit_prompt": "Use <Picture 1> as the source landscape. Add a few grazing sheep on the distant hillside and a subtle rainbow beyond the cottages; enhance wet grass reflections. Preserve the original camera viewpoint, framing, main landforms and photographic style. No other lettering is added."
+    },
+    {
+      "id": "008",
+      "prompt": "A wide spring valley landscape with pink cherry blossom trees framing a winding river, distant hazy mountains and gentle daylight illuminating delicate white and pink petals. Natural photographic textures, physically coherent light, subtle film grain, realistic atmospheric depth. The image contains no text, letters or numbers.",
+      "edit_prompt": "Use <Picture 1> as the source landscape. Add a small arched wooden bridge crossing the river in the middle distance and gently drifting petals. Preserve the original camera viewpoint, framing, main landforms and photographic style. No other lettering is added."
+    },
+    {
+      "id": "009",
+      "prompt": "A wide black-sand volcanic coastline with basalt pillars on one side, rolling surf, reflective wet sand, distant volcanic ridges and shafts of sunlight through storm clouds. Natural photographic textures, physically coherent light, subtle film grain, realistic atmospheric depth. The image contains no text, letters or numbers.",
+      "edit_prompt": "Use <Picture 1> as the source landscape. Strengthen the shafts of sunlight and sea spray, add a subtle warm glow along a distant volcanic ridge. Preserve the original camera viewpoint, framing, main landforms and photographic style. No other lettering is added."
+    }
+  ]
+}

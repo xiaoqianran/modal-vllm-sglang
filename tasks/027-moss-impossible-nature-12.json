@@ -1,0 +1,78 @@
+{
+  "version": 1,
+  "name": "027-moss-impossible-nature-12",
+  "project": "027-moss-impossible-nature-12",
+  "scene": "001-main",
+  "workflow": "moss-t2i",
+  "params": {
+    "size": "1536x864",
+    "num_inference_steps": 50,
+    "guidance_scale": 3
+  },
+  "delivery": {
+    "provider": "huggingface",
+    "bucket": "seachen/modal-vllm-sglang-assets"
+  },
+  "items": [
+    {
+      "id": "001",
+      "seed": 272701,
+      "prompt": "An underwater wildlife documentary frame in a remote polar sea. A pod of three translucent whale-like animals swims beneath broken sea ice. The nearest animal reveals a branching ivory skeleton and softly opaque organs through its gelatinous outer body, with subtle refraction along its flippers. Two smaller individuals fade into the blue. Sunlight enters through a narrow opening in the ice, illuminating plankton and rippled backs. Wide underwater camera, cool blue-green palette, believable tissue texture, restrained natural light."
+    },
+    {
+      "id": "002",
+      "seed": 272702,
+      "prompt": "A ground-level wildlife photograph on a misty floodplain at dawn. A gigantic ancient tortoise walks slowly through shallow water, bearing a miniature mature woodland rooted in its weathered shell. Ferns and moss hang over the edges while small white birds lift off from the branches. Its wet wrinkled head reaches forward at lower right, and ripples spread from a massive front foot. Low 35mm camera, silver mist, soft backlight, muted olive and warm brown, realistic wet surfaces and botanical detail."
+    },
+    {
+      "id": "003",
+      "seed": 272703,
+      "prompt": "An intimate macro photograph of a butterfly perched beneath a rain-darkened orchid leaf. Its wings consist of overlapping transparent biological membranes supported by delicate dark veins, refracting the surrounding forest into narrow bands of amber, violet and green. Tiny droplets cling to the wing margins; fine hairs and curled antennae remain sharply visible. A shaft of afternoon light crosses the wings against a softly blurred forest. Side-on macro framing, shallow depth of field, restrained optical dispersion, tangible natural anatomy."
+    },
+    {
+      "id": "004",
+      "seed": 272704,
+      "prompt": "A wide underwater documentary image on a tropical seabed. A colony of coral polyps grows across the broad armored back of an enormous slow-moving crustacean, its six jointed legs lifting above the sand. Small reef fish shelter within branching coral while disturbed sediment trails a rear leg. The creature is framed in profile, with seagrass in the foreground and open turquoise water behind. Natural caustic light, peach and rust coral, realistic chitin and living polyps."
+    },
+    {
+      "id": "005",
+      "seed": 272705,
+      "prompt": "A nocturnal wildlife photograph in a snow-covered boreal forest. A reindeer-like animal stands between spruce trunks, its branching antlers carrying small translucent biological sacs that emit subdued warm amber light. The light reveals frost on its muzzle and nearby falling snow; its dense winter coat remains mostly in shadow. A second animal is barely visible beyond the trees. Eye-level telephoto composition, deep indigo and warm ochre, credible posture, realistic fur and localized bioluminescence."
+    },
+    {
+      "id": "006",
+      "seed": 272706,
+      "prompt": "A coastal natural-history photograph from a rocky headland during a windy spring morning. A flock of ray-shaped flying organisms glides above the sea, each carrying ribbon-like green photosynthetic fins fluttering behind its streamlined body. The nearest individual banks into the wind, revealing a pale ribbed underside and flexible translucent edges. White surf strikes the rocks below. Wide lateral framing, overcast maritime light, slate blue, kelp green and sea foam, believable aerodynamic anatomy."
+    },
+    {
+      "id": "007",
+      "seed": 272707,
+      "prompt": "Extreme macro nature photography of a large dew droplet suspended beneath a grass blade. Inside the droplet, a colony of translucent swimming organisms with feathery appendages drifts around a branching green algal filament, magnified by the curved water surface. The droplet occupies most of the frame, with a smaller blurred bead behind it and a dawn meadow reflected along its rim. Precise shallow focus, natural backlighting, clear meniscus and optical distortion, pale green and gold, delicate biological structures."
+    },
+    {
+      "id": "008",
+      "seed": 272708,
+      "prompt": "A ground-level botanical documentary photograph on a young volcanic island. Ivory flowers grow from a fissure beside cooling black lava, their waxy petals curled into heat-resistant cups and dark roots gripping porous basalt. A narrow seam of dull orange heat remains farther back, with delicate steam drifting sideways. The foreground flowers are sharply resolved against an austere charcoal landscape. Soft gray daylight mixed with faint thermal reflection, restrained cream and burnt orange, credible mineral and plant textures."
+    },
+    {
+      "id": "009",
+      "seed": 272709,
+      "prompt": "A high-altitude wildlife documentary photograph from a mountain ridge. A group of aerial medusa-like organisms drifts in a valley filled with morning fog, their pale bells buoyed by translucent gas chambers and fine trailing filaments moving with the wind. The nearest passes beside a rocky outcrop where a compact fibrous nest clings to a sheltered ledge. Distant silhouettes disappear into cloud. Long-lens composition, layered atmospheric depth, pearl gray and lavender, believable membrane tension and moisture."
+    },
+    {
+      "id": "010",
+      "seed": 272710,
+      "prompt": "A solitary desert tree photographed at blue hour on a salt flat. Its trunk and spreading branches consist of thick translucent plant tissue with visible vertical channels of clear sap; the outer surface appears moist and flexible rather than metallic or glass. Dark leaves cluster near branch tips and a shallow puddle reflects the irregular silhouette. Wind-carved salt ridges lead toward the tree, distant hills barely visible. Low wide-angle framing, rose horizon, blue shadows, realistic refraction and botanical detail."
+    },
+    {
+      "id": "011",
+      "seed": 272711,
+      "prompt": "A close wildlife photograph inside a glacial cave lit by diffuse daylight through blue ice. A small white bird perches on a ledge, its open beak and expanded translucent throat sac revealing concentric tissue folds adapted for resonant calls. Fine frost clings to its feet and feathers. The cave walls show layered bubbles and mineral streaks, with a soft reflection in a thin pool below. Off-center medium close-up, cobalt and milky white, authentic feather structure, gentle natural light."
+    },
+    {
+      "id": "012",
+      "seed": 272712,
+      "prompt": "An aerial natural-history photograph of a remote ocean at dawn. A vast oval colonial organism floats at the surface, its dark flexible perimeter enclosing a mosaic of living vegetation, tidal pools and pale branching reef structures. Along one edge, broad muscular lobes displace the water, leaving curved wakes. Small seabirds circle above for scale, while the surrounding ocean remains empty. Oblique aerial framing, deep teal water, olive vegetation and golden sunlight, realistic wave interaction and organic surface detail."
+    }
+  ]
+}
