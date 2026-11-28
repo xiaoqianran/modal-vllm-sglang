@@ -1,0 +1,135 @@
+{
+  "version": 1,
+  "name": "032-minimax-omni-cosmic-solitude-act1-24",
+  "workflow": "minimax-omni-t2i",
+  "render": {
+    "aspect_ratio": "16:9",
+    "resolution": "4k"
+  },
+  "delivery": {
+    "provider": "huggingface",
+    "bucket": "seachen/modal-vllm-sglang-assets"
+  },
+  "items": [
+    {
+      "id": "001",
+      "seed": 832001,
+      "prompt": "An extreme-wide opening film still of almost empty interstellar space. A tiny compact ivory ceramic and graphite exploration ship with a flattened cylindrical central hull, two parallel rectangular radiator fins, a single round forward observation window and a recessed circular aft engine occupies the lower right, less than one percent of the frame; a sparse scattering of sharp distant stars and a barely perceptible blue-gray dust band occupy the vast remaining darkness. A distant off-frame star illuminates one edge of the hull; there is no visible exhaust. The composition conveys scale through empty space rather than a spectacular nebula. A single continuous horizontal 16:9 frame from a restrained, wordless hard-science-fiction art film. Naturalistic large-format film photography, subdued charcoal, slate blue and ivory, subtle fine grain, gentle highlight roll-off, credible physical light and realistic materials. No montage, borders, logos or decorative graphics. The image contains no text, letters or numbers."
+    },
+    {
+      "id": "002",
+      "seed": 832998,
+      "prompt": "A distant three-quarter view of a compact ivory ceramic and graphite exploration ship with a flattened cylindrical central hull, two parallel rectangular radiator fins, a single round forward observation window and a recessed circular aft engine drifting from left to right, positioned in the lower left third with a vast unoccupied field of near-black space ahead. A small, dim crescent of a remote planet sits far above the ship at right. Pale reflected light picks out the two radiator fins and worn ceramic hull, with no artificial glow except one small amber navigation light. A single continuous horizontal 16:9 frame from a restrained, wordless hard-science-fiction art film. Naturalistic large-format film photography, subdued charcoal, slate blue and ivory, subtle fine grain, gentle highlight roll-off, credible physical light and realistic materials. No montage, borders, logos or decorative graphics. The image contains no text, letters or numbers."
+    },
+    {
+      "id": "003",
+      "seed": 833995,
+      "prompt": "A long-lens backlit film still of a compact ivory ceramic and graphite exploration ship with a flattened cylindrical central hull, two parallel rectangular radiator fins, a single round forward observation window and a recessed circular aft engine silhouetted against the faint edge of a distant white star partly eclipsed by a dark moon. The spacecraft is below center, its symmetrical fins and round window discernible in silhouette. A fine pale rim of light catches the metal edges. The star is a restrained luminous crescent, not a giant lens flare; the rest of the frame is deep blue-black. A single continuous horizontal 16:9 frame from a restrained, wordless hard-science-fiction art film. Naturalistic large-format film photography, subdued charcoal, slate blue and ivory, subtle fine grain, gentle highlight roll-off, credible physical light and realistic materials. No montage, borders, logos or decorative graphics. The image contains no text, letters or numbers."
+    },
+    {
+      "id": "004",
+      "seed": 834992,
+      "prompt": "A wide exterior film frame of a compact ivory ceramic and graphite exploration ship with a flattened cylindrical central hull, two parallel rectangular radiator fins, a single round forward observation window and a recessed circular aft engine viewed from slightly above and behind, gliding across a thin translucent sheet of blue-gray interstellar dust. The vessel sits low at left with empty black space occupying the right half. The dust is diffuse, almost imperceptible, illuminated by distant stars; no clouds resembling a terrestrial thunderstorm and no glittering particle effects. A single continuous horizontal 16:9 frame from a restrained, wordless hard-science-fiction art film. Naturalistic large-format film photography, subdued charcoal, slate blue and ivory, subtle fine grain, gentle highlight roll-off, credible physical light and realistic materials. No montage, borders, logos or decorative graphics. The image contains no text, letters or numbers."
+    },
+    {
+      "id": "005",
+      "seed": 835989,
+      "prompt": "A medium-long side profile of a compact ivory ceramic and graphite exploration ship with a flattened cylindrical central hull, two parallel rectangular radiator fins, a single round forward observation window and a recessed circular aft engine horizontally crossing the central lower third of a sparse starfield. The flattened cylinder and two parallel fins are legible; a small amber navigation light sits near the aft engine. Soft grazing starlight reveals small repairs, seams and weathering. Empty space above and ahead suggests a long journey, with no other vessels. A single continuous horizontal 16:9 frame from a restrained, wordless hard-science-fiction art film. Naturalistic large-format film photography, subdued charcoal, slate blue and ivory, subtle fine grain, gentle highlight roll-off, credible physical light and realistic materials. No montage, borders, logos or decorative graphics. The image contains no text, letters or numbers."
+    },
+    {
+      "id": "006",
+      "seed": 836986,
+      "prompt": "An intimate exterior detail shot close to the ship's ivory ceramic hull, a graphite radiator joint and a narrow section of its circular observation window. The curved panel fills the left half, receding toward darkness at right; fine scratches, tiny impact pits and a narrow seam reveal years of travel. A thin cool highlight grazes the ceramic and brushed metal, with sparse stars beyond. No person or lettering. A single continuous horizontal 16:9 frame from a restrained, wordless hard-science-fiction art film. Naturalistic large-format film photography, subdued charcoal, slate blue and ivory, subtle fine grain, gentle highlight roll-off, credible physical light and realistic materials. No montage, borders, logos or decorative graphics. The image contains no text, letters or numbers."
+    },
+    {
+      "id": "007",
+      "seed": 837983,
+      "prompt": "A medium-wide interior portrait of one astronaut wearing an ivory fabric pressure suit with ribbed charcoal joints, a compact rectangular life-support backpack and a smooth dark graphite visor, seated alone on a low fold-down bench inside a narrow ivory ceramic-paneled cabin, charcoal structural ribs and recessed warm-white utility lighting. The astronaut occupies the left third with gloved hands relaxed on their knees, dark visor turned toward the empty right side of the cabin. A soft overhead lamp creates a small pool of light; the rest of the cabin falls into cool shadow. No other people. A single continuous horizontal 16:9 frame from a restrained, wordless hard-science-fiction art film. Naturalistic large-format film photography, subdued charcoal, slate blue and ivory, subtle fine grain, gentle highlight roll-off, credible physical light and realistic materials. No montage, borders, logos or decorative graphics. The image contains no text, letters or numbers."
+    },
+    {
+      "id": "008",
+      "seed": 838980,
+      "prompt": "A symmetrical wide interior film still from behind one astronaut wearing an ivory fabric pressure suit with ribbed charcoal joints, a compact rectangular life-support backpack and a smooth dark graphite visor, standing centered before the ship's single round forward observation window. The figure is small against the dark circular opening, hands at their sides. Beyond the glass is a pale distant crescent planet against sparse stars; inside, ivory ceramic panels and charcoal structural ribs frame the view. Faint planetary light outlines the suit without revealing a face. A single continuous horizontal 16:9 frame from a restrained, wordless hard-science-fiction art film. Naturalistic large-format film photography, subdued charcoal, slate blue and ivory, subtle fine grain, gentle highlight roll-off, credible physical light and realistic materials. No montage, borders, logos or decorative graphics. The image contains no text, letters or numbers."
+    },
+    {
+      "id": "009",
+      "seed": 839977,
+      "prompt": "A static wide still of the unoccupied sleeping compartment in a narrow ivory ceramic-paneled cabin, charcoal structural ribs and recessed warm-white utility lighting. A single narrow bunk with a creased gray blanket is on the left; a small recessed shelf, a closed metal locker and a dim utility light are on the right. The empty central walkway recedes toward a closed circular hatch. Gentle warm-white light grazes fabric and scuffed surfaces, suggesting lived-in solitude without clutter. A single continuous horizontal 16:9 frame from a restrained, wordless hard-science-fiction art film. Naturalistic large-format film photography, subdued charcoal, slate blue and ivory, subtle fine grain, gentle highlight roll-off, credible physical light and realistic materials. No montage, borders, logos or decorative graphics. The image contains no text, letters or numbers."
+    },
+    {
+      "id": "010",
+      "seed": 840974,
+      "prompt": "A macro film still in microgravity: one clear spherical water droplet floats a few centimeters above the open mouth of a small stainless-steel drinking pouch, held steady at lower left by a single charcoal-gloved hand from an ivory pressure suit. The droplet is centered in focus, refracting the round cabin window as an inverted miniature crescent. Soft cool sidelight, a subdued charcoal background, shallow depth of field; the water is one coherent sphere, not a splash. A single continuous horizontal 16:9 frame from a restrained, wordless hard-science-fiction art film. Naturalistic large-format film photography, subdued charcoal, slate blue and ivory, subtle fine grain, gentle highlight roll-off, credible physical light and realistic materials. No montage, borders, logos or decorative graphics. The image contains no text, letters or numbers."
+    },
+    {
+      "id": "011",
+      "seed": 841971,
+      "prompt": "A close still of a single small, faded photographic print clipped to an ivory ceramic cabin panel beside a dark window. The print depicts an empty grassy hillside and a lone tree under a pale summer sky on Earth; its curled edges and softened emulsion are visible. A gloved fingertip gently touches one corner without obscuring the image. Warm cabin light contrasts with the cold darkness outside. No written captions. A single continuous horizontal 16:9 frame from a restrained, wordless hard-science-fiction art film. Naturalistic large-format film photography, subdued charcoal, slate blue and ivory, subtle fine grain, gentle highlight roll-off, credible physical light and realistic materials. No montage, borders, logos or decorative graphics. The image contains no text, letters or numbers."
+    },
+    {
+      "id": "012",
+      "seed": 842968,
+      "prompt": "A quiet still life viewed slightly from above inside the exploration ship: a compact charcoal tray with one sealed ration pouch, a small metal spoon clipped to the tray and a closed drinking pouch secured on a narrow fold-down table. A single empty seat is partially visible at right; the background is a shadowed ivory ceramic wall. Soft warm-white utility light falls on the tray, leaving the rest of the room cool and dark. A single continuous horizontal 16:9 frame from a restrained, wordless hard-science-fiction art film. Naturalistic large-format film photography, subdued charcoal, slate blue and ivory, subtle fine grain, gentle highlight roll-off, credible physical light and realistic materials. No montage, borders, logos or decorative graphics. The image contains no text, letters or numbers."
+    },
+    {
+      "id": "013",
+      "seed": 843965,
+      "prompt": "A close film still of a small amber status lamp that has just lit on a matte charcoal receiver panel recessed in an ivory ceramic bulkhead. The lamp sits left of center among a few unlit circular indicators and a simple analog dial without markings. The surrounding compartment is almost black, with a faint warm reflection on the nearest panel edge. A restrained, isolated point of light breaks the established cold palette. A single continuous horizontal 16:9 frame from a restrained, wordless hard-science-fiction art film. Naturalistic large-format film photography, subdued charcoal, slate blue and ivory, subtle fine grain, gentle highlight roll-off, credible physical light and realistic materials. No montage, borders, logos or decorative graphics. The image contains no text, letters or numbers."
+    },
+    {
+      "id": "014",
+      "seed": 844962,
+      "prompt": "An extreme close-up of a recessed monochrome receiver display in the exploration ship, showing a single thin amber waveform with three distinct pulses separated by dark horizontal gaps, no grid or lettering. The display fills the central portion of the frame; the surrounding black glass and brushed graphite bezel remain visible. Faint reflected cabin light and subtle glass imperfections give it a tangible analog quality. A single continuous horizontal 16:9 frame from a restrained, wordless hard-science-fiction art film. Naturalistic large-format film photography, subdued charcoal, slate blue and ivory, subtle fine grain, gentle highlight roll-off, credible physical light and realistic materials. No montage, borders, logos or decorative graphics. The image contains no text, letters or numbers."
+    },
+    {
+      "id": "015",
+      "seed": 845959,
+      "prompt": "A medium close-up of one astronaut wearing an ivory fabric pressure suit with ribbed charcoal joints, a compact rectangular life-support backpack and a smooth dark graphite visor, seated at the receiver console and turning their helmet toward a newly illuminated amber indicator at frame right. The body remains in three-quarter profile, shoulders slightly raised, one gloved hand resting on the console edge. A muted amber reflection appears along the lower right of the otherwise opaque visor. Cool cabin shadows, restrained contrast, no visible face. A single continuous horizontal 16:9 frame from a restrained, wordless hard-science-fiction art film. Naturalistic large-format film photography, subdued charcoal, slate blue and ivory, subtle fine grain, gentle highlight roll-off, credible physical light and realistic materials. No montage, borders, logos or decorative graphics. The image contains no text, letters or numbers."
+    },
+    {
+      "id": "016",
+      "seed": 846956,
+      "prompt": "An over-the-shoulder close view of a single astronaut in an ivory sleeve reaching toward a small physical rotary control on a matte graphite receiver console. Their thumb and index finger grip the dial naturally, and a thin amber waveform appears on a neighboring dark display. The console occupies the lower right, the helmet edge is softly blurred at left. Warm instrument light is confined to the controls, with dark blue cabin shadows elsewhere. A single continuous horizontal 16:9 frame from a restrained, wordless hard-science-fiction art film. Naturalistic large-format film photography, subdued charcoal, slate blue and ivory, subtle fine grain, gentle highlight roll-off, credible physical light and realistic materials. No montage, borders, logos or decorative graphics. The image contains no text, letters or numbers."
+    },
+    {
+      "id": "017",
+      "seed": 847953,
+      "prompt": "An exterior medium-wide film still of the exploration ship's single slender graphite communications antenna extended above its flattened ivory cylindrical hull. The antenna points diagonally toward a small pale crescent planet on the upper right; the hull and one radiator fin enter from lower left, leaving vast black space between them and the planet. Fine cool starlight catches the antenna's metal edge, with no visible radio-wave graphics. A single continuous horizontal 16:9 frame from a restrained, wordless hard-science-fiction art film. Naturalistic large-format film photography, subdued charcoal, slate blue and ivory, subtle fine grain, gentle highlight roll-off, credible physical light and realistic materials. No montage, borders, logos or decorative graphics. The image contains no text, letters or numbers."
+    },
+    {
+      "id": "018",
+      "seed": 848950,
+      "prompt": "An extreme close-up of the smooth dark graphite visor of one astronaut wearing an ivory fabric pressure suit with ribbed charcoal joints, a compact rectangular life-support backpack and a smooth dark graphite visor. The helmet fills the left two-thirds of the frame, angled slightly toward the right; one narrow amber waveform is reflected in the glass, with a faint cool crescent from the circular observation window. No face is visible. Fine wear marks along the ivory helmet rim and natural reflection falloff convey a quiet moment of recognition. A single continuous horizontal 16:9 frame from a restrained, wordless hard-science-fiction art film. Naturalistic large-format film photography, subdued charcoal, slate blue and ivory, subtle fine grain, gentle highlight roll-off, credible physical light and realistic materials. No montage, borders, logos or decorative graphics. The image contains no text, letters or numbers."
+    },
+    {
+      "id": "019",
+      "seed": 849947,
+      "prompt": "A distant rear three-quarter film still of a compact ivory ceramic and graphite exploration ship with a flattened cylindrical central hull, two parallel rectangular radiator fins, a single round forward observation window and a recessed circular aft engine banking gently toward the upper right in deep space. The recessed circular aft engine emits a small, restrained pale blue glow; two parallel radiator fins remain aligned with the hull. A remote ringed planet lies far ahead at right, with empty black space at left. A slight perspective tilt suggests a change of course without motion blur or dramatic exhaust. A single continuous horizontal 16:9 frame from a restrained, wordless hard-science-fiction art film. Naturalistic large-format film photography, subdued charcoal, slate blue and ivory, subtle fine grain, gentle highlight roll-off, credible physical light and realistic materials. No montage, borders, logos or decorative graphics. The image contains no text, letters or numbers."
+    },
+    {
+      "id": "020",
+      "seed": 850944,
+      "prompt": "An extreme-wide orbital view of a compact ivory ceramic and graphite exploration ship with a flattened cylindrical central hull, two parallel rectangular radiator fins, a single round forward observation window and a recessed circular aft engine as a tiny silhouette just above the curved limb of an immense pale blue-gray gas giant. The planet fills the lower and right portions of the frame; broad cloud bands follow the curvature and a thin illuminated atmosphere separates it from black space. The ship remains visibly small and distinct, its trajectory parallel to the limb. Natural planetary illumination, restrained color and no artificial lens flare. A single continuous horizontal 16:9 frame from a restrained, wordless hard-science-fiction art film. Naturalistic large-format film photography, subdued charcoal, slate blue and ivory, subtle fine grain, gentle highlight roll-off, credible physical light and realistic materials. No montage, borders, logos or decorative graphics. The image contains no text, letters or numbers."
+    },
+    {
+      "id": "021",
+      "seed": 851941,
+      "prompt": "A distant establishing film still of a huge pale blue-gray gas giant with a broad thin ivory ring system tilted diagonally from lower left to upper right. The planet sits slightly right of center with its shadowed hemisphere gently fading into black space; a tiny dark rocky moon is visible near the lower edge of the rings. No spacecraft or human figures. Fine cloud bands and sharply defined rings, physically coherent illumination from upper left. A single continuous horizontal 16:9 frame from a restrained, wordless hard-science-fiction art film. Naturalistic large-format film photography, subdued charcoal, slate blue and ivory, subtle fine grain, gentle highlight roll-off, credible physical light and realistic materials. No montage, borders, logos or decorative graphics. The image contains no text, letters or numbers."
+    },
+    {
+      "id": "022",
+      "seed": 852938,
+      "prompt": "A cinematic exterior frame looking along the outer edge of the gas giant's ring plane, where a few isolated irregular ice fragments drift near the camera at lower left. The small compact ivory ceramic and graphite exploration ship with a flattened cylindrical central hull, two parallel rectangular radiator fins, a single round forward observation window and a recessed circular aft engine is in the clear space just above the rings toward center-right, moving toward the distant dark rocky moon. Ring bands recede into a fine luminous line. Cool reflected light reveals translucent ice and graphite hull details, without a dense asteroid storm. A single continuous horizontal 16:9 frame from a restrained, wordless hard-science-fiction art film. Naturalistic large-format film photography, subdued charcoal, slate blue and ivory, subtle fine grain, gentle highlight roll-off, credible physical light and realistic materials. No montage, borders, logos or decorative graphics. The image contains no text, letters or numbers."
+    },
+    {
+      "id": "023",
+      "seed": 853935,
+      "prompt": "A high orbital view over the dark rocky moon, with a broad curved horizon crossing the lower third and an immense pale ringed gas giant visible beyond it at upper right. Below, black basalt plains and branching gray mineral ridges are partly concealed by thin pale atmospheric haze. The small exploration ship enters the lower left with its ivory hull dimly lit by reflected planetary light. Deep black space remains above; the terrain is vast and uninhabited. A single continuous horizontal 16:9 frame from a restrained, wordless hard-science-fiction art film. Naturalistic large-format film photography, subdued charcoal, slate blue and ivory, subtle fine grain, gentle highlight roll-off, credible physical light and realistic materials. No montage, borders, logos or decorative graphics. The image contains no text, letters or numbers."
+    },
+    {
+      "id": "024",
+      "seed": 854932,
+      "prompt": "The closing film still of the first act, from behind and slightly above a compact ivory ceramic and graphite exploration ship with a flattened cylindrical central hull, two parallel rectangular radiator fins, a single round forward observation window and a recessed circular aft engine as it approaches the dark rocky moon's thin pale atmosphere. The vessel is small at the center of a vast curved horizon, two parallel radiator fins silhouetted against a narrow silver-blue dawn band. Below lies a remote black basalt landscape hidden beneath wisps of haze; above is dark space with the fading edge of the parent planet. A restrained transition from darkness to pale light, with no flames or dramatic entry effects. A single continuous horizontal 16:9 frame from a restrained, wordless hard-science-fiction art film. Naturalistic large-format film photography, subdued charcoal, slate blue and ivory, subtle fine grain, gentle highlight roll-off, credible physical light and realistic materials. No montage, borders, logos or decorative graphics. The image contains no text, letters or numbers."
+    }
+  ]
+}

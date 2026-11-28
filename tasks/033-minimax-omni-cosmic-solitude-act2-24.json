@@ -1,0 +1,135 @@
+{
+  "version": 1,
+  "name": "033-minimax-omni-cosmic-solitude-act2-24",
+  "workflow": "minimax-omni-t2i",
+  "render": {
+    "aspect_ratio": "16:9",
+    "resolution": "4k"
+  },
+  "delivery": {
+    "provider": "huggingface",
+    "bucket": "seachen/modal-vllm-sglang-assets"
+  },
+  "items": [
+    {
+      "id": "001",
+      "seed": 833001,
+      "prompt": "An extreme-wide opening film still of a colossal pale blue-gray gas giant, its thin ivory rings spanning the frame diagonally from lower left to upper right. A compact ivory ceramic exploration ship with a flattened cylindrical hull, two parallel graphite radiator fins, a single round forward observation window and a recessed circular aft engine appears as a minute silhouette near the lower left, heading toward a dark basalt moon on the right. The planet's gently banded cloud tops fade into a deep shadowed hemisphere. A narrow band of reflected sunlight outlines the rings, and a broad region of black space separates the ship from its destination. The contrast between astronomical scale and the tiny vessel carries the composition. A single continuous horizontal film frame with naturalistic large-format photography, subtle fine grain, physically coherent light and shadow, believable surface textures and restrained highlight roll-off. No montage, borders or logos. The image contains no text, letters or numbers."
+    },
+    {
+      "id": "002",
+      "seed": 833998,
+      "prompt": "A wide exterior film still from a camera traveling just above the outer edge of a planetary ring. Several translucent ice fragments frame the lower left foreground, with their rough fractured edges and trapped bubbles visible. The compact ivory ceramic exploration ship with a flattened cylindrical hull, two parallel graphite radiator fins, a single round forward observation window and a recessed circular aft engine is sharply defined at the right third, facing right toward a clear passage above the ring plane. The pale gas giant's curved limb occupies the background. Fine dust along the ring plane catches grazing silver light, while the foreground ice and graphite fins retain distinct silhouettes. A single continuous horizontal film frame with naturalistic large-format photography, subtle fine grain, physically coherent light and shadow, believable surface textures and restrained highlight roll-off. No montage, borders or logos. The image contains no text, letters or numbers."
+    },
+    {
+      "id": "003",
+      "seed": 834995,
+      "prompt": "A low wide-angle film still from the shadow of an irregular, mountain-sized ice fragment. Its broken translucent ridges tower along the left edge and across the upper foreground; a smaller ice mass at right creates a narrow opening onto black space. A compact ivory ceramic exploration ship with a flattened cylindrical hull, two parallel graphite radiator fins, a single round forward observation window and a recessed circular aft engine crosses the opening, very small and brightly rim-lit by reflected planetary light. The ice has blue-gray internal fractures, granular frosted crust and rough dark cavities. No collisions or explosive effects; the enormous quiet geometry is the spectacle. A single continuous horizontal film frame with naturalistic large-format photography, subtle fine grain, physically coherent light and shadow, believable surface textures and restrained highlight roll-off. No montage, borders or logos. The image contains no text, letters or numbers."
+    },
+    {
+      "id": "004",
+      "seed": 835992,
+      "prompt": "A medium-wide interior film still from directly behind one seated astronaut wearing an ivory pressure suit with ribbed charcoal joints, a rectangular life-support backpack and an opaque dark graphite visor. The helmet and shoulders occupy the lower center; a single round forward observation window fills the middle of the narrow ivory ceramic cockpit. Beyond the glass, the huge pale ringed planet occupies the upper left of the view and the dark rocky moon is directly ahead at lower right. Recessed utility lamps softly illuminate the charcoal structural ribs, with cold reflected planetary light edging the helmet. Simple unlettered controls remain dark at the bottom of the frame. A single continuous horizontal film frame with naturalistic large-format photography, subtle fine grain, physically coherent light and shadow, believable surface textures and restrained highlight roll-off. No montage, borders or logos. The image contains no text, letters or numbers."
+    },
+    {
+      "id": "005",
+      "seed": 836989,
+      "prompt": "A tight exterior detail film still along the curved ivory ceramic hull and one graphite radiator fin of an exploration ship. Diagonal bands of shadow from the planet's rings cross the hull, with fine scratches, narrow panel seams and a small recessed fastener visible near the camera. A small crescent of the pale blue-gray gas giant is softly out of focus beyond the fin at upper right. Hard grazing sunlight separates bright worn ceramic from deep graphite shadow. Only a section of the vessel is visible, with no people or additional spacecraft. A single continuous horizontal film frame with naturalistic large-format photography, subtle fine grain, physically coherent light and shadow, believable surface textures and restrained highlight roll-off. No montage, borders or logos. The image contains no text, letters or numbers."
+    },
+    {
+      "id": "006",
+      "seed": 837986,
+      "prompt": "A rear three-quarter medium-long film still of a compact ivory ceramic exploration ship with a flattened cylindrical hull, two parallel graphite radiator fins, a single round forward observation window and a recessed circular aft engine, angled toward the dark rocky moon at upper right during a controlled course correction. Its recessed circular engine emits a short, narrow pale blue exhaust glow, and both radiator fins are clearly separated from the hull. The immense ringed gas giant recedes behind the vessel at left, with the ring plane crossing the background below it. The ship's slightly tilted axis and a broad empty region ahead convey movement in a single frozen moment. Restrained hard-edged light, no elaborate exhaust trails. A single continuous horizontal film frame with naturalistic large-format photography, subtle fine grain, physically coherent light and shadow, believable surface textures and restrained highlight roll-off. No montage, borders or logos. The image contains no text, letters or numbers."
+    },
+    {
+      "id": "007",
+      "seed": 838983,
+      "prompt": "An ultra-wide orbital film still above a dark rocky moon with a thin pale atmosphere. A huge fractured polar basin fills the lower two-thirds, covered in layered mineral clouds and isolated luminous electrical storms. A compact ivory ceramic exploration ship with a flattened cylindrical hull, two parallel graphite radiator fins, a single round forward observation window and a recessed circular aft engine descends from the upper left, a tiny ivory silhouette separated from the cloud surface. Above the curved horizon, the immense ringed gas giant rises partly behind the atmospheric haze. Low sunlight catches the cloud ridges, leaving the basin interior dark and cold. The curvature and layered shadows convey planetary scale. A single continuous horizontal film frame with naturalistic large-format photography, subtle fine grain, physically coherent light and shadow, believable surface textures and restrained highlight roll-off. No montage, borders or logos. The image contains no text, letters or numbers."
+    },
+    {
+      "id": "008",
+      "seed": 839980,
+      "prompt": "A high-altitude film still looking obliquely across a broad storm basin. A single branching white-blue lightning flash connects two shadowed mineral cloud layers at center, its fine tributaries illuminating only the surrounding vapor. A compact ivory ceramic exploration ship with a flattened cylindrical hull, two parallel graphite radiator fins, a single round forward observation window and a recessed circular aft engine occupies the upper right third, its underside briefly lit by the flash. A distant ridge barely emerges through the haze at the left horizon. Foreground cloud textures remain soft and substantial, with dramatic but plausible localized electrical light rather than luminous fantasy patterns. A single continuous horizontal film frame with naturalistic large-format photography, subtle fine grain, physically coherent light and shadow, believable surface textures and restrained highlight roll-off. No montage, borders or logos. The image contains no text, letters or numbers."
+    },
+    {
+      "id": "009",
+      "seed": 840977,
+      "prompt": "A cockpit point-of-view film still looking through one circular observation window during atmospheric descent. Black basalt ridges emerge through pale gray mineral haze, with the nearest crater rim cutting diagonally across the lower right and distant mesas fading into the upper left. A faint partial arc of the ringed parent planet remains visible above the horizon. A thin strip of graphite window frame and a few delicate frost crystals on its inner edge are visible in the foreground. Diffuse dawn light renders a clear depth gradient. No person appears in this viewpoint. A single continuous horizontal film frame with naturalistic large-format photography, subtle fine grain, physically coherent light and shadow, believable surface textures and restrained highlight roll-off. No montage, borders or logos. The image contains no text, letters or numbers."
+    },
+    {
+      "id": "010",
+      "seed": 841974,
+      "prompt": "A sweeping low-angle exterior film still just above a black basalt plain. A compact ivory ceramic exploration ship with a flattened cylindrical hull, two parallel graphite radiator fins, a single round forward observation window and a recessed circular aft engine crosses from left to right in the middle distance, with its underside visible and two radiator fins clearly aligned. Angular pebbles and silver-gray mineral seams fill the near foreground; immense fractured cliffs rise along the horizon. A low, narrow ribbon of disturbed regolith follows the ship rather than obscuring it. Pale reflected planetary light and dark rock shadows emphasize speed through perspective and foreground scale, without camera blur. A single continuous horizontal film frame with naturalistic large-format photography, subtle fine grain, physically coherent light and shadow, believable surface textures and restrained highlight roll-off. No montage, borders or logos. The image contains no text, letters or numbers."
+    },
+    {
+      "id": "011",
+      "seed": 842971,
+      "prompt": "A long-lens landscape film still across a remote basalt basin where a cryovolcanic plume rises from one narrow fissure at center-left. Its towering white vapor column spreads into a fine icy fan high in the thin atmosphere, illuminated from behind by cold sunlight. A compact ivory ceramic exploration ship with a flattened cylindrical hull, two parallel graphite radiator fins, a single round forward observation window and a recessed circular aft engine passes far from the plume at lower right, tiny against the dark cliff walls. Frost deposits trace the fissure, and distant layers of terrain fade into pale blue haze. The plume has a dense base, expanding vapor and naturally lit ice particles, not flames or decorative energy. A single continuous horizontal film frame with naturalistic large-format photography, subtle fine grain, physically coherent light and shadow, believable surface textures and restrained highlight roll-off. No montage, borders or logos. The image contains no text, letters or numbers."
+    },
+    {
+      "id": "012",
+      "seed": 843968,
+      "prompt": "A high oblique wide film still looking down toward the entrance of a monumental black basalt canyon. Two steep fractured walls form a narrowing opening that runs from the lower corners toward the distant center. A compact ivory ceramic exploration ship with a flattened cylindrical hull, two parallel graphite radiator fins, a single round forward observation window and a recessed circular aft engine is small and centered above the threshold, facing into the canyon without touching its walls. Thin pale mist fills the deepest floor; silver mineral streaks follow natural fractures in the rock. The far opening is illuminated by soft daylight, while the foreground walls remain in rich charcoal shadow. A single continuous horizontal film frame with naturalistic large-format photography, subtle fine grain, physically coherent light and shadow, believable surface textures and restrained highlight roll-off. No montage, borders or logos. The image contains no text, letters or numbers."
+    },
+    {
+      "id": "013",
+      "seed": 844965,
+      "prompt": "A wide landscape film still of an expansive black basalt plain dotted with waist-high translucent frost-covered mineral crystals. Sharp crystal edges occupy the lower foreground, receding into a clear landing area at the right third where a compact ivory ceramic exploration ship with a flattened cylindrical hull, two parallel graphite radiator fins, a single round forward observation window and a recessed circular aft engine rests on three short graphite landing supports. One astronaut wearing an ivory pressure suit with ribbed charcoal joints, a rectangular life-support backpack and an opaque dark graphite visor stands near the vessel, visibly tiny. The ringed parent planet occupies the upper left sky. Low silver light catches the crystals' facets and leaves their interiors subtly blue, with clear gaps and natural irregular distribution rather than a uniform crystal carpet. A single continuous horizontal film frame with naturalistic large-format photography, subtle fine grain, physically coherent light and shadow, believable surface textures and restrained highlight roll-off. No montage, borders or logos. The image contains no text, letters or numbers."
+    },
+    {
+      "id": "014",
+      "seed": 845962,
+      "prompt": "A low medium-close film still at ground level beside a landed exploration ship. One astronaut wearing an ivory pressure suit with ribbed charcoal joints, a rectangular life-support backpack and an opaque dark graphite visor steps down from a short graphite ladder attached beneath the ivory hull: one boot has just contacted the fine basalt dust, while the other remains on the lowest rung and a gloved hand holds the ladder rail. A faint dust puff curls around the planted boot. The pale ringed planet is visible beyond the helmet and the distant low ridge. Crisp boot tread, pressure-suit seams and a coherent shadow anchor the human figure to the alien ground. A single continuous horizontal film frame with naturalistic large-format photography, subtle fine grain, physically coherent light and shadow, believable surface textures and restrained highlight roll-off. No montage, borders or logos. The image contains no text, letters or numbers."
+    },
+    {
+      "id": "015",
+      "seed": 846959,
+      "prompt": "An intimate close-up film still of an astronaut's helmet, occupying the left two-thirds of the frame. The opaque curved dark graphite visor reflects one pale ringed gas giant and the low black basalt horizon, distorted naturally by the curvature of the glass. Tiny grains of frost cling to the ivory helmet rim and a ribbed charcoal collar. Cool grazing planetary light traces the helmet edge, while the surrounding landscape falls softly out of focus at right. No face is visible; the reflection alone conveys discovery. A single continuous horizontal film frame with naturalistic large-format photography, subtle fine grain, physically coherent light and shadow, believable surface textures and restrained highlight roll-off. No montage, borders or logos. The image contains no text, letters or numbers."
+    },
+    {
+      "id": "016",
+      "seed": 847956,
+      "prompt": "A compressed telephoto landscape film still across a windswept black basalt expanse. Three enormous rectangular monoliths with narrow rectangular openings rise from the distant mineral haze at the right third, aligned along a partially buried geometric causeway. One astronaut wearing an ivory pressure suit with ribbed charcoal joints, a rectangular life-support backpack and an opaque dark graphite visor stands at lower left looking toward them; the landed ivory exploration ship is a small silhouette farther behind. Low silver light reveals frost in the eroded stone joints and successive ridgelines fade into cool gray air. The structures have severe engineered geometry, not ornamental architecture. A single continuous horizontal film frame with naturalistic large-format photography, subtle fine grain, physically coherent light and shadow, believable surface textures and restrained highlight roll-off. No montage, borders or logos. The image contains no text, letters or numbers."
+    },
+    {
+      "id": "017",
+      "seed": 848953,
+      "prompt": "A symmetrical ground-level wide film still looking through a colossal ancient rectangular arch of dark basalt composite. Two weathered pillars frame the image and a cracked horizontal lintel spans the top. One astronaut wearing an ivory pressure suit with ribbed charcoal joints, a rectangular life-support backpack and an opaque dark graphite visor walks away from the camera along a half-buried geometric causeway, centered beneath the arch. Through the opening, the pale ringed gas giant rises over a distant plateau. Side lighting reveals mineral accretions and erosion, with a long human shadow across the dusty floor. The vast opening remains clear and uncluttered. A single continuous horizontal film frame with naturalistic large-format photography, subtle fine grain, physically coherent light and shadow, believable surface textures and restrained highlight roll-off. No montage, borders or logos. The image contains no text, letters or numbers."
+    },
+    {
+      "id": "018",
+      "seed": 849950,
+      "prompt": "A deep interior wide film still inside a vast underground chamber made of dark basalt composite. The floor recedes toward a large unlit circular recess at the far wall, flanked by tall ribbed structural columns. A circular aperture in the ceiling admits a single broad shaft of pale daylight, revealing suspended ice dust above the floor. One astronaut wearing an ivory pressure suit with ribbed charcoal joints, a rectangular life-support backpack and an opaque dark graphite visor stands near the lower center facing the recess, with a small warm-white shoulder lamp illuminating nearby stones. Dark side passages remain unreadable, and the monumental architecture dwarfs the figure. A single continuous horizontal film frame with naturalistic large-format photography, subtle fine grain, physically coherent light and shadow, believable surface textures and restrained highlight roll-off. No montage, borders or logos. The image contains no text, letters or numbers."
+    },
+    {
+      "id": "019",
+      "seed": 850947,
+      "prompt": "A wide interior film still looking diagonally through an ancient colonnade from the shadow of a near pillar at left. Three thin beams of pale daylight enter through damaged ceiling slots and illuminate layers of floating ice dust and the dark mineral floor. One astronaut wearing an ivory pressure suit with ribbed charcoal joints, a rectangular life-support backpack and an opaque dark graphite visor stands on the right third, half in a beam, examining a geometric relief in a column without touching it. Beyond a fractured opening, a narrow strip of the pale sky is visible. Deep black stone, delicate silver light and muted ivory create a layered composition. A single continuous horizontal film frame with naturalistic large-format photography, subtle fine grain, physically coherent light and shadow, believable surface textures and restrained highlight roll-off. No montage, borders or logos. The image contains no text, letters or numbers."
+    },
+    {
+      "id": "020",
+      "seed": 851944,
+      "prompt": "A medium-wide film still inside a shadowed ancient chamber, centered on a massive inert mechanism made of three nested graphite-metal rings mounted vertically in a black stone housing. Mineral crust and fine frost accumulate along the lower ring and recessed joints; the central circular aperture remains entirely dark. One astronaut wearing an ivory pressure suit with ribbed charcoal joints, a rectangular life-support backpack and an opaque dark graphite visor stands at the left edge, extending one gloved hand toward the nearest ring while leaving a visible gap. A small warm-white suit lamp reveals machining marks and worn metal. The mechanism's geometry is precise, functional and ancient, without glowing runes. A single continuous horizontal film frame with naturalistic large-format photography, subtle fine grain, physically coherent light and shadow, believable surface textures and restrained highlight roll-off. No montage, borders or logos. The image contains no text, letters or numbers."
+    },
+    {
+      "id": "021",
+      "seed": 852941,
+      "prompt": "An expansive twilight landscape film still from a high basalt ledge overlooking a deep ravine. One astronaut wearing an ivory pressure suit with ribbed charcoal joints, a rectangular life-support backpack and an opaque dark graphite visor stands safely back from the left foreground edge, looking across the valley. Jagged translucent mineral formations line the dark canyon below; a thin green-blue auroral curtain arcs across the upper sky, with pale planetary light outlining the far ridge. The landed ivory exploration ship is a tiny distant shape on a plateau at right. Reflected auroral color is faint and confined to exposed crystal facets, leaving the landscape mostly charcoal and silver. A single continuous horizontal film frame with naturalistic large-format photography, subtle fine grain, physically coherent light and shadow, believable surface textures and restrained highlight roll-off. No montage, borders or logos. The image contains no text, letters or numbers."
+    },
+    {
+      "id": "022",
+      "seed": 853938,
+      "prompt": "A high oblique extreme-wide film still over an ancient plateau complex: a broken rectangular arch and three monolithic towers occupy the lower left, while an eroded geometric causeway leads toward the canyon at upper right. One astronaut wearing an ivory pressure suit with ribbed charcoal joints, a rectangular life-support backpack and an opaque dark graphite visor stands alone on a broad elevated stone platform near center, looking down at the vast terrain. The pale ringed planet dominates the distant sky above the horizon. A tiny ivory exploration ship rests on a separate crystal plain far below. Long shadows distinguish the architectural layers and emphasize the human figure's small scale. A single continuous horizontal film frame with naturalistic large-format photography, subtle fine grain, physically coherent light and shadow, believable surface textures and restrained highlight roll-off. No montage, borders or logos. The image contains no text, letters or numbers."
+    },
+    {
+      "id": "023",
+      "seed": 854935,
+      "prompt": "A long-lens film still across a sequence of dark ruin fragments toward an enormous circular transmitter embedded in a distant cliff face. Its central aperture contains a single faint amber point of light surrounded by inert concentric graphite rings. In the lower left foreground, the dark silhouette of one astronaut in an ivory pressure suit with ribbed charcoal joints, a rectangular life-support backpack and an opaque dark graphite visor faces the transmitter, slightly out of focus. Layers of frost, black basalt and drifting mineral haze separate the figure from the machine. The amber light illuminates only the inner aperture, creating a restrained visual revelation that echoes the ship's earlier signal. A single continuous horizontal film frame with naturalistic large-format photography, subtle fine grain, physically coherent light and shadow, believable surface textures and restrained highlight roll-off. No montage, borders or logos. The image contains no text, letters or numbers."
+    },
+    {
+      "id": "024",
+      "seed": 855932,
+      "prompt": "An extreme-wide closing film still from behind and slightly above one astronaut wearing an ivory pressure suit with ribbed charcoal joints, a rectangular life-support backpack and an opaque dark graphite visor, standing near the center of a broad ruined platform. The figure looks across a vast black basalt valley where silver crystal fields, a deep canyon and three monumental towers form distinct layers. A distant cryovolcanic plume rises on the left horizon, and the landed ivory exploration ship is a minute shape on the right plain. A circular transmitter embedded in the far cliff shows a single amber point of light. Above the horizon, the pale ringed gas giant spans the sky. Cold silver daylight and a deep charcoal foreground lead the eye toward the tiny warm signal, with generous space around the human silhouette. A single continuous horizontal film frame with naturalistic large-format photography, subtle fine grain, physically coherent light and shadow, believable surface textures and restrained highlight roll-off. No montage, borders or logos. The image contains no text, letters or numbers."
+    }
+  ]
+}
