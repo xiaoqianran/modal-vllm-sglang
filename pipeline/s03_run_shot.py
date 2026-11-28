@@ -17,8 +17,10 @@ from runtime.utils.files import read_json
 from runtime.telemetry.recorder import cloud_recorder
 
 def run(payload, identity, *, backend=None, root=Path("/data"), timeout=85000, poll=2,
-        durable=False, previous=None):
+        durable=False, previous=None, single_pass=False):
     """Single claimed owner. Restore only an authoritative checkpoint on takeover."""
+    if single_pass and not durable:
+        raise ValueError("Single-pass advancement requires a durable owner")
     plan = payload["plan"]
     items = {job["item"] for job in plan["jobs"]}
     if len(items) != 1 or run_id(plan, next(iter(items))) != identity:
@@ -31,6 +33,8 @@ def run(payload, identity, *, backend=None, root=Path("/data"), timeout=85000, p
     backend.collect_outputs = False
     backend.managed_workflow = durable and payload.get("input_lifecycle") == LIFECYCLE
     destination = Path(root) / state_path(identity)
+    if single_pass and previous is None and destination.exists():
+        raise RuntimeError("Single-pass takeover requires the authoritative checkpoint")
     if not durable and destination.exists():
         raise RuntimeError("Workflow already started; inspect its durable state, never replay")
     if previous is not None:
@@ -80,6 +84,9 @@ def run(payload, identity, *, backend=None, root=Path("/data"), timeout=85000, p
                 records = sdk.snapshot(directory)[1]["jobs"]
                 if all(record["status"] in {"completed", "failed"} for record in records.values()):
                     workflow_status = "completed" if all(r["status"] == "completed" for r in records.values()) else "failed"
+                    break
+                if single_pass:
+                    # The owner publishes this running checkpoint in finally.
                     break
                 if time.monotonic() - started >= timeout:
                     workflow_status = "uncertain"
@@ -226,6 +233,15 @@ def tick(directory, backend, downloads, pool, *, item=None, pinned_preparation=N
                 receipt = {"id": request["id"], "prefix": prefix, "intent_hash": signature,
                            "cache_fingerprint": fingerprint,
                            "execution_hash": execution_signature(signature, fingerprint)}
+                # Persist delivery intent before a generation can be accepted.
+                # Legacy frozen plans retain their original delivery behavior.
+                delivery_intent = None
+                if plan.get("delivery_protocol") in (2, 3):
+                    delivery_intent = backend.register_delivery(job, receipt, plan)
+                    receipt["delivery_id"] = delivery_intent["id"]
+                    if plan["delivery_protocol"] == 3:
+                        request = {**request, "_delivery_v3": {"id": delivery_intent["id"],
+                                                              "app": plan["delivery_app"]}}
                 # Inspect committed evidence before reserving or starting a GPU.
                 existing = backend.preflight_result(receipt)
                 if existing is not None:
@@ -250,6 +266,16 @@ def tick(directory, backend, downloads, pool, *, item=None, pinned_preparation=N
                         fields["call_id"] = call_id
                     advance(key, status="queued", call_id=call_id, submitted_at=utc_now(),
                            dependency_wait_started_at=None)
+                    if delivery_intent:
+                        # The existing generation reservation also records the call
+                        # ID. Failure here must not turn acceptance into resubmission.
+                        try:
+                            if plan.get("delivery_protocol") == 3:
+                                backend.note_delivery_call(delivery_intent, call_id, plan=plan)
+                            else:
+                                backend.note_delivery_call(delivery_intent, call_id)
+                        except Exception as exc:
+                            print("Delivery call receipt:", type(exc).__name__, flush=True)
                 except BaseException:
                     advance(key, status="uncertain", error="Spawn acceptance unknown; never automatically resubmit")
                     raise

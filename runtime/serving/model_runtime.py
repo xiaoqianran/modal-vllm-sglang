@@ -324,7 +324,6 @@ class ModelRuntime:
                 "container": os.environ.get("MODAL_TASK_ID"),
                 "input": modal.current_input_id(),
             }), flush=True)
-            return record
         except BaseException:
             metadata = Path("/data").joinpath(*prefix.split("/"), item["id"] + ".json")
             try:
@@ -338,6 +337,14 @@ class ModelRuntime:
             raise
         finally:
             self.batch_lock.release()
+        event = item.get("_delivery_v3")
+        if isinstance(event, dict) and record.get("status") == "completed":
+            try:
+                from runtime.delivery.v3 import notify
+                notify(event["id"], event["app"])
+            except Exception as exc:
+                print("DELIVERY_EVENT_DEFERRED", type(exc).__name__, flush=True)
+        return record
 
     @modal.exit()
     def stop(self):

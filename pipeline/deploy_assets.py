@@ -73,3 +73,25 @@ def check_bucket(bucket):
     if getattr(info, "private", False):
         raise ValueError("HF asset bucket must be public")
     return {"bucket": bucket, "ready": True, "archive_version": assert_archive_version()}
+
+
+@app.function(image=image, cpu=1, memory=2048, timeout=600,
+              max_containers=4,
+              secrets=[modal.Secret.from_name("huggingface-secret", required_keys=["HF_TOKEN"])])
+def backfill_previews(bucket, receipts, expected_version):
+    from runtime.archive.preview import backfill_batch
+    version = assert_archive_version()
+    if version != expected_version:
+        raise RuntimeError("Archive deployment version mismatch")
+    return {"archive_version": version, "results": backfill_batch(bucket, receipts)}
+
+
+@app.function(image=image, cpu=1, memory=2048, timeout=600,
+              max_containers=4,
+              secrets=[modal.Secret.from_name("huggingface-secret", required_keys=["HF_TOKEN"])])
+def backfill_video_posters(bucket, receipts, expected_version):
+    from runtime.archive.video_poster import backfill_video_batch
+    version = assert_archive_version()
+    if version != expected_version:
+        raise RuntimeError("Archive deployment version mismatch")
+    return {"archive_version": version, "results": backfill_video_batch(bucket, receipts)}

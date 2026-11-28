@@ -2,7 +2,12 @@
 from pathlib import Path
 from math import log10
 from runtime.utils.files import sha256_file
+from runtime.archive.operations import verified_volume_copy
 from runtime.archive.huggingface import public_url
+
+
+class DerivativeInputError(ValueError):
+    """The verified source or its receipt cannot be processed under this policy."""
 
 def prepare_preview(source, workspace, stored_size):
     from PIL import Image, ImageOps, ImageChops, ImageStat
@@ -107,7 +112,7 @@ def lookup_preview(provider, digest, size):
         return None
 
 
-def backfill_batch(bucket, receipts):
+def backfill_batch(bucket, receipts, *, volume_root=None, local_inputs=None):
     """CPU-only: stream verified HF originals, publish previews in one batch."""
     from tempfile import TemporaryDirectory
     from urllib.request import Request, urlopen
@@ -128,10 +133,10 @@ def backfill_batch(bucket, receipts):
                     or row.get("status") != "archived" or row.get("verification") != "sha256"
                     or url != public_url(bucket, row["path"]) or type(size) is not int
                     or not 0 < size <= 64 * 1024 * 1024 or len(digest) != 64):
-                    raise ValueError("Invalid source receipt")
+                    raise DerivativeInputError("Invalid source receipt")
                 suffix = PurePosixPath(row["path"]).suffix.lower()
                 if suffix not in {".png", ".jpg", ".jpeg", ".webp"}:
-                    raise ValueError("Unsupported preview source")
+                    raise DerivativeInputError("Unsupported preview source")
                 cached = lookup_preview(provider, digest, size)
                 if cached:
                     results[url] = {"source_sha256": digest, "status": "preview", "preview": cached, "reused": True}
@@ -139,17 +144,30 @@ def backfill_batch(bucket, receipts):
                 work = Path(tmp) / str(i)
                 work.mkdir()
                 source = work / ("source" + suffix)
-                received, h = 0, sha256()
-                with urlopen(Request(url, headers={"Accept-Encoding": "identity"}), timeout=60) as response, source.open("wb") as out:
-                    for chunk in iter(lambda: response.read(1024 * 1024), b""):
-                        received += len(chunk)
-                        if received > size:
-                            raise ValueError("Source size mismatch")
-                        h.update(chunk)
-                        out.write(chunk)
-                if received != size or h.hexdigest() != digest:
-                    raise ValueError("Source integrity mismatch")
-                candidate = prepare_preview(source, work, size)
+                retained = (local_inputs or {}).get((bucket, digest, size))
+                if retained is not None and Path(retained).is_file() and Path(retained).stat().st_size == size:
+                    source = Path(retained)
+                elif not verified_volume_copy(volume_root, row, source):
+                    received, h = 0, sha256()
+                    with urlopen(Request(url, headers={"Accept-Encoding": "identity"}), timeout=60) as response, source.open("wb") as out:
+                        for chunk in iter(lambda: response.read(1024 * 1024), b""):
+                            received += len(chunk)
+                            if received > size:
+                                raise ValueError("Source size mismatch")
+                            h.update(chunk)
+                            out.write(chunk)
+                    if received != size or h.hexdigest() != digest:
+                        raise ValueError("Source integrity mismatch")
+                from PIL import Image, UnidentifiedImageError
+                try:
+                    candidate = prepare_preview(source, work, size)
+                except (UnidentifiedImageError, Image.DecompressionBombError) as exc:
+                    raise DerivativeInputError(type(exc).__name__) from exc
+                except OSError as exc:
+                    message = str(exc).lower()
+                    if "image file is truncated" in message or message == "truncated file read":
+                        raise DerivativeInputError("Truncated image") from exc
+                    raise
                 if candidate is None:
                     results[url] = {"source_sha256": digest, "status": "original"}
                     continue
@@ -158,6 +176,8 @@ def backfill_batch(bucket, receipts):
                 preview = {**preview, "url": public_url(bucket, preview["path"]), "verification": "sha256"}
                 mappings.setdefault(preview["path"], {})[preview_index_path(digest)] = preview_mapping(digest, size, preview)
                 prepared[url] = (digest, preview)
+            except DerivativeInputError as exc:
+                results[url] = {"error": str(exc), "invalid_input": True}
             except Exception as exc:
                 results[url] = {"error": type(exc).__name__}
         outcomes = provider.publish_many(entries, indexes=mappings) if entries else {}

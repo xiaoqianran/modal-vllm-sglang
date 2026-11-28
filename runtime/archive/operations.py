@@ -26,7 +26,7 @@ class PreparedMedia:
 
 def prepare_media(source: str | Path, workspace: Path, policy: str = "adaptive_lossless",
                   min_saving: float = 0.05, *, expected_sha256: str | None = None,
-                  lookup=None) -> PreparedMedia:
+                  lookup=None, _verified_snapshot=False) -> PreparedMedia:
     """Preserve the input. Only encode 8-bit RGB/RGBA files with no metadata."""
     path = Path(source).resolve()
     if not path.is_file():
@@ -41,7 +41,10 @@ def prepare_media(source: str | Path, workspace: Path, policy: str = "adaptive_l
         raise ValueError(f"Unsupported compression policy: {policy}")
     if not 0 <= min_saving < 1:
         raise ValueError("min_saving must be in [0, 1)")
-    original_sha256 = sha256_file(path)
+    # Only the private snapshot produced by verified_volume_copy may use this path.
+    if _verified_snapshot and expected_sha256 is None:
+        raise ValueError("Verified snapshot requires digest")
+    original_sha256 = expected_sha256 if _verified_snapshot else sha256_file(path)
     if expected_sha256 is not None and original_sha256 != expected_sha256:
         raise ValueError("Source artifact checksum mismatch")
     kind = "image" if suffix in IMAGE_EXTS else "video"
@@ -101,3 +104,30 @@ def describe(media: PreparedMedia, bucket: str, remote_path: str, url: str,
 
 def write_record(path: str | Path, record: dict[str, Any]) -> None:
     atomic_json(path, record)
+
+
+def verified_volume_copy(root, receipt, destination):
+    """Snapshot the exact archived bytes for decoding, falling back to HF on a miss."""
+    from hashlib import sha256
+    from runtime.delivery.cloud_cpu import mounted_source
+
+    artifact = receipt.get("source_artifact")
+    if root is None or not artifact or artifact.get("sha256") != receipt["stored_sha256"]:
+        return False
+    expected_size = receipt["stored_bytes"]
+    if artifact.get("size") != expected_size:
+        return False
+    try:
+        path = mounted_source(root, artifact)
+        digest = sha256()
+        received = 0
+        with path.open("rb") as source, destination.open("wb") as target:
+            for block in iter(lambda: source.read(1024 * 1024), b""):
+                received += len(block)
+                if received > expected_size:
+                    return False
+                target.write(block)
+                digest.update(block)
+        return received == expected_size and digest.hexdigest() == receipt["stored_sha256"]
+    except (OSError, ValueError):
+        return False

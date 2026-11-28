@@ -114,6 +114,23 @@ class CloudTests(unittest.TestCase):
         backend.submit = checked
         cloud.run(payload, identity, backend=backend, root=self.remote, poll=0.001)
 
+    def test_durable_single_pass_resumes_dependencies_without_poll_sleep(self):
+        backend = FakeBackend()
+        backend.videos_complete = True
+        plan = sdk.snapshot(self.directory)[0]
+        payload = cloud_client.payload_for(self.directory, plan, "001", backend)
+        identity = protocol.run_id(plan, "001")
+        previous = None
+        with patch.object(cloud.time, "sleep", side_effect=AssertionError("advance waited")):
+            for _ in range(5):
+                previous = cloud.run(payload, identity, backend=backend, root=self.remote,
+                                     durable=True, previous=previous, single_pass=True)
+                self.assertEqual(previous, read_json(self.remote / protocol.state_path(identity)))
+                if previous["status"] == "completed":
+                    break
+        self.assertEqual(previous["status"], "completed")
+        self.assertEqual(len(backend.submissions), 3)
+
     def test_round_coalesces_checkpoints_but_preserves_every_spawn_barrier(self):
         backend = FakeBackend()
         backend.videos_complete = True
