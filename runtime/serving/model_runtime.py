@@ -258,7 +258,7 @@ class ModelRuntime:
             "volume": volume_name,
             "model_volume": volume_name,
             "cache_fingerprint": self.cache_fingerprint,
-            "methods": ["generate_one", "deployment_info"],
+            "methods": ["generate_one", "deployment_info"] + (["preview_batch"] if spec.get("enable_image_edits") else []),
             "image": spec["image"],
             "max_inputs": spec.get("max_inputs", 1),
             "sdk_inference_concurrency": 1,
@@ -345,6 +345,44 @@ class ModelRuntime:
             except Exception as exc:
                 print("DELIVERY_EVENT_DEFERRED", type(exc).__name__, flush=True)
         return record
+
+    def _preview_render(self, prompt, source, size, min_generation_area):
+        import base64
+        import httpx
+        endpoint = f"http://127.0.0.1:{self.spec['proxy_port']}/v1/images"
+        payload = dict(prompt=prompt, size=size, seed=42, num_inference_steps=6,
+                       generator_device="cpu", response_format="b64_json")
+        if min_generation_area is not None:
+            payload['min_generation_area'] = min_generation_area
+        with httpx.Client(timeout=720) as client:
+            if source is None:
+                response = client.post(endpoint + "/generations", json=payload)
+            else:
+                payload["prompt"] = "<Picture 1> " + prompt
+                response = client.post(endpoint + "/edits", data=payload,
+                                       files={"image": ("source.png", source, "image/png")})
+            if response.is_error:
+                raise RuntimeError(f"Gateway {response.status_code}: {response.text[:600]}")
+            return base64.b64decode(response.json()["data"][0]["b64_json"])
+
+    @modal.method()
+    def preview_batch(self, project, pairs, archive=False, expected_deployment_version=None):
+        from runtime.serving.preview_batch import run_preview_batch
+        from runtime.serving.preview_delivery import preview_intents, DeliveryWake, spawn_delivery
+        assert_deployment_version(expected_deployment_version)
+        if self.spec.get("enable_image_edits") is not True:
+            raise ValueError("Image editing is disabled")
+        intents = preview_intents(project, pairs) if archive else None
+        wake = DeliveryWake(spawn_delivery) if archive else None
+        try:
+            with self.batch_lock:
+                return run_preview_batch(self.volume, Path("/data"), project, pairs,
+                                         self._preview_render,
+                                         container_id=os.environ.get("MODAL_TASK_ID"),
+                                         intents=intents, on_commit=wake.submit if wake else None)
+        finally:
+            if wake:
+                wake.close()
 
     @modal.exit()
     def stop(self):
