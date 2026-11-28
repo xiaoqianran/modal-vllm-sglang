@@ -73,7 +73,7 @@ class DeployOnlyTests(unittest.TestCase):
                 if omni:
                     self.assertEqual(spec["max_inputs"], 2)
                     self.assertEqual(spec["target_inputs"], 1)
-                    self.assertEqual(spec["buffer_containers"], 1)
+                    self.assertEqual(spec["buffer_containers"], 0)
                 else:
                     self.assertNotIn("target_inputs", spec)
                     self.assertEqual(spec.get("buffer_containers", 0), 0)

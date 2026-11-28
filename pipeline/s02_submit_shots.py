@@ -222,6 +222,12 @@ def tick_direct(directory, plan, current, job, backend, downloads, pool):
                 sdk.update(directory, job_key, wait_detail=None)
             before_submit = lambda intent: provisioner.record_direct(
                 key, receipt["id"], job_key, {**intent, "status": "submitting"})
+            capacity = getattr(backend, "batch_capacity", None)
+            if capacity is not None:
+                try:
+                    capacity.consider(directory, plan, service, ready, members)
+                except Exception as exc:
+                    print(f"Batch capacity skipped: {type(exc).__name__}: {exc}", flush=True)
 
         return tick(directory, backend, downloads, pool, item=item,
                     pinned_preparation=ready, before_submit=before_submit)
@@ -381,7 +387,7 @@ def claim_scene(lifecycle, directory):
 
 
 def worker(output, *, poll=2, backend=None, stop=None, task_name=None, selection=None, observed=None,
-           before_scene=None):
+           before_scene=None, active_scale=False):
     if not math.isfinite(poll) or poll <= 0:
         raise ValueError("poll must be positive")
     if backend is None:
@@ -408,6 +414,13 @@ def worker(output, *, poll=2, backend=None, stop=None, task_name=None, selection
         lifecycle.callback(release_claims)
         if getattr(backend, "provisioner", None) is not None:
             lifecycle.callback(backend.provisioner.close)
+        if active_scale:
+            from orchestration.scaling import BatchCapacity
+            provisioner = getattr(backend, "provisioner", None)
+            if provisioner is None:
+                raise ValueError("Active scaling requires deployment admission")
+            backend.batch_capacity = BatchCapacity(backend.modal, provisioner.registry)
+            lifecycle.callback(backend.batch_capacity.close)
         while stop is None or not stop.is_set():
             if (selection is None or selection() or render_pending) and time.monotonic() - last_render >= 5:
                 try:

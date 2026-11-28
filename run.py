@@ -35,10 +35,14 @@ def main():
     check.add_argument("--dry-run", action="store_true")
     scaling = sub.add_parser("check-scaling", help="Read deployed autoscaler settings and backlog without starting GPU containers")
     scaling.add_argument("service", nargs="+")
+    restore = sub.add_parser("restore-scaling", help="Restore an abandoned active-scaling override, if ownership can be proven")
+    restore.add_argument("service")
     worker = sub.add_parser("worker", help="Schedule registered SDK scenes using already published deployments")
     worker.add_argument("--output", default="outputs")
     worker.add_argument("--poll", type=float, default=2)
     worker.add_argument("--task", help="Only schedule this registered Task; avoid touching unrelated tasks")
+    worker.add_argument("--active-scale", action="store_true",
+                        help="Experiment: temporarily request extra capacity for a profitable direct MiniMax Omni batch")
     telemetry = sub.add_parser("telemetry", help="Collect telemetry or report a task timeline")
     telemetry_sub = telemetry.add_subparsers(dest="telemetry_command", required=True)
     collect = telemetry_sub.add_parser("collect")
@@ -137,6 +141,18 @@ def main():
             if any(not result["matches"] for result in results):
                 raise SystemExit(1)
             return
+        elif args.command == "restore-scaling":
+            from orchestration.sdk import Backend, model_specs
+            from orchestration.protocol import PROVISION_REGISTRY
+            from orchestration.scaling import restore_capacity
+            specs = model_specs()
+            if args.service not in specs:
+                raise ValueError("Unknown service; choose from " + ", ".join(sorted(specs)))
+            backend = Backend()
+            registry = backend.modal.Dict.from_name(PROVISION_REGISTRY)
+            print(json.dumps(restore_capacity(specs[args.service], backend.modal, registry),
+                             ensure_ascii=False, indent=2))
+            return
         elif args.command == "check-deployment":
             from orchestration.sdk import check_deployment, model_specs
             specs = model_specs()
@@ -157,6 +173,10 @@ def main():
             try:
                 with redirect_stdout(stream), redirect_stderr(stream):
                     options = {"task_name": args.task} if args.task else {}
+                    if args.active_scale:
+                        if not args.task:
+                            raise ValueError("--active-scale requires --task for the bounded experiment")
+                        options["active_scale"] = True
                     run_worker(output, poll=args.poll, **options)
             finally:
                 stream.close()

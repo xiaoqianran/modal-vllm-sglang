@@ -4,7 +4,8 @@ from unittest.mock import Mock
 
 import pytest
 
-from orchestration.scaling import inspect_scaling
+from orchestration.scaling import BatchCapacity, capacity_decision, inspect_scaling, restore_capacity
+from tests.test_provisioning import Registry
 from runtime.config.model_spec import ROOT, validate
 from runtime.utils.files import read_json
 
@@ -13,7 +14,7 @@ def spec():
     return read_json(ROOT / "models/006-minimax-h3-image-vllm/model.json")
 
 
-def fake_modal(*, runners=1, backlog=11, headroom=0, buffer=1):
+def fake_modal(*, runners=1, backlog=11, headroom=0, buffer=0):
     modal = Mock()
     app = NS(functions={"H3.*": "fu-model", "provision_info": "fu-probe"},
              lifecycle=NS(version=3))
@@ -35,9 +36,10 @@ def test_invalid_buffer_containers(value):
 
 def test_buffer_zero_and_one_are_valid():
     assert validate({**spec(), "buffer_containers": 0})["buffer_containers"] == 0
-    assert validate(spec())["buffer_containers"] == 1
+    assert validate(spec())["buffer_containers"] == 0
+    assert validate({**spec(), "buffer_containers": 1})["buffer_containers"] == 1
     with pytest.raises(ValueError, match="buffer_containers"):
-        validate({**spec(), "max_containers": 1})
+        validate({**spec(), "max_containers": 1, "buffer_containers": 1})
 
 
 def test_real_control_plane_single_runner_with_backlog_is_not_config_error():
@@ -56,11 +58,11 @@ def test_real_control_plane_single_runner_with_backlog_is_not_config_error():
     fn.update_autoscaler.assert_not_called()
 
 
-def test_missing_buffer_detects_deployment_drift():
-    modal, _ = fake_modal(buffer=None)
+def test_extra_buffer_detects_deployment_drift():
+    modal, _ = fake_modal(buffer=1)
     report = inspect_scaling(spec(), modal_api=modal)
     assert not report["matches"]
-    assert report["differences"] == {"buffer_containers": {"expected": 1, "actual": 0}}
+    assert report["differences"] == {"buffer_containers": {"expected": 0, "actual": 1}}
     assert report["status"] == "configuration_mismatch"
 
 
@@ -111,3 +113,148 @@ def test_legacy_default_concurrency_and_buffer():
     report = inspect_scaling(legacy, modal_api=modal)
     assert report["matches"]
     assert report["status"] == "no_backlog"
+
+
+@pytest.mark.parametrize("count,expected", [(0, False), (8, False), (12, False),
+                                           (19, False), (20, True), (24, True)])
+def test_cold_second_runner_requires_enough_remaining_work(count, expected):
+    decision = capacity_decision(count)
+    assert decision["request"] is expected
+    assert decision["two_runner_seconds"] <= decision["one_runner_seconds"]
+
+
+def test_capacity_prediction_uses_whole_images_and_delay():
+    decision = capacity_decision(24)
+    assert decision["one_runner_seconds"] == 300
+    assert decision["two_runner_seconds"] == 242.5
+    assert decision["estimated_gain_seconds"] == 57.5
+    assert not capacity_decision(24, startup_seconds=300)["request"]
+    assert not capacity_decision(100, runners=2)["request"]
+    assert not capacity_decision(100, max_containers=1)["request"]
+    assert capacity_decision(8, startup_seconds=0)["request"]
+
+
+@pytest.mark.parametrize("bad", [-1, True, 2.5])
+def test_capacity_rejects_invalid_remaining_count(bad):
+    with pytest.raises(ValueError):
+        capacity_decision(bad)
+
+
+def batch_state(tmp_path, count=24):
+    from runtime.utils.files import atomic_json
+    keys = tuple(f"image/{i:03}" for i in range(count))
+    atomic_json(tmp_path / "state.json",
+                {"plan_hash": "plan", "jobs": {key: {"status": "pending"} for key in keys}})
+    return keys
+
+
+def test_active_request_releases_after_parallel_assignment(tmp_path):
+    keys = batch_state(tmp_path)
+    modal, fn = fake_modal(runners=0, backlog=0)
+    registry = Registry()
+    settings = fn.autoscaler.settings.return_value
+    stats = fn.get_current_stats.return_value
+
+    def update(**changes):
+        for key, value in changes.items():
+            setattr(settings, key, value)
+        if changes["min_containers"] == 2:
+            assert registry["capacity-override:" + spec()["app_name"]]["before"]["min_containers"] == 0
+            stats.num_total_runners = 2
+            stats.num_running_inputs = 3
+
+    fn.autoscaler.update.side_effect = update
+    controller = BatchCapacity(modal, registry)
+    controller.stop.wait = Mock(return_value=False)
+    try:
+        controller._run(tmp_path, "plan", keys, spec(), 3)
+    finally:
+        controller.close()
+    assert [c.kwargs for c in fn.autoscaler.update.call_args_list] == [
+        {"min_containers": 2, "buffer_containers": 0},
+        {"min_containers": 0, "buffer_containers": 0},
+    ]
+    assert not registry
+    fn.spawn.assert_not_called()
+
+
+def test_lost_override_reply_is_restored_without_resubmission(tmp_path):
+    keys = batch_state(tmp_path)
+    modal, fn = fake_modal(runners=0, backlog=0)
+    registry = Registry()
+    settings = fn.autoscaler.settings.return_value
+
+    def update(**changes):
+        for key, value in changes.items():
+            setattr(settings, key, value)
+        if changes["min_containers"] == 2:
+            raise OSError("reply lost after acceptance")
+
+    fn.autoscaler.update.side_effect = update
+    controller = BatchCapacity(modal, registry)
+    try:
+        controller._run(tmp_path, "plan", keys, spec(), 3)
+    finally:
+        controller.close()
+    assert fn.autoscaler.update.call_count == 2
+    assert settings.min_containers == 0
+    assert not registry
+
+
+@pytest.mark.parametrize("revision,count", [(4, 24), (3, 8)])
+def test_capacity_does_not_mutate_wrong_revision_or_short_batch(tmp_path, revision, count):
+    keys = batch_state(tmp_path, count=count)
+    modal, fn = fake_modal(runners=0, backlog=0)
+    registry = Registry()
+    controller = BatchCapacity(modal, registry)
+    try:
+        controller._run(tmp_path, "plan", keys, spec(), revision)
+    finally:
+        controller.close()
+    fn.autoscaler.update.assert_not_called()
+    assert not registry
+
+
+def test_abandoned_override_recovery_preserves_unrelated_setting_changes():
+    modal, fn = fake_modal()
+    report = inspect_scaling(spec(), modal_api=modal)
+    key = "capacity-override:" + spec()["app_name"]
+    registry = Registry({key: {
+        "identity": {"app_revision": report["app_revision"], "function_id": report["function_id"]},
+        "before": {"min_containers": 0, "buffer_containers": 0},
+        "after": {"min_containers": 2, "buffer_containers": 0},
+        "other_settings": {k: v for k, v in report["actual"].items()
+                           if k not in {"min_containers", "buffer_containers"}},
+    }})
+    settings = fn.autoscaler.settings.return_value
+    settings.min_containers = 2
+    settings.scaledown_window = 90
+    with pytest.raises(RuntimeError, match="Other autoscaler settings changed"):
+        restore_capacity(spec(), modal, registry)
+    assert key in registry
+    fn.autoscaler.update.assert_not_called()
+
+
+def test_controller_deduplicates_batch_and_ignores_other_models(tmp_path):
+    modal, _ = fake_modal()
+    controller = BatchCapacity(modal, Registry())
+    plan = {"hash": "plan", "services": {"minimax-omni": {"spec": spec()}},
+            "jobs": [{"key": f"image/{i:03}", "uses": "minimax-omni.t2i",
+                      "params": {"size": "4096x2304", "num_inference_steps": 6}}
+                     for i in range(24)]}
+    ready = {"version": "source", "app_revision": 3}
+    members = {str(i): [f"image/{i:03}"] for i in range(24)}
+    with pytest.MonkeyPatch.context() as mp:
+        submit = Mock()
+        mp.setattr(controller.pool, "submit", submit)
+        try:
+            controller.consider(tmp_path, plan, "moss", ready, members)
+            plan["jobs"][0]["params"]["size"] = "2048x1152"
+            controller.consider(tmp_path, plan, "minimax-omni", ready, members)
+            submit.assert_not_called()
+            plan["jobs"][0]["params"]["size"] = "4096x2304"
+            controller.consider(tmp_path, plan, "minimax-omni", ready, members)
+            controller.consider(tmp_path, plan, "minimax-omni", ready, members)
+            submit.assert_called_once()
+        finally:
+            controller.close()

@@ -24,7 +24,7 @@ class DependencyTests(unittest.TestCase):
             "s03_run_shot": {"sdk", "state", "protocol", "model_capabilities", "workflow_recovery", "input_store"},
             # deployment_state is a lower-level version helper used only for
             # legacy recovery; active item predicates belong to state.
-            "s02_submit_shots": {"sdk", "state", "protocol", "provisioning", "monitor", "workflow_recovery", "input_store", "deployment_state"},
+            "s02_submit_shots": {"sdk", "state", "protocol", "provisioning", "monitor", "workflow_recovery", "input_store", "deployment_state", "scaling"},
             "state": set(),
             "workflow_recovery": {"model_capabilities", "protocol", "input_store"},
             "storage_gc": {"workflow_recovery", "input_store"},
