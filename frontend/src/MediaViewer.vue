@@ -2,7 +2,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { X, ChevronLeft, ChevronRight, ExternalLink, Copy, Maximize2, Play } from 'lucide-vue-next'
 const props = defineProps({ asset:Object, position:Number, total:Number })
-const emit=defineEmits(['close','step'])
+const emit=defineEmits(['close','step','create'])
 const loaded=ref(false),failed=ref(false),copied=ref(false),dialog=ref(null)
 watch(()=>[props.asset?.project,props.asset?.id,props.asset?.url],()=>{loaded.value=false;failed.value=false;copied.value=false})
 const src=computed(()=>loaded.value?props.asset?.url:((props.asset?.kind==='image'?props.asset?.preview||props.asset?.thumb||props.asset?.url:props.asset?.thumb||'')))
@@ -25,7 +25,7 @@ onUnmounted(()=>document.removeEventListener('keydown',key,true))
     <button class="viewer-prev" aria-label="上一项媒体" title="上一项媒体 (←)" aria-keyshortcuts="ArrowLeft" :disabled="position===0" @click="emit('step',-1)"><ChevronLeft/></button>
     <button class="viewer-next" aria-label="下一项媒体" title="下一项媒体 (→)" aria-keyshortcuts="ArrowRight" :disabled="position>=total-1" @click="emit('step',1)"><ChevronRight/></button>
   </div>
-  <div class="viewer-foot"><div><strong>{{position+1}} / {{total}}</strong><span> · {{asset.kind==='video'?'视频':'图片'}}</span><span v-if="total>1" class="viewer-key-hint"> · ← → 切换</span><span v-if="asset.bytes"> · {{(asset.bytes/1048576).toFixed(1)}} MiB</span><span v-if="asset.dimensions"> · {{asset.dimensions.join(' × ')}}</span></div><div class="actions"><button v-if="asset.url" @click="copy"><Copy :size="15"/> {{copied?'已复制':'复制链接'}}</button><a v-if="asset.url" :href="asset.url" target="_blank" rel="noopener noreferrer">原文件 <ExternalLink :size="14"/></a></div></div>
+  <div class="viewer-foot"><div><strong>{{position+1}} / {{total}}</strong><span> · {{asset.kind==='video'?'视频':'图片'}}</span><span v-if="total>1" class="viewer-key-hint"> · ← → 切换</span><span v-if="asset.bytes"> · {{(asset.bytes/1048576).toFixed(1)}} MiB</span><span v-if="asset.dimensions"> · {{asset.dimensions.join(' × ')}}</span></div><div class="actions"><button v-if="asset.kind==='image'" @click="emit('create',asset)">使用此图创作</button><button v-if="asset.url" @click="copy"><Copy :size="15"/> {{copied?'已复制':'复制链接'}}</button><a v-if="asset.url" :href="asset.url" target="_blank" rel="noopener noreferrer">原文件 <ExternalLink :size="14"/></a></div></div>
   <details v-if="asset.prompt" class="viewer-prompt"><summary>生成提示词</summary><p>{{asset.prompt}}</p></details>
 </dialog>
 </template>

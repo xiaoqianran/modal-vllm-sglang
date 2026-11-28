@@ -10,7 +10,11 @@ import ArtistPalette from './ArtistPalette.vue'
 import { themes } from './artist-palettes.js'
 import { livingColors } from './living-colors.js'
 import MediaViewer from './MediaViewer.vue'
-import { mergeSnapshot, mergeTaskAssets, galleryPreview, canFallbackToOriginal } from './catalog.js'
+import Atelier from './Atelier.vue'
+import { getCatalog } from './api.js'
+import { mergeSnapshot, mergeTaskAssets, mergeCatalogTasks, mergeLiveAssets, galleryPreview, canFallbackToOriginal } from './catalog.js'
+const atelierSource=ref(null)
+function createFrom(a){atelierSource.value=a;close();navigate('atelier')}
 const props=defineProps({initial:Object})
 const fontOptions=[
  {id:'dynapuff',name:'DynaPuff',family:'DynaPuff Variable'},
@@ -28,7 +32,7 @@ const activeFont=computed(()=>fontOptions.find(f=>f.id===displayFont.value)||fon
 function chooseFont(id){displayFont.value=id;try{localStorage.setItem('dfa.displayFont.v1',id)}catch{}}
 
 const assets=ref(props.initial.assets||[]), tasks=ref(props.initial.tasks||[])
-const view=ref(props.initial.view==='monitor'?'monitor':'archive'), project=ref('all'), kind=ref('all'), query=ref(''), sort=ref('new'), layout=ref('masonry'), page=ref(1), pageSize=ref(12), online=ref(false), selected=ref(props.initial.selected||tasks.value[0]?.id||''), focus=ref(0)
+const view=ref(['monitor','atelier'].includes(props.initial.view)?props.initial.view:'archive'), project=ref('all'), kind=ref('all'), query=ref(''), sort=ref('new'), layout=ref('masonry'), page=ref(1), pageSize=ref(12), online=ref(false), selected=ref(props.initial.selected||tasks.value[0]?.id||''), focus=ref(0)
 function savedPalette(){try{const id=localStorage.getItem('dfa.artistPalette.v1');return themes.some(t=>t.id===id)?id:'neo'}catch{return 'neo'}}
 const artistTheme=ref(savedPalette()),palettePanel=ref(false)
 const currentPalette=computed(()=>themes.find(t=>t.id===artistTheme.value)||themes[0])
@@ -75,10 +79,11 @@ function open(a,items=filter.value){if(!a)return;const i=items.findIndex(x=>x.id
 function close(){viewer.value=null;nextTick(()=>lastFocus?.focus())}
 function step(delta){const n=viewerIndex.value+delta;if(n<0||n>=viewerItems.value.length)return;viewerIndex.value=n;viewer.value=viewerItems.value[n]}
 const productionCovers=computed(()=>{const map={};for(const a of assets.value){if(a.thumb&&!map[a.project])map[a.project]=a.thumb}return map})
+const activeStatuses=['running','queued','delivering']
 const productionGroups=computed(()=>[
- {id:'active',label:'制作中',items:tasks.value.filter(t=>['running','queued','pending'].includes(t.snapshot.status))},
+ {id:'active',label:'制作中',items:tasks.value.filter(t=>activeStatuses.includes(t.snapshot.status))},
  {id:'done',label:'已完成',items:tasks.value.filter(t=>t.snapshot.status==='completed')},
- {id:'other',label:'其他记录',items:tasks.value.filter(t=>!['running','queued','pending','completed'].includes(t.snapshot.status))}
+ {id:'other',label:'其他记录',items:tasks.value.filter(t=>!activeStatuses.includes(t.snapshot.status)&&t.snapshot.status!=='completed')}
 ].filter(g=>g.items.length))
 const railSearch=ref('')
 const railGroups=computed(()=>productionGroups.value.map(g=>({...g,items:g.items.filter(t=>!railSearch.value.trim()||t.snapshot.name.toLowerCase().includes(railSearch.value.trim().toLowerCase())||groupLabel(t.snapshot.name).toLowerCase().includes(railSearch.value.trim().toLowerCase()))})).filter(g=>g.items.length))
@@ -105,17 +110,30 @@ function pages(){return [...new Set([1,...[page.value-1,page.value,page.value+1]
 function keyboard(e){if(viewer.value||e.defaultPrevented||e.target?.closest?.('input,textarea,select,[contenteditable]'))return;if(view.value==='gallery'&&layout.value==='film'&&['ArrowLeft','ArrowRight'].includes(e.key)){e.preventDefault();focus.value=Math.max(0,Math.min(current.value.length-1,focus.value+(e.key==='ArrowLeft'?-1:1)));return}if(e.key==='/'&&!e.target?.closest?.('button')){e.preventDefault();document.querySelector('#search')?.focus()}}
 let catalogTimer,catalogScript,catalogTimeout
 function clearCatalog(){clearTimeout(catalogTimeout);catalogScript?.remove();catalogScript=null}
+let localCatalogTimer, catalogPending=false, catalogDisposed=false
+async function syncLocalCatalog(){
+ if(catalogPending||catalogDisposed)return
+ catalogPending=true
+ try {
+  const data=await getCatalog()
+  if(catalogDisposed)return
+  if(Array.isArray(data.assets))assets.value=mergeLiveAssets(assets.value,data.assets)
+  mergeCatalogTasks(tasks.value,data.tasks)
+  if(!selected.value)selected.value=tasks.value[0]?.id||''
+ } catch {} finally {catalogPending=false}
+}
 function loadCatalog(){if(!props.initial.catalog_url||catalogScript)return
  window.updateStudioCatalog=list=>{for(const t of list){let found=tasks.value.find(x=>x.id===t.id);if(!found){tasks.value.push({...t,snapshot:{...t.snapshot,jobs:[]}})}updateTask(t.snapshot,true)}clearCatalog()}
  catalogScript=document.createElement('script');catalogScript.src=props.initial.catalog_url+'?t='+Date.now();catalogScript.onerror=clearCatalog;catalogScript.onload=clearCatalog;document.body.appendChild(catalogScript);catalogTimeout=setTimeout(clearCatalog,8000)}
-onMounted(()=>{document.documentElement.dataset.theme=currentPalette.value.dark?'dark':'light';document.addEventListener('keydown',keyboard);if(props.initial.catalog_url){loadCatalog();catalogTimer=setInterval(loadCatalog,5000)}})
-onUnmounted(()=>{routeAnimation?.kill();document.querySelectorAll('.transition-frame').forEach(el=>el.remove());document.removeEventListener('keydown',keyboard);clearInterval(catalogTimer);clearCatalog();delete window.updateStudioCatalog})
+onMounted(()=>{document.documentElement.dataset.theme=currentPalette.value.dark?'dark':'light';document.addEventListener('keydown',keyboard);if(!props.initial.live_studio && props.initial.catalog_url){loadCatalog();catalogTimer=setInterval(loadCatalog,5000)}if(props.initial.live_studio){syncLocalCatalog();localCatalogTimer=setInterval(syncLocalCatalog,15000)}})
+onUnmounted(()=>{catalogDisposed=true;routeAnimation?.kill();document.querySelectorAll('.transition-frame').forEach(el=>el.remove());document.removeEventListener('keydown',keyboard);clearInterval(catalogTimer);clearInterval(localCatalogTimer);clearCatalog();delete window.updateStudioCatalog})
 </script>
 <template>
 <div class="studio creative" :data-display-font="displayFont" :data-palette="artistTheme" :data-view="view" :style="paletteStyle">
-<div v-if="view!=='monitor'" class="living-atmosphere" aria-hidden="true"><i/><i/><i/></div><header class="topbar"><button class="wordmark" @click="navigate('archive')"><span>Digital Film Archive<span class="archive-brand-sub">数字电影档案馆</span></span></button><nav class="main-nav" aria-label="主导航"><button :class="{active:view==='archive'}" @click="navigate('archive')">馆藏</button><button :class="{active:view==='gallery'}" @click="browseAll">所有画面</button><button :class="{active:view==='explore'}" @click="navigate('explore')">探索</button><button :class="{active:view==='monitor'}" @click="navigate('monitor')"><Activity :size="17"/> 任务监控 <span v-if="counts.running" class="nav-count">{{counts.running}}</span></button></nav><div class="top-actions"><div class="font-switch" @keydown.esc.stop="fontPanel=false"><button class="font-toggle" aria-label="艺术字体切换" :aria-expanded="fontPanel" aria-controls="art-font-options" @click="fontPanel=!fontPanel"><span class="font-symbol">Aa</span><span class="font-current">{{activeFont.name}}</span></button><section v-if="fontPanel" id="art-font-options" class="font-panel" aria-label="艺术字体"><div class="font-panel-head"><div><strong>Typography</strong><small>实时切换艺术字体</small></div><button aria-label="关闭字体面板" @click="fontPanel=false"><X :size="17"/></button></div><div class="font-options"><button v-for="f in fontOptions" :key="f.id" :data-font-option="f.id" :aria-pressed="displayFont===f.id" @click="chooseFont(f.id)"><span class="font-sample">Dreams</span><span class="font-option-name">{{f.name}}</span><Check v-if="displayFont===f.id" :size="15"/></button></div><button class="font-reset" @click="chooseFont('dynapuff')">恢复默认 DynaPuff</button></section></div><a v-if="initial.bucket_url" class="cloud-link" :href="initial.bucket_url" target="_blank" rel="noopener noreferrer"><span class="dot"/> HF 存储 <ArrowUpRight :size="14"/></a><ArtistPalette :themes="themes" :model-value="artistTheme" :open="palettePanel" @update:model-value="choosePalette" @update:open="palettePanel=$event"/></div></header>
+<div v-if="view!=='monitor'" class="living-atmosphere" aria-hidden="true"><i/><i/><i/></div><header class="topbar"><button class="wordmark" @click="navigate('archive')"><span>Digital Film Archive<span class="archive-brand-sub">数字电影档案馆</span></span></button><nav class="main-nav" aria-label="主导航"><button :class="{active:view==='atelier'}" @click="navigate('atelier')">创作</button><button :class="{active:view==='archive'}" @click="navigate('archive')">馆藏</button><button :class="{active:view==='gallery'}" @click="browseAll">所有画面</button><button :class="{active:view==='explore'}" @click="navigate('explore')">探索</button><button :class="{active:view==='monitor'}" @click="navigate('monitor')"><Activity :size="17"/> 任务监控 <span v-if="counts.running" class="nav-count">{{counts.running}}</span></button></nav><div class="top-actions"><div class="font-switch" @keydown.esc.stop="fontPanel=false"><button class="font-toggle" aria-label="艺术字体切换" :aria-expanded="fontPanel" aria-controls="art-font-options" @click="fontPanel=!fontPanel"><span class="font-symbol">Aa</span><span class="font-current">{{activeFont.name}}</span></button><section v-if="fontPanel" id="art-font-options" class="font-panel" aria-label="艺术字体"><div class="font-panel-head"><div><strong>Typography</strong><small>实时切换艺术字体</small></div><button aria-label="关闭字体面板" @click="fontPanel=false"><X :size="17"/></button></div><div class="font-options"><button v-for="f in fontOptions" :key="f.id" :data-font-option="f.id" :aria-pressed="displayFont===f.id" @click="chooseFont(f.id)"><span class="font-sample">Dreams</span><span class="font-option-name">{{f.name}}</span><Check v-if="displayFont===f.id" :size="15"/></button></div><button class="font-reset" @click="chooseFont('dynapuff')">恢复默认 DynaPuff</button></section></div><a v-if="initial.bucket_url" class="cloud-link" :href="initial.bucket_url" target="_blank" rel="noopener noreferrer"><span class="dot"/> HF 存储 <ArrowUpRight :size="14"/></a><ArtistPalette :themes="themes" :model-value="artistTheme" :open="palettePanel" @update:model-value="choosePalette" @update:open="palettePanel=$event"/></div></header>
 <div class="shell" :class="{'archive-shell':view!=='monitor','production-shell':view==='monitor'}">
 <ArchiveHome v-if="view==='archive'" :assets="assets" :group-label="groupLabel" @album="transitionAlbum" @browse="browseAll"/>
+<Atelier v-if="view==='atelier'" :assets="assets" :source="atelierSource" :live="!!initial.live_studio" @browse="browseAll" @preview="a=>open(a,assets)"/>
 <Explore v-if="view==='explore'" :assets="assets" @preview="open"/>
 <aside v-if="view==='monitor'" class="sidebar production-rail" aria-label="制作档案目录">
   <div class="production-rail-title"><h2>Productions</h2><p>{{tasks.length}} 个任务 <span>·</span> {{counts.running}} 运行中 <span>·</span> {{counts.done}} 已完成</p></div>
@@ -145,6 +163,6 @@ onUnmounted(()=>{routeAnimation?.kill();document.querySelectorAll('.transition-f
 </main>
 <main v-else-if="view==='monitor'" class="workspace production-workspace"><div v-if="!activeTask" class="empty">暂无任务记录</div><Monitor v-else :key="activeTask.id" :task="liveTask" :thumbs="thumbs" :canonical="canonical" :media-index="mediaIndex" @preview="open" @update="updateTask"/></main>
 </div>
-<MediaViewer v-if="viewer" :asset="viewer" :position="viewerIndex" :total="viewerItems.length" @close="close" @step="step"/>
+<MediaViewer v-if="viewer" :asset="viewer" :position="viewerIndex" :total="viewerItems.length" @close="close" @step="step" @create="createFrom"/>
 </div>
 </template>

@@ -110,3 +110,20 @@ export function galleryPreview(asset, allowRemoteOriginal = false) {
 export function canFallbackToOriginal(asset, allowRemoteOriginal = false) {
   return asset?.kind === 'image' && !!asset.url && (!cloud(asset.url) || allowRemoteOriginal)
 }
+
+export function mergeCatalogTasks(tasks, incoming) {
+  for (const task of incoming || []) {
+    const existing = tasks.find(t => t.id === task.id)
+    if (!existing) { tasks.push(task); continue }
+    const snapshot = mergeSnapshot(existing.snapshot, task.snapshot, !!task.feed)
+    Object.assign(existing, task, { snapshot })
+  }
+}
+
+// A cached live catalog may not yet contain a job observed by the monitor.
+// Preserve feed-only assets until the next authoritative catalog includes them.
+export function mergeLiveAssets(previous, incoming) {
+  const id = new Set(incoming.map(a => a.id))
+  const local = new Set(incoming.flatMap(a => [a.local_url, !cloud(a.url) ? a.url : null].filter(Boolean)))
+  return [...incoming, ...previous.filter(a => !id.has(a.id) && !local.has(a.local_url || a.url))]
+}

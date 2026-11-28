@@ -1,0 +1,57 @@
+/* Contact sheet and dark projection surface; all controls inherit the chosen artist palette. */
+.atelier{width:100%;max-width:1700px;margin:auto;padding:28px clamp(16px,3vw,48px) 48px;color:var(--ink)}
+.atelier-heading{display:flex;align-items:end;justify-content:space-between;gap:16px;margin-bottom:24px}
+.atelier-heading p{font-size:12px;color:var(--muted);margin:0 0 8px}
+.atelier-heading h1{font-family:'Fraunces Variable',Georgia,serif;font-size:clamp(40px,5vw,66px);letter-spacing:-.06em;font-weight:450;line-height:1;margin:0}
+.atelier-heading h1 span{font:400 15px 'Manrope Variable',sans-serif;letter-spacing:.04em;margin-left:18px;color:var(--muted)}
+.atelier-layout{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:24px;align-items:start}
+.atelier-workspace,.atelier-inspector{min-width:0}
+.atelier-stage-bar,.atelier-stage-caption,.atelier-library-head{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.atelier-stage-bar{border:1px solid var(--line);border-bottom:0;padding:10px 14px;background:var(--surface);border-radius:10px 10px 0 0;font-size:12px}
+.atelier-stage-bar span{display:flex;align-items:center;gap:8px}
+.atelier-stage{min-height:320px;height:clamp(320px,49vh,620px);background:var(--artist-stage,#15151c);display:grid;place-items:center;overflow:hidden;color:#dedbe5}
+.atelier-frame{position:relative;border:0;background:none;width:100%;height:100%;min-height:0;display:grid;place-items:center;padding:22px;cursor:zoom-in}
+.atelier-frame img{max-width:100%;max-height:100%;min-height:0;object-fit:contain;box-shadow:0 8px 28px #0004}
+.atelier-frame span{position:absolute;bottom:12px;right:12px;background:#19191ed9;color:white;padding:7px 10px;border-radius:5px;display:flex;align-items:center;gap:6px;font-size:12px}
+.atelier-empty{text-align:center;padding:24px;color:#c9c5d2}
+.atelier-empty h2{font-family:'Fraunces Variable',Georgia,serif;font-size:28px;font-weight:400;margin:20px 0 8px;color:#f0edf5}
+.atelier-empty p{font-size:13px;margin:0 0 20px;color:#bbb7c5}
+.atelier-stage-caption{padding:12px 14px;border:1px solid var(--line);border-top:0;border-radius:0 0 10px 10px;background:var(--surface);font-size:13px}
+.atelier-stage-caption small,.atelier-library-head small{color:var(--muted);font-size:11px;font-weight:400}
+.atelier-library-head{margin:24px 0 10px;flex-wrap:wrap}
+.atelier-library-head h2,.atelier-inspector h2{font-size:17px;font-weight:650;margin:0}
+.atelier-library-head label{display:flex;align-items:center;gap:6px;border-bottom:1px solid var(--line);color:var(--muted)}
+.atelier-library-head input{background:transparent;border:0;color:var(--ink);padding:6px;width:140px}
+.atelier-contact{display:flex;gap:9px;overflow-x:auto;padding:3px 2px 10px}
+.atelier-contact button{flex:0 0 126px;width:126px;min-width:0;padding:3px;border:1px solid transparent;border-radius:5px;background:transparent;color:var(--ink);text-align:left}
+.atelier-contact button.selected{border-color:var(--accent);background:var(--soft)}
+.atelier-contact img{display:block;width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:3px}
+.atelier-contact small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;padding:5px 2px}
+.atelier-inspector{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:20px;display:grid;gap:17px}
+.atelier-inspector label{display:grid;gap:7px;font-size:12px;font-weight:600;min-width:0}
+.atelier-inspector input,.atelier-inspector select,.atelier-inspector textarea{box-sizing:border-box;width:100%;background:var(--paper);color:var(--ink);border:1px solid var(--line);padding:10px;border-radius:6px;font:inherit;font-weight:400}
+.atelier-inspector textarea{resize:vertical;line-height:1.7;min-height:110px}
+.atelier-inspector fieldset{border:0;padding:0;margin:0;min-width:0}
+.atelier-inspector legend{font-size:12px;font-weight:600;width:100%;margin-bottom:8px}
+.atelier-inspector legend small{float:right;font-weight:400;color:var(--muted)}
+.atelier-modes,.atelier-ratios{display:flex;gap:4px}
+.atelier-modes button,.atelier-ratios button{flex:1;background:transparent;border:1px solid var(--line);color:var(--muted);font:inherit;font-size:12px;padding:9px 5px;border-radius:5px}
+.atelier button[aria-pressed=true]{background:var(--soft);color:var(--ink);border-color:var(--accent)}
+.atelier-quiet{display:inline-flex;align-items:center;gap:7px;background:transparent;border:1px solid currentColor;border-radius:5px;color:inherit;padding:8px 10px;font-size:12px}
+.atelier-fields{display:grid;grid-template-columns:minmax(0,1fr) 74px;gap:10px}
+.atelier-submit{display:flex;justify-content:center;align-items:center;gap:8px;padding:13px;border:0;border-radius:6px;background:var(--ink);color:var(--surface);font-weight:650}
+.atelier button:not(:disabled){cursor:pointer}.atelier button:disabled{opacity:.42;cursor:not-allowed}
+.atelier button:focus-visible,.atelier input:focus-visible,.atelier select:focus-visible,.atelier textarea:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.atelier-note,.atelier-warning,.atelier-original p{font-size:11px;line-height:1.7;color:var(--muted);margin:0}
+.atelier-warning{color:var(--artist-warning,var(--ink));margin-top:6px}
+.atelier-json,.atelier-original{font-size:12px;border-top:1px solid var(--line);padding-top:12px}
+.atelier-original label{margin-top:8px}
+.atelier-json pre{font-size:10px;white-space:pre-wrap;overflow-wrap:anywhere;max-height:200px;overflow:auto}
+@media(max-width:950px){.atelier-layout{grid-template-columns:minmax(0,1fr) 290px;gap:14px}.atelier-inspector{padding:14px}}
+@media(max-width:740px){.atelier-layout{grid-template-columns:1fr}.atelier-heading h1 span{display:block;margin:8px 0 0}.atelier-stage{height:40vh;min-height:250px}.atelier-heading{align-items:start}}
+
+
+.atelier-actions{display:grid;gap:8px}
+.atelier-validate{padding:10px;border:1px solid var(--line);border-radius:6px;background:transparent;color:var(--ink);font-weight:600}
+.atelier-task-state{display:flex;justify-content:space-between;gap:8px;font-size:11px;color:var(--muted);overflow-wrap:anywhere}
+.atelier-task-state .owned{color:var(--artist-success,var(--accent));font-weight:700}

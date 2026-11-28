@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "id": "minimax-omni-t2i",
+  "steps": [
+    {
+      "id": "image",
+      "uses": "minimax-omni.t2i",
+      "inputs": {
+        "prompt": {
+          "ref": "input.prompt"
+        },
+        "seed": {
+          "ref": "input.seed"
+        }
+      }
+    }
+  ],
+  "outputs": {
+    "image": {
+      "ref": "image.image"
+    }
+  }
+}
