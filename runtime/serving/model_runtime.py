@@ -24,6 +24,62 @@ from runtime.utils.outputs import validate_path_component
 from runtime.serving.deployment_probe import assert_deployment_version, register_probes
 
 
+def snapshot_environment(spec):
+    """Small, CPU-only identity probe; never initialize CUDA in the parent."""
+    evidence = {
+        "container_id": os.environ.get("MODAL_TASK_ID"),
+        "deployment_version": os.environ.get("MODEL_DEPLOY_VERSION", "manual"),
+        "spec_hash": intent_digest(spec),
+        "requested_gpu": spec.get("gpu", "RTX-PRO-6000"),
+        "region": os.environ.get("MODAL_REGION"),
+        "cloud": os.environ.get("MODAL_CLOUD_PROVIDER"),
+        "gpu_name": None,
+        "driver_version": None,
+        "cpu_model": None,
+        "cpu_flags_hash": None,
+    }
+    if evidence["container_id"]:
+        try:
+            cpu = {}
+            for line in Path("/proc/cpuinfo").read_text(encoding="utf-8").splitlines():
+                key, sep, value = line.partition(":")
+                if sep and key.strip() in {"model name", "flags"}:
+                    cpu.setdefault(key.strip(), value.strip())
+            evidence["cpu_model"] = cpu.get("model name")
+            if cpu.get("flags"):
+                evidence["cpu_flags_hash"] = intent_digest(sorted(cpu["flags"].split()))
+        except (OSError, UnicodeError):
+            pass
+        try:
+            result = subprocess.run(
+                ["nvidia-smi", "--query-gpu=name,driver_version",
+                 "--format=csv,noheader,nounits"],
+                capture_output=True, text=True, timeout=3, check=True,
+            )
+            first = next((line for line in result.stdout.splitlines() if line.strip()), "")
+            parts = [part.strip() for part in first.split(",", 1)]
+            evidence["gpu_name"] = parts[0] if parts else None
+            evidence["driver_version"] = parts[1] if len(parts) > 1 else None
+        except (OSError, UnicodeError, subprocess.SubprocessError):
+            pass  # Diagnostic failure must not prevent model startup.
+    return evidence
+
+
+def snapshot_evidence(origin, current, capture_id):
+    source, target = origin.get("container_id"), current.get("container_id")
+    relation = ("unknown" if not source or not target else
+                "capture_origin" if source == target else "different_container")
+    return {"capture_id": capture_id, "relation": relation,
+            "restored_from_capture": bool(capture_id and relation == "different_container"),
+            "origin": origin, "current": current,
+            "gpu_matches": (origin["gpu_name"] == current["gpu_name"]
+                            if origin.get("gpu_name") and current.get("gpu_name") else None),
+            "driver_matches": (origin["driver_version"] == current["driver_version"]
+                               if origin.get("driver_version") and current.get("driver_version") else None),
+            "cpu_flags_match": (origin["cpu_flags_hash"] == current["cpu_flags_hash"]
+                                if origin.get("cpu_flags_hash") and current.get("cpu_flags_hash") else None)}
+
+
 def build_image(spec, *, offline):
     from runtime.serving.modal_setup import runtime_image
     root = cache_directory(spec)
@@ -122,6 +178,7 @@ class ModelRuntime:
                     engine_initialization_seconds=self.engine_initialization_seconds,
                     initialization_is_snapshot_history=gpu_snapshot,
                     cache_fingerprint=self.cache_fingerprint,
+                    snapshot_evidence=getattr(self, "snapshot_startup_evidence", None),
                 )
         except BaseException:
             self._stop_lazy_gateway()
@@ -222,6 +279,9 @@ class ModelRuntime:
             label=spec["service"], stopping=self.stopping,
             on_failure=lambda: os._exit(1),
         )
+        self.snapshot_startup_evidence = snapshot_evidence(
+            getattr(self, "snapshot_origin", {}), snapshot_environment(spec),
+            getattr(self, "snapshot_capture_id", None))
         self.startup_seconds = time.perf_counter() - started
         print(json.dumps({
             "event": "model_ready",
@@ -233,6 +293,7 @@ class ModelRuntime:
             "engine_initialization_seconds": self.engine_initialization_seconds,
             "memory_snapshot": spec.get("memory_snapshot", "off"),
             "snapshot_capture_id": getattr(self, "snapshot_capture_id", None),
+            "snapshot_evidence": getattr(self, "snapshot_startup_evidence", None),
             "resources": self.resources.snapshot(),
         }), flush=True)
 
@@ -302,6 +363,7 @@ class ModelRuntime:
             "engine_initialization_seconds": self.engine_initialization_seconds,
             "memory_snapshot": spec.get("memory_snapshot", "off"),
             "snapshot_capture_id": getattr(self, "snapshot_capture_id", None),
+            "snapshot_evidence": getattr(self, "snapshot_startup_evidence", None),
             "resources": self.resources.snapshot(),
         }
 
@@ -482,11 +544,20 @@ class SnapshotModelRuntime(ModelRuntime):
     def capture_engine(self):
         from uuid import uuid4
         self.spec = self._load_spec()
+        capture_id = uuid4().hex
+        self.snapshot_origin = snapshot_environment(self.spec)
+        print(json.dumps({"event": "snapshot_capture_started",
+                          "service": self.spec["service"],
+                          "capture_id": capture_id,
+                          "origin": self.snapshot_origin}), flush=True)
         self._prepare_engine()
-        self.snapshot_capture_id = uuid4().hex
+        self.snapshot_capture_id = capture_id
         print(json.dumps({"event": "snapshot_capture_ready",
                           "service": self.spec["service"],
-                          "capture_id": self.snapshot_capture_id}), flush=True)
+                          "capture_id": self.snapshot_capture_id,
+                          "origin": self.snapshot_origin,
+                          "cache_fingerprint": self.cache_fingerprint,
+                          "engine_initialization_seconds": self.engine_initialization_seconds}), flush=True)
 
 
 # The non-snapshot and snapshot variants retain the same deployed class tags.

@@ -124,5 +124,42 @@ class MemorySnapshotTests(unittest.TestCase):
                 validate({**SPEC, 'memory_snapshot': value})
 
 
+
+
+class SnapshotEvidenceTests(unittest.TestCase):
+    def test_capture_and_restore_are_distinguished_by_container_identity(self):
+        from runtime.serving.model_runtime import snapshot_evidence
+        origin = {"container_id": "ta-a", "gpu_name": "RTX PRO 6000",
+                  "driver_version": "590", "cpu_flags_hash": "cpu-a"}
+        same = snapshot_evidence(origin, dict(origin), "capture")
+        self.assertEqual(same["relation"], "capture_origin")
+        self.assertTrue(same["gpu_matches"])
+        self.assertTrue(same["driver_matches"])
+        self.assertTrue(same["cpu_flags_match"])
+        other = snapshot_evidence(origin, {**origin, "container_id": "ta-b"}, "capture")
+        self.assertEqual(other["relation"], "different_container")
+        self.assertTrue(other["restored_from_capture"])
+        self.assertEqual(other["capture_id"], "capture")
+        mismatch = snapshot_evidence(origin, {**origin, "container_id": "ta-b",
+                                               "driver_version": "600",
+                                               "cpu_flags_hash": "cpu-b"}, "capture")
+        self.assertFalse(mismatch["cpu_flags_match"])
+        self.assertTrue(mismatch["gpu_matches"])
+        self.assertFalse(mismatch["driver_matches"])
+        unknown = snapshot_evidence({}, {}, None)
+        self.assertEqual(unknown["relation"], "unknown")
+        self.assertFalse(unknown["restored_from_capture"])
+        self.assertIsNone(unknown["gpu_matches"])
+
+    def test_environment_probe_failure_is_nonfatal(self):
+        from runtime.serving.model_runtime import snapshot_environment
+        with patch.dict("os.environ", {"MODAL_TASK_ID": "ta-current"}), \
+             patch("runtime.serving.model_runtime.subprocess.run", side_effect=OSError("unavailable")):
+            evidence = snapshot_environment(SPEC)
+        self.assertEqual(evidence["container_id"], "ta-current")
+        self.assertIsNone(evidence["gpu_name"])
+        self.assertIsNone(evidence["driver_version"])
+
+
 if __name__ == '__main__':
     unittest.main()
