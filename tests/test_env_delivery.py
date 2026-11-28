@@ -6,7 +6,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from pipeline import s01_build_plan
 from orchestration import state
@@ -87,14 +87,51 @@ class EnvironmentDeliveryTests(unittest.TestCase):
                 patch("run.build_plan", return_value=plan), \
                 patch("run.new_run") as new_run, \
                 patch("modal.Function.from_name") as function, \
+                patch("modal.Volume.from_name") as volume, \
                 patch("sys.stderr", new_callable=io.StringIO):
-            function.return_value.remote.side_effect = RuntimeError("CPU archiver unavailable")
+            function.return_value.remote.aio = AsyncMock(side_effect=RuntimeError("CPU archiver unavailable"))
             with self.assertRaises(SystemExit) as error:
                 main()
             self.assertEqual(error.exception.code, 2)
             new_run.assert_not_called()
             function.assert_called_once_with(plan["delivery_app"], "check_bucket")
-            function.return_value.remote.assert_called_once_with(plan["delivery"]["bucket"], plan["delivery_protocol"])
+            function.return_value.remote.aio.assert_awaited_once_with(plan["delivery"]["bucket"], plan["delivery_protocol"])
+            function.return_value.remote.assert_not_called()
+            volume.assert_not_called()
+
+    def test_delivery_preflight_rejects_wrong_volume_and_waits_for_deployed_build(self):
+        from types import SimpleNamespace
+        from orchestration.delivery_preflight import check_delivery
+        from runtime.delivery import v3
+
+        info = {"ready": True, "protocol": v3.PROTOCOL, "volume_id": "vo-source",
+                "delivery_volume_id": "vo-meta", "build": "current"}
+        with patch("modal.Function.from_name") as function, \
+                patch("modal.Volume.from_name") as volume, \
+                patch("runtime.delivery.v3.build_id", return_value="current"):
+            volume.side_effect = lambda name, **kwargs: SimpleNamespace(
+                hydrate=SimpleNamespace(aio=AsyncMock(return_value=SimpleNamespace(object_id="vo-" + name))))
+            function.return_value.remote.aio = AsyncMock(return_value={**info, "volume_id": "vo-other"})
+            with self.assertRaisesRegex(ValueError, "volume identity mismatch"):
+                check_delivery("bucket", "app", "meta", "source", timeout=2, interval=0)
+            function.return_value.remote.aio = AsyncMock(side_effect=[{**info, "build": "previous"}, info])
+            check_delivery("bucket", "app", "meta", "source", timeout=2, interval=0)
+            self.assertEqual(function.return_value.remote.aio.await_count, 2)
+
+    def test_delivery_preflight_timeout_is_bounded(self):
+        import asyncio
+        from orchestration.delivery_preflight import check_delivery
+
+        async def stalled(*args):
+            await asyncio.Event().wait()
+
+        with patch("modal.Function.from_name") as function, \
+                patch("modal.Volume.from_name") as volume, \
+                patch("runtime.delivery.v3.build_id", return_value="current"):
+            function.return_value.remote.aio = AsyncMock(side_effect=stalled)
+            with self.assertRaisesRegex(ValueError, "readiness check timed out"):
+                check_delivery("bucket", "app", "meta", "source", timeout=0.05)
+            volume.assert_not_called()
 
 
 if __name__ == "__main__":

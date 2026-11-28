@@ -168,9 +168,14 @@ def tick(directory, backend, downloads, pool, *, item=None, pinned_preparation=N
                     result = None
                     try:
                         result = backend.poll(record)
-                        if result is not None:
+                        if result is None and record["status"] == "uncertain":
+                            accepted = getattr(backend, "accepted_submission_call", None)
+                            call_id = accepted(record) if accepted else record.get("call_id")
+                            if call_id:
+                                advance(key, status="queued", call_id=call_id, error=None)
+                        elif result is not None:
                             if result["status"] != "completed":
-                                advance(key, status="failed", result=result, error="Cloud generation failed")
+                                advance(key, status="failed", result=result, error=result.get("error") or "Cloud generation failed")
                             else:
                                 artifact = cloud_artifact({**record, "result": result}, kind)
                                 advance(key, status="completed", result=result,

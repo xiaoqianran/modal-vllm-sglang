@@ -276,6 +276,10 @@ def build_plan(task_path, *, root=ROOT):
         if not isinstance(task.get("delivery"), dict) or "compression" not in task["delivery"]:
             plan["delivery"]["compression"] = "none"
         plan["delivery"]["verify"] = "sha256"
+        from runtime.archive.works import work_id, task_definition, validate_task
+        identity = work_id(plan)
+        validate_task(identity, task_definition(plan))
+        plan["work"] = {"id": identity}
     elif "delivery_protocol" in task:
         raise ValueError("Durable delivery requires HF destination")
     plan["hash"] = intent_digest(plan)
@@ -285,8 +289,21 @@ def build_plan(task_path, *, root=ROOT):
 from orchestration.protocol import bindings
 
 
+def inherit_archive_layout(plan, directory):
+    """Existing scenes retain their original delivery identity after upgrades."""
+    existing = Path(directory) / "plan.json"
+    if existing.is_file() and plan.get("work"):
+        old = read_json(existing)
+        if not old.get("work"):
+            plan = {k: v for k, v in plan.items() if k not in {"work", "hash"}}
+            plan["hash"] = intent_digest(plan)
+    return plan
+
+
 def _extend_scene(directory, old, plan, saved):
     """Append new shots without resetting completed jobs or changing old inputs."""
+    if old.get("work") or plan.get("work"):
+        raise ValueError("A published work is immutable; use a new task and scene for additional shots")
     if old.get("layout_version") != 3 or plan.get("layout_version") != 3:
         raise ValueError("Cannot extend an older run; migrate it first")
     if intent_digest({key: value for key, value in old.items() if key != "hash"}) != old.get("hash"):
@@ -326,10 +343,11 @@ def new_run(plan, *, root=ROOT, output="outputs"):
     # Explicitly adding delivery to the source Task is not silently migrated.
     previous_plan = proposed_directory / "plan.json"
     source_task = Path(root) / "tasks" / (plan["name"] + ".json")
+    plan = inherit_archive_layout(plan, proposed_directory)
     if previous_plan.is_file() and source_task.is_file() and "delivery" in plan:
         old = read_json(previous_plan)
         if "delivery" not in old and "delivery" not in read_json(source_task):
-            plan = {key: value for key, value in plan.items() if key not in {"delivery", "delivery_protocol", "delivery_volume", "delivery_app", "hash"}}
+            plan = {key: value for key, value in plan.items() if key not in {"delivery", "delivery_protocol", "delivery_volume", "delivery_app", "work", "hash"}}
             plan["hash"] = intent_digest(plan)
     for marker in (runtime_root / "tasks").glob("*/*/layout.json"):
         if marker.parent != proposed_directory and read_json(marker).get("media") == str(media):
@@ -354,9 +372,28 @@ def _new_run(plan, *, root=ROOT, output="outputs"):
     runtime = bindings(plan)  # Fail before writing any Run if credentials are missing.
     directory = output / plan["project"] / plan["scene"]
     with state.lock(output, timeout=10), state.lock(directory, timeout=10):
+        plan = inherit_archive_layout(plan, directory)
+        # Publish the plan last: schedulers discover only committed scenes.
+        journal = directory / ".runner" / "registration.json"
+        if journal.exists():
+            pending = read_json(journal)
+            if pending["plan"] != plan:
+                raise ValueError("Interrupted registration belongs to a different plan")
+            if not (directory / "plan.json").exists():
+                state.save(directory / "state.json", pending["state"])
+                state.save(directory / "plan.json", plan)
+            journal.unlink()
         if directory.joinpath("plan.json").exists() or directory.joinpath("state.json").exists():
             if not (directory.joinpath("plan.json").is_file() and directory.joinpath("state.json").is_file()):
-                raise ValueError("Incomplete scene state; refusing overwrite")
+                # Historical initial registration wrote plan before state. Only
+                # repair its pristine layout; never reset an executed scene.
+                plan_path = directory / "plan.json"
+                runner = directory / ".runner"
+                pristine = (all(p.name in {"plan.json", ".runner", ".runner.lock"} for p in directory.iterdir())
+                            and (not runner.exists() or all(p.name == "inputs" for p in runner.iterdir())))
+                if not (plan_path.is_file() and pristine and read_json(plan_path) == plan):
+                    raise ValueError("Incomplete scene state; refusing overwrite")
+                state.save(directory / "state.json", _initial_state(plan, runtime))
             old = read_json(directory / "plan.json")
             saved = read_json(directory / "state.json")
             # Adding a default render label must not invalidate an identical frozen execution.
@@ -407,10 +444,15 @@ def _new_run(plan, *, root=ROOT, output="outputs"):
             if hashlib.sha256(data).hexdigest() != entry["artifact"]["sha256"]:
                 raise ValueError("Input changed since planning; plan again")
             state.write(state.local_path(directory, relative), data)
+        initial = _initial_state(plan, runtime)
+        state.save(journal, {"plan": plan, "state": initial})
+        state.save(directory / "state.json", initial)
         state.save(directory / "plan.json", plan)
-        state.save(directory / "state.json", {
-            "registered_at": utc_now(),
-            "plan_hash": plan["hash"],
-            "endpoints": {k: v["endpoint"] for k, v in runtime.items()},
-            "jobs": {job["key"]: {"status": "pending"} for job in plan["jobs"]}})
+        journal.unlink()
     return directory
+
+
+def _initial_state(plan, runtime):
+    return {"registered_at": utc_now(), "plan_hash": plan["hash"],
+            "endpoints": {k: v["endpoint"] for k, v in runtime.items()},
+            "jobs": {job["key"]: {"status": "pending"} for job in plan["jobs"]}}

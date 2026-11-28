@@ -35,13 +35,17 @@ def key_for(spec, version):
 
 
 class Provisioner:
-    def __init__(self, backend):
+    def __init__(self, backend, *, prepare_enabled=True):
         self.root = ROOT
         self.backend = backend
-        self.version = source_version()
-        self.paths = model_paths()
-        self.model_versions = {name: model_source_version(read_json(path))
-                               for name, path in self.paths.items()}
+        self.prepare_enabled = prepare_enabled
+        # A generation worker consumes published deployments; only explicit
+        # preparation needs to fingerprint local source files.
+        if prepare_enabled:
+            self.version = source_version()
+            self.paths = model_paths()
+            self.model_versions = {name: model_source_version(read_json(path))
+                                   for name, path in self.paths.items()}
         self.registry = backend.modal.Dict.from_name(REGISTRY, create_if_missing=True)
         self.pool = ThreadPoolExecutor(max_workers=2)
         self.verified = {}
@@ -63,7 +67,39 @@ class Provisioner:
         if current != expected:
             raise RuntimeError("Sources changed during preparation; restart worker")
 
+    def published_key(self, spec=None):
+        """Select a published, compatible deployment without preparing or deploying."""
+        service = spec["service"] if spec is not None else "orchestration"
+        app = APP_NAME if spec is None else spec.get("app_name", "modal-model-" + service)
+        # Existing batch reservations keep their pinned version. New batches
+        # should not select an old deployment while an explicit rollout drains it.
+        if self.registry.get("switching:" + app):
+            return None
+        key = self.registry.get("active:" + app)
+        if key is None:
+            # Older deployments did not publish an orchestration pointer.
+            # A local record is only a locator, never readiness proof.
+            path = self.root / ".runtime/models" / (service + ".json")
+            try:
+                key = read_json(path).get("key")
+            except FileNotFoundError:
+                return None
+        if not key:
+            return None
+        record = self.registry.get(key, {})
+        if (record.get("status") != "ready" or not record.get("version")
+                or not record.get("app_revision")):
+            return None
+        if spec is not None and (record.get("spec_hash") != intent_digest(spec)
+                                 or not record.get("cache_fingerprint")):
+            return None
+        return key
+
     def start(self, spec=None, *, retry=False, batch=None):
+        if not getattr(self, "prepare_enabled", True):
+            if retry:
+                raise RuntimeError("Use the explicit prepare command to retry deployment")
+            return self.published_key(spec)
         key = key_for(spec, self.version_for(spec))
         with self.lock:
             persisted = self.registry.get(key, {})
@@ -103,6 +139,8 @@ class Provisioner:
                         updated = self.registry[key]
                         stamp = (updated["updated_at"], updated["version"])
                     verified[key, batch] = stamp
+                    if spec is None:
+                        self.registry.put("active:" + app, key, skip_if_exists=True)
                     return key
                 if not self.registry.get("admitted:" + key):
                     self.publish(key, {"status": "preparing", "reason": "readiness_changed"}, spec)
@@ -117,16 +155,23 @@ class Provisioner:
     def batch_keys(self, services, batch):
         name = "batch:" + batch
         pinned = self.registry.get(name)
+        prepare_enabled = getattr(self, "prepare_enabled", True)
         if pinned is None:
-            proposed = {service: key_for(binding["spec"], self.version_for(binding["spec"]))
-                        for service, binding in services.items()}
+            if prepare_enabled:
+                proposed = {service: key_for(binding["spec"], self.version_for(binding["spec"]))
+                            for service, binding in services.items()}
+            else:
+                proposed = {service: self.published_key(binding["spec"])
+                            for service, binding in services.items()}
+                if any(key is None for key in proposed.values()):
+                    return None  # Do not pin an unavailable deployment.
             if self.registry.put(name, proposed, skip_if_exists=True):
                 pinned = proposed
             else:
                 pinned = self.registry[name]
         for service, binding in services.items():
             spec = binding["spec"]
-            if pinned[service] == key_for(spec, self.version_for(spec)):
+            if prepare_enabled and pinned[service] == key_for(spec, self.version_for(spec)):
                 self.start(spec, batch=batch)
             elif not self.registry.get(pinned[service]):
                 raise RuntimeError("Original preparation version unavailable for batch " + batch)
@@ -423,6 +468,8 @@ class Provisioner:
                                        "cache_fingerprint": fingerprint, "recovered_after_rollout": True}, spec)
                     if spec is not None:
                         self.registry.pop("switching:" + app, None)
+                    else:
+                        self.registry["active:" + app] = key
                     return True
         except LeaseBusy:
             return False
@@ -559,6 +606,8 @@ class Provisioner:
                                        "last_failed_stage": None, "actual_version": version,
                                        "spec_hash": intent_digest(spec) if spec is not None else None,
                                        "cache_fingerprint": fingerprint if spec is not None else None}, spec)
+                    if spec is None:
+                        self.registry["active:" + app] = key
                     return
                 except Exception as exc:
                     print(f"Preparation {app}, attempt {attempt + 1}: {type(exc).__name__}: {exc}", flush=True)

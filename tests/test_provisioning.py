@@ -451,6 +451,25 @@ class ProvisioningTests(unittest.TestCase):
             atomic_json(root / "models/002-pika/model.json", {**pika, "revision": "b" * 40})
             self.assertNotEqual(pika_before, model_source_version(pika, root))
 
+    def test_engine_lock_content_updates_only_referencing_model_versions(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            moss = {**SPEC, "service": "moss", "uv_requirements": "omni.txt"}
+            pika = {**SPEC, "service": "pika"}
+            atomic_json(root / "models/001-moss/model.json", moss)
+            atomic_json(root / "models/002-pika/model.json", pika)
+            lock = root / "runtime/serving/locks/omni.txt"
+            lock.parent.mkdir(parents=True)
+            lock.write_bytes(b"torch==1\n")
+            before, other = model_source_version(moss, root), model_source_version(pika, root)
+            source_before = source_version(root)
+            lock.write_bytes(b"torch==1\r\n")
+            self.assertEqual(before, model_source_version(moss, root))
+            lock.write_bytes(b"torch==2\n")
+            self.assertNotEqual(before, model_source_version(moss, root))
+            self.assertEqual(other, model_source_version(pika, root))
+            self.assertNotEqual(source_before, source_version(root))
+
     def test_new_rollout_waits_for_all_six_shots_including_unsubmitted(self):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "model.json"

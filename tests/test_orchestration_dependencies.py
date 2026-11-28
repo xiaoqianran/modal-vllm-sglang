@@ -22,13 +22,16 @@ class DependencyTests(unittest.TestCase):
             "input_store": {"state"},
             "input_audit": set(),
             "s03_run_shot": {"sdk", "state", "protocol", "model_capabilities", "workflow_recovery", "input_store"},
-            "s02_submit_shots": {"sdk", "state", "protocol", "provisioning", "monitor", "workflow_recovery", "input_store"},
+            # deployment_state is a lower-level version helper used only for
+            # legacy recovery; active item predicates belong to state.
+            "s02_submit_shots": {"sdk", "state", "protocol", "provisioning", "monitor", "workflow_recovery", "input_store", "deployment_state"},
+            "state": set(),
             "workflow_recovery": {"model_capabilities", "protocol", "input_store"},
             "storage_gc": {"workflow_recovery", "input_store"},
             "provisioning": {"protocol", "state", "deployment_state", "leases"},
         }
         for module, dependencies in allowed.items():
-            tree = ast.parse((ROOT / ("pipeline" if module.startswith("s0") else "orchestration") / (module + ".py")).read_text())
+            tree = ast.parse((ROOT / ("pipeline" if module.startswith("s0") else "orchestration") / (module + ".py")).read_text(encoding="utf-8"))
             imports = set()
             for node in ast.walk(tree):
                 if isinstance(node, ast.ImportFrom):

@@ -42,7 +42,7 @@ def digest_files(root, paths):
     # same text bytes on both hosts, but retain every other source change.
     def digest(path):
         data = path.read_bytes()
-        if path.suffix in {".py", ".json"}:
+        if path.suffix in {".py", ".json", ".txt"}:
             data = data.replace(b"\r\n", b"\n")
         return hashlib.sha256(data).hexdigest()
     # Sort POSIX relative names explicitly: WindowsPath ordering is case-insensitive.
@@ -55,7 +55,10 @@ def source_version(root=ROOT):
     paths = dependency_files(root, ["pipeline.deploy_shot", "pipeline.s03_run_shot", "orchestration.sdk", "orchestration.protocol", "orchestration.state"])
     for config in root.glob("models/*/model.json"):
         paths.add(config)
-        validator = read_json(config).get("validator_module")
+        spec = read_json(config)
+        if spec.get("uv_requirements"):
+            paths.add(root / "runtime/serving/locks" / spec["uv_requirements"])
+        validator = spec.get("validator_module")
         if validator:
             paths.update(dependency_files(root, [validator]))
     return digest_files(root, paths)
@@ -73,6 +76,8 @@ def model_source_version(spec, root=ROOT):
     entry = root / "orchestration/provision_entry.py"
     if entry.is_file():
         paths.add(entry)
+    if spec.get("uv_requirements"):
+        paths.add(root / "runtime/serving/locks" / spec["uv_requirements"])
     return digest_files(root, paths | {matches[0]})
 
 

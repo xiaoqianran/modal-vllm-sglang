@@ -189,6 +189,27 @@ def test_terminal_call_immediately_rechecks_authoritative_record():
     assert len(vol.reads) == 2
 
 
+@pytest.mark.parametrize("terminal", ["FAILURE", "INIT_FAILURE", "TERMINATED", "TIMEOUT"])
+def test_confirmed_failed_call_is_terminal_without_respawn(terminal):
+    b = backend(Volume())
+    job = record()
+    b.modal.FunctionCall.from_id.return_value.get.side_effect = RuntimeError("remote error")
+    with patch("runtime.tasks.task_lifecycle.terminal_call_status", return_value=terminal):
+        result = b.poll(job)
+    assert result["status"] == "failed"
+    assert result["terminal_status"] == terminal
+    assert result["call_id"] == job["call_id"]
+    assert result["execution_hash"] == job["execution_hash"]
+
+
+def test_ambiguous_failed_query_is_not_terminal():
+    b = backend(Volume())
+    b.modal.FunctionCall.from_id.return_value.get.side_effect = RuntimeError("lost reply")
+    with patch("runtime.tasks.task_lifecycle.terminal_call_status", return_value=None):
+        with pytest.raises(RuntimeError, match="lost reply"):
+            b.poll(record())
+
+
 def test_terminal_success_rechecks_conflicting_persisted_result():
     vol = Volume()
     b = backend(vol)
