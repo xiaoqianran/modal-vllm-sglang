@@ -8,6 +8,7 @@ from unittest.mock import Mock, patch
 
 from runtime.utils.files import atomic_json, download_volume_file, read_json
 from runtime.serving.model_runtime import create_app
+from tests.modal_registration import registrations
 from runtime.serving.legacy_cache_preparer import create_download_app, optional_hf_download_secrets
 from runtime.serving.inference_execution import execute
 from runtime.tasks.task_spec import prepare
@@ -145,11 +146,13 @@ class ModelServiceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "model.json"
             atomic_json(path, SPEC)
-            app, model = create_app(path)
-            self.assertIn("Model", app.registered_classes)
-            with patch("runtime.serving.legacy_cache_preparer.optional_hf_download_secrets", return_value=[]):
-                download_app, download, check_cache = create_download_app(path)
-            self.assertIn("download", download_app.registered_functions)
+            with registrations() as (classes, functions):
+                app, model = create_app(path)
+                with patch("runtime.serving.legacy_cache_preparer.optional_hf_download_secrets", return_value=[]):
+                    download_app, download, check_cache = create_download_app(path)
+            self.assertIs(classes[(app, "Model")], model)
+            self.assertIs(functions[(download_app, "download")], download)
+            self.assertIs(functions[(download_app, "check_cache")], check_cache)
 
     def test_lazy_recovery_bypasses_engine_and_checks_media(self):
         from runtime.tasks.task_spec import execution_signature

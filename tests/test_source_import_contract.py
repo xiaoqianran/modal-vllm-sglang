@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 
 from runtime.serving.model_runtime import create_app
+from tests.modal_registration import registrations
 from runtime.serving import model_runtime, snapshot_classes
 from runtime.utils.files import atomic_json, read_json
 
@@ -46,9 +47,10 @@ class SourceImportContractTests(unittest.TestCase):
                 with self.subTest(folder=folder, mode=mode), tempfile.TemporaryDirectory() as tmp:
                     config = Path(tmp) / "model.json"
                     atomic_json(config, {**spec, "memory_snapshot": mode})
-                    app, handle = create_app(config)
-                    self.assertIs(app.registered_classes[spec["modal_class"]], handle)
-                    self.assertIn("provision_info", app.registered_functions)
+                    with registrations() as (classes, functions):
+                        app, handle = create_app(config)
+                    self.assertIs(classes[(app, spec["modal_class"])], handle)
+                    self.assertIn((app, "provision_info"), functions)
                     classes = (snapshot_classes.RUNTIME_CLASSES if mode == "gpu"
                                else model_runtime._RUNTIME_CLASSES)
                     # Registration must not permanently overwrite source metadata.

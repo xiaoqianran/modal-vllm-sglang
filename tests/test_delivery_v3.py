@@ -475,7 +475,8 @@ def test_derivative_dispatch_failure_preserves_receipt_and_recovery_marker(monke
         raise RuntimeError("lost derivative worker")
     derivative = Mock(side_effect=crash)
     monkeypatch.setattr(deployment, "derive_batch", derivative)
-    assert deployment.archive_batch.local([identity])["archived"] == 1
+    with pytest.warns(UserWarning, match="executing locally.*mounted Volume"):
+        assert deployment.archive_batch.local([identity])["archived"] == 1
     derivative.assert_called_once_with([identity], v3.PROTOCOL, local_inputs={}, owner="fc-owner")
     assert observed_receipts[0]["status"] == "archived"
     assert list(v3.active_ids(store, True)) == [identity]

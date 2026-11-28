@@ -28,7 +28,8 @@ def test_full_resolution_and_verified_index(tmp_path):
     path=sample(tmp_path/"source.png")
     row=receipt(path)
     file, data=prepare_preview(path,tmp_path,row["stored_bytes"])
-    assert Image.open(file).size == (768,432)
+    with Image.open(file) as image:
+        assert image.size == (768,432)
     assert data["psnr"] >= 40 and data["bytes"] < row["stored_bytes"]*.8
     data.update(url=public_url(BUCKET,data["path"]),verification="sha256")
     assert preview_url({**row,"preview":data}) == data["url"]

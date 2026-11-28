@@ -339,7 +339,8 @@ class CloudTests(unittest.TestCase):
                 patch.object(cloud_app, "run") as run:
             volume.read_file.side_effect = FileNotFoundError
             claims.put.return_value = False
-            with self.assertRaisesRegex(RuntimeError, "already claimed"):
-                cloud_app.run_shot.local(payload, "a" * 64)
+            with self.assertWarnsRegex(UserWarning, "executing locally.*mounted Volume"):
+                with self.assertRaisesRegex(RuntimeError, "already claimed"):
+                    cloud_app.run_shot.local(payload, "a" * 64)
             run.assert_not_called()
             self.assertTrue(claims.put.call_args.kwargs["skip_if_exists"])

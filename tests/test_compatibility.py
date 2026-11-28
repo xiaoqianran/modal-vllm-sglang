@@ -12,6 +12,7 @@ from runtime.utils.files import atomic_json, read_json
 from runtime.config.model_cache import DOWNLOAD_MAX_WORKERS, component_specs, prepare_cache, verify_cache, checked_inventory
 from runtime.serving.inference_execution import execute
 from runtime.serving.model_runtime import create_app
+from tests.modal_registration import registrations
 from runtime.config.model_spec import discover, parameters
 
 SPECS = discover()
@@ -171,8 +172,9 @@ class CompatibilityTests(unittest.TestCase):
 
     def test_existing_deployment_class_names_are_registered(self):
         for folder, name in [('models/001-moss-image', 'Moss'), ('models/002-pika-h3-flex', 'Pika'), ('models/005-minimax-h3-image', 'H3')]:
-            app, model = create_app(Path(__file__).resolve().parents[1] / folder / 'model.json')
-            self.assertIn(name, app.registered_classes)
+            with registrations() as (classes, _):
+                app, model = create_app(Path(__file__).resolve().parents[1] / folder / 'model.json')
+            self.assertIs(classes[(app, name)], model)
 
 
 class PikaRecoveryTests(unittest.TestCase):

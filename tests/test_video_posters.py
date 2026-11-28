@@ -21,7 +21,8 @@ def test_extracts_bounded_video_poster(tmp_path):
                     str(source)],check=True,capture_output=True,timeout=30)
     digest=hashlib.sha256(source.read_bytes()).hexdigest()
     file,row=prepare_video_poster(source,tmp_path)
-    assert Image.open(file).size==tuple(row["dimensions"])
+    with Image.open(file) as image:
+        assert image.size == tuple(row["dimensions"])
     assert row["dimensions"]==[640,360]
     assert row["bytes"]<=512*1024
     assert hashlib.sha256(file.read_bytes()).hexdigest()==row["sha256"]
