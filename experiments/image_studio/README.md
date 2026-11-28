@@ -15,7 +15,7 @@
 
 ```sh
 uv pip install 'fastapi>=0.115,<1' 'httpx>=0.28,<1' 'pillow>=11,<14'
-python -m unittest experiments.image_studio.test_studio -v
+python -m unittest experiments.image_studio.test_image_studio_preview -v
 python -m unittest discover -s tests -p 'test_generation_gateway.py'
 ```
 
