@@ -1,7 +1,7 @@
 {
   "version": 1,
   "name": "028-minimax-vllm-landscape-9-pairs",
-  "workflow": "minimax-t2i-i2i",
+  "workflow": "minimax-omni-t2i-i2i",
   "render": {
     "aspect_ratio": "16:9",
     "resolution": "2k"
@@ -58,3 +58,4 @@
     }
   ]
 }
+

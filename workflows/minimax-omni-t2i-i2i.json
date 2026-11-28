@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "id": "minimax-omni-t2i-i2i",
+  "steps": [
+    {
+      "id": "source",
+      "uses": "minimax-omni.t2i",
+      "inputs": {
+        "prompt": {
+          "ref": "input.prompt"
+        }
+      }
+    },
+    {
+      "id": "edit",
+      "uses": "minimax-omni.i2i",
+      "inputs": {
+        "prompt": {
+          "ref": "input.edit_prompt"
+        },
+        "image": {
+          "ref": "source.image"
+        }
+      }
+    }
+  ],
+  "outputs": {
+    "original": {
+      "ref": "source.image"
+    },
+    "edited": {
+      "ref": "edit.image"
+    }
+  }
+}
+
