@@ -3,6 +3,8 @@
 Remote classes are module-level and imported from source (serialized=False).
 The model spec is read inside the container from /opt/model.json.
 """
+from contextlib import contextmanager
+from concurrent.futures import Future
 import json
 import os
 import subprocess
@@ -17,7 +19,8 @@ from runtime.utils.files import read_json
 from runtime.config.model_spec import ROOT, validate
 from runtime.config.model_cache import cache_directory, verify_cache, command_argv
 from runtime.telemetry.recorder import Recorder
-from runtime.serving.inference_execution import execute, publish_telemetry
+from runtime.serving.inference_execution import execute, inference_slot, publish_telemetry
+from runtime.utils.outputs import validate_path_component
 from runtime.serving.deployment_probe import assert_deployment_version, register_probes
 
 
@@ -150,6 +153,8 @@ class ModelRuntime:
         startup = spec.get("startup_timeout", 3600)
         started = time.perf_counter()
         self.batch_lock = threading.Lock()
+        self.output_condition = threading.Condition()
+        self.active_outputs = set()
         # Media publication is a runtime concern, independent of edit capability.
         if spec["kind"] in {"image", "video"}:
             from runtime.serving.preview_batch import SerializedCommitVolume
@@ -284,6 +289,8 @@ class ModelRuntime:
             "methods": ["generate_one", "deployment_info"] + (["preview_batch"] if spec.get("enable_image_edits") else []),
             "image": spec["image"],
             "max_inputs": spec.get("max_inputs", 1),
+            "max_containers": spec.get("max_containers", 1),
+            "target_inputs": spec.get("target_inputs"),
             "sdk_inference_concurrency": 1,
             "cloud_artifacts": 1,
             "telemetry_schema_version": 1,
@@ -303,6 +310,27 @@ class ModelRuntime:
         requires_proxy_auth=True,
     )(serve)
 
+    @contextmanager
+    def _claim_output(self, prefix, item_id):
+        """Hold the local output identity until its durable publication finishes.
+
+        The SDK SubmissionLedger owns cross-container admission. This guard
+        also protects duplicate in-container calls while their writer is active.
+        """
+        for component in prefix.split("/"):
+            validate_path_component(component)
+        validate_path_component(item_id)
+        key = (prefix, item_id)
+        with self.output_condition:
+            self.output_condition.wait_for(lambda: key not in self.active_outputs)
+            self.active_outputs.add(key)
+        try:
+            yield
+        finally:
+            with self.output_condition:
+                self.active_outputs.remove(key)
+                self.output_condition.notify_all()
+
     @modal.method()
     def generate_one(self, item, prefix, expected_cache_fingerprint, expected_spec_hash,
                      expected_deployment_version=None):
@@ -319,12 +347,21 @@ class ModelRuntime:
         telemetry = self.telemetry.bind(**{
             key: context[key] for key in ("task_id", "job_key") if key in context
         })
-        with telemetry.span("wait", reason="lock"):
-            self.batch_lock.acquire()
+        # Image calls prefetch independently; videos keep their original serial
+        # lifecycle because an engine job may outlive the submit HTTP request.
+        with self._claim_output(prefix, item["id"]):
+            return self._execute_one(item, prefix, telemetry, requested)
+
+    def _execute_one(self, item, prefix, telemetry, requested):
+        spec = self.spec
+        image_pipeline = spec["kind"] == "image"
+        timings = {}
+        metadata = Path("/data").joinpath(*prefix.split("/"), item["id"] + ".json")
+        started = time.perf_counter()
         try:
-            if hasattr(self, "result_writer"):
-                self.result_writer.check()
-            started = time.perf_counter()
+            writer = getattr(self, "result_writer", None)
+            if writer is not None:
+                writer.check()
             print(json.dumps({
                 "event": "generate_one",
                 "id": item["id"],
@@ -332,26 +369,36 @@ class ModelRuntime:
                 "container": os.environ.get("MODAL_TASK_ID"),
                 "input": modal.current_input_id(),
             }), flush=True)
-            record = next(execute(
-                spec, [item], prefix, self.volume, self.cache_fingerprint,
-                recorder=telemetry, background_telemetry=True,
-                ensure_engine=self._ensure_engine,
-                result_writer=getattr(self, "result_writer", None),
-            ))
+            with inference_slot(None if image_pipeline else self.batch_lock, telemetry, timings):
+                record = next(execute(
+                    spec, [item], prefix, self.volume, self.cache_fingerprint,
+                    recorder=telemetry, background_telemetry=True,
+                    ensure_engine=self._ensure_engine, result_writer=writer,
+                    inference_lock=self.batch_lock if image_pipeline else None,
+                    timings=timings,
+                ))
+            # Never keep the engine slot while the bounded writer commits.
+            # The output identity is still held by generate_one.
+            if isinstance(record, Future):
+                before = time.perf_counter()
+                with telemetry.span("save", operation="await_publication"):
+                    record = record.result()
+                timings["publication_wait_seconds"] = time.perf_counter() - before
+                publish_telemetry(telemetry, metadata, record, self.volume, background=True)
             print(json.dumps({
                 "event": "generate_one_completed",
                 "id": item["id"],
                 "prefix": prefix,
                 "service": spec["service"],
-                "lock_wait_seconds": started - requested,
+                "output_claim_wait_seconds": started - requested,
                 "execution_seconds": time.perf_counter() - started,
                 "engine_ready": self.monitor is not None,
                 "resources": self.resources.snapshot(refresh=False),
                 "container": os.environ.get("MODAL_TASK_ID"),
                 "input": modal.current_input_id(),
+                **timings,
             }), flush=True)
         except BaseException:
-            metadata = Path("/data").joinpath(*prefix.split("/"), item["id"] + ".json")
             try:
                 if metadata.is_file():
                     publish_telemetry(
@@ -361,13 +408,6 @@ class ModelRuntime:
             except Exception:
                 pass
             raise
-        finally:
-            self.batch_lock.release()
-        from concurrent.futures import Future
-        if isinstance(record, Future):
-            record = record.result()
-            publish_telemetry(telemetry, Path("/data").joinpath(*prefix.split("/"), item["id"] + ".json"),
-                              record, self.volume, background=True)
         event = item.get("_delivery_v3")
         if isinstance(event, dict) and record.get("status") == "completed":
             try:
@@ -528,7 +568,8 @@ def create_app(config_path):
         requires_proxy_auth=True,
     )(original_serve)
     try:
-        wrapped_cls = modal.concurrent(max_inputs=spec.get("max_inputs", 1))(runtime_cls)
+        wrapped_cls = modal.concurrent(max_inputs=spec.get("max_inputs", 1),
+                                       target_inputs=spec.get("target_inputs"))(runtime_cls)
         model_handle = app.cls(
             image=image,
             env=runtime_env,
@@ -538,7 +579,7 @@ def create_app(config_path):
             memory=spec.get("memory", 32768),
             volumes=model_mounts(spec),
             min_containers=0,
-            max_containers=1,
+            max_containers=spec.get("max_containers", 1),
             scaledown_window=spec.get("scaledown_window", 30),
             enable_memory_snapshot=gpu_snapshot,
             experimental_options={"enable_gpu_snapshot": True} if gpu_snapshot else {},

@@ -44,7 +44,13 @@ class DeployOnlyTests(unittest.TestCase):
                          and isinstance(n.func, ast.Attribute) and n.func.attr == "cls"]
         self.assertEqual(len(registrations), 1)
         keywords = {k.arg: k.value for k in registrations[0].keywords}
-        self.assertEqual(keywords["max_containers"].value, 1)
+        self.assertEqual(ast.unparse(keywords["max_containers"]), "spec.get('max_containers', 1)")
+        concurrent_calls = [n for n in ast.walk(tree) if isinstance(n, ast.Call)
+                            and isinstance(n.func, ast.Attribute) and n.func.attr == "concurrent"]
+        self.assertEqual(len(concurrent_calls), 1)
+        concurrency = {k.arg: ast.unparse(k.value) for k in concurrent_calls[0].keywords}
+        self.assertEqual(concurrency["max_inputs"], "spec.get('max_inputs', 1)")
+        self.assertEqual(concurrency["target_inputs"], "spec.get('target_inputs')")
         self.assertIs(keywords["serialized"].value, False)
         for method in (n for n in ast.walk(cls) if isinstance(n, ast.FunctionDef)):
             self.assertFalse(any(isinstance(n, ast.Name) and n.id == "prepare_cache" for n in ast.walk(method)))
@@ -53,6 +59,20 @@ class DeployOnlyTests(unittest.TestCase):
         self.assertTrue(web_registrations)
         for call in web_registrations:
             self.assertTrue(next(k.value.value for k in call.keywords if k.arg == "requires_proxy_auth"))
+
+    def test_only_minimax_omni_enables_two_containers(self):
+        from runtime.config.model_spec import validate
+        from runtime.utils.files import read_json
+        for path in (ROOT / "models").glob("*/model.json"):
+            with self.subTest(model=path.parent.name):
+                spec = validate(read_json(path))
+                omni = spec["service"] == "minimax-omni"
+                self.assertEqual(spec.get("max_containers", 1), 2 if omni else 1)
+                if omni:
+                    self.assertEqual(spec["max_inputs"], 2)
+                    self.assertEqual(spec["target_inputs"], 1)
+                else:
+                    self.assertNotIn("target_inputs", spec)
 
     def test_no_temporary_gpu_app_entrypoints(self):
         for folder in MODELS:

@@ -121,9 +121,11 @@ def validate(spec):
     for key in ("port", "proxy_port"):
         if key in spec and (type(spec[key]) is not int or not 1 <= spec[key] <= 65535):
             raise ValueError(f"Invalid {key}")
-    for key in ("cpu", "memory", "timeout", "startup_timeout", "scaledown_window", "max_inputs", "telemetry_interval"):
+    for key in ("cpu", "memory", "timeout", "startup_timeout", "scaledown_window", "max_inputs", "target_inputs", "max_containers", "telemetry_interval"):
         if key in spec and (type(spec[key]) is not int or spec[key] <= 0):
             raise ValueError(f"{key} must be a positive integer")
+    if spec.get("target_inputs", 1) > spec.get("max_inputs", 1):
+        raise ValueError("target_inputs must not exceed max_inputs")
     if spec.get("startup_timeout", 3600) <= 180:
         raise ValueError("startup_timeout must leave time for model loading and proxy startup")
     if not isinstance(spec.get("env", {}), dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in spec.get("env", {}).items()):

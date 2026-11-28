@@ -60,11 +60,19 @@ class ReadinessTests(unittest.TestCase):
 
     def test_input_concurrency_and_sampling_interval_validation(self):
         spec = read_json(ROOT / 'models/002-pika-h3-flex/model.json')
-        for key in ('max_inputs', 'telemetry_interval'):
+        for key in ('max_inputs', 'max_containers', 'telemetry_interval'):
             for value in (0, -1, True, '8', 1.5):
                 with self.subTest(key=key, value=value), self.assertRaises(ValueError):
                     validate({**spec, key: value})
             self.assertEqual(validate({**spec, key: 8})[key], 8)
+
+    def test_target_inputs_validation(self):
+        spec = read_json(ROOT / "models/006-minimax-h3-image-vllm/model.json")
+        self.assertEqual(validate(spec)["target_inputs"], 1)
+        for value in (0, -1, True, "1", 1.5, 3):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                validate({**spec, "target_inputs": value})
+        self.assertEqual(validate({**spec, "target_inputs": 2})["target_inputs"], 2)
 
 
 class MetricsTests(unittest.TestCase):

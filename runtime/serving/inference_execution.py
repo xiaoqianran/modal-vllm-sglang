@@ -1,4 +1,5 @@
 """Inference execution, durable result publication and recovery."""
+from contextlib import contextmanager
 import hashlib
 import time
 from pathlib import Path
@@ -13,13 +14,35 @@ from runtime.telemetry.recorder import Recorder
 from runtime.tasks.task_spec import prepare, execution_signature
 
 
+@contextmanager
+def inference_slot(lock, telemetry, timings=None):
+    """Serialize engine admission, not input materialization or result publication."""
+    if lock is None:
+        yield
+        return
+    waiting = time.perf_counter()
+    with telemetry.span("wait", reason="lock", operation="inference_slot"):
+        lock.acquire()
+    started = time.perf_counter()
+    try:
+        if timings is not None:
+            timings["lock_wait_seconds"] = started - waiting
+        yield
+    finally:
+        if timings is not None:
+            timings["inference_slot_seconds"] = time.perf_counter() - started
+        lock.release()
+
+
 def execute(spec, items, prefix, volume, cache_fingerprint="unverified", recorder=None,
-            background_telemetry=False, ensure_engine=None, result_writer=None):
+            background_telemetry=False, ensure_engine=None, result_writer=None,
+            inference_lock=None, timings=None):
     from runtime.serving.inference_api import ImageGenerationClient, SGLangVideoClient
     parts = prefix.split("/")
     for part in parts:
         validate_path_component(part)
     folder = Path("/data").joinpath(*parts)
+    prepare_started = time.perf_counter()
     prepared = [(item, *prepare(spec, item)) for item in items]
     if not prepared or len({x[0]["id"].lower() for x in prepared}) != len(prepared):
         raise ValueError("Nonempty batch with unique IDs required")
@@ -28,6 +51,8 @@ def execute(spec, items, prefix, volume, cache_fingerprint="unverified", recorde
               if spec["kind"] == "image" else SGLangVideoClient(f"http://127.0.0.1:{port}"))
     if result_writer is not None and len(prepared) != 1:
         raise ValueError("Deferred publication requires one formal item")
+    if inference_lock is not None and (spec["kind"] != "image" or len(prepared) != 1):
+        raise ValueError("Pipelined inference requires one formal image item")
     for item, payload, signature in prepared:
         context = item.get("_telemetry", {})
         telemetry = (recorder or Recorder()).bind(**{key: context[key] for key in ("task_id", "job_key") if key in context})
@@ -82,33 +107,42 @@ def execute(spec, items, prefix, volume, cache_fingerprint="unverified", recorde
             from runtime.tasks.artifacts import resolve_frames
             with telemetry.span("transfer", operation="read_frames"):
                 payload = resolve_frames(payload, volume, mount_root=Path("/data"))
-        # Existing verified results and uncertain submissions never start the engine.
-        # Initialization failure must not leave a false submitting checkpoint.
-        if ensure_engine is not None:
-            ensure_engine()
-        if action == "resume":
-            job = old["job_id"]
-        else:
-            # Persist before submit: a lost response never causes automatic resubmission.
-            atomic_json(metadata, {"status": "submitting", "intent_hash": signature, "execution_hash": execution_hash})
-            commit_checkpoint("submitting")
-            try:
-                if spec["kind"] == "image":
-                    with telemetry.span("generate", operation="image"):
-                        if source is not None:
-                            data, _ = client.edit(payload, source, timeout=spec.get("timeout", 3600))
-                        else:
-                            data, _ = client.generate(payload, timeout=spec.get("timeout", 3600))
-                else:
-                    with telemetry.span("generate", operation="video_submit") as fields:
-                        job = client.submit(payload, timeout=spec.get("timeout", 3600))
-                        fields["engine_job_id"] = job
-                    atomic_json(metadata, {"status": "running", "intent_hash": signature, "execution_hash": execution_hash, "job_id": job})
-                    commit_checkpoint("running")
-            except SubmissionRejected:
-                atomic_json(metadata, {"status": "pending", "intent_hash": signature, "execution_hash": execution_hash})
-                volume.commit()
-                raise
+        # Input bytes have been validated before entering the engine slot.
+        # Do not publish submitting while waiting: a lost container must not
+        # create an ambiguous checkpoint for a request never sent to the engine.
+        if timings is not None:
+            timings["input_prepare_seconds"] = time.perf_counter() - prepare_started
+        with inference_slot(inference_lock, telemetry, timings):
+            if result_writer is not None:
+                result_writer.check()
+            # Existing verified results and uncertain submissions never start the engine.
+            # Initialization failure must not leave a false submitting checkpoint.
+            if ensure_engine is not None:
+                ensure_engine()
+            if action == "resume":
+                job = old["job_id"]
+            else:
+                # Persist before submit: a lost response never causes automatic resubmission.
+                atomic_json(metadata, {"status": "submitting", "intent_hash": signature, "execution_hash": execution_hash})
+                with telemetry.span("submit", operation="commit_submitting"):
+                    commit_checkpoint("submitting")
+                try:
+                    if spec["kind"] == "image":
+                        with telemetry.span("generate", operation="image"):
+                            if source is not None:
+                                data, _ = client.edit(payload, source, timeout=spec.get("timeout", 3600))
+                            else:
+                                data, _ = client.generate(payload, timeout=spec.get("timeout", 3600))
+                    else:
+                        with telemetry.span("generate", operation="video_submit") as fields:
+                            job = client.submit(payload, timeout=spec.get("timeout", 3600))
+                            fields["engine_job_id"] = job
+                        atomic_json(metadata, {"status": "running", "intent_hash": signature, "execution_hash": execution_hash, "job_id": job})
+                        commit_checkpoint("running")
+                except SubmissionRejected:
+                    atomic_json(metadata, {"status": "pending", "intent_hash": signature, "execution_hash": execution_hash})
+                    volume.commit()
+                    raise
         if spec["kind"] == "video":
             telemetry = telemetry.bind(engine_job_id=str(job))
             def remember_failure(remote):
