@@ -38,7 +38,7 @@ def schedule_deliveries(directory, plan, current, backend, deliveries, pool, *, 
                 del deliveries[key]
             if key in deliveries:
                 continue
-            durable = plan.get("delivery_protocol") in (2, 3) and destination == "huggingface"
+            durable = destination == "huggingface"
             if destination == "huggingface" and _completed(record, destination):
                 if not durable or record["cloud_archive"].get("derivative_status") != "pending":
                     continue

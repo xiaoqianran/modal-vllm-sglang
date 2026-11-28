@@ -6,7 +6,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from runtime.delivery.cloud_cpu import archive_mounted_artifact
-from runtime.delivery.huggingface import archive_from_volume
+from runtime.delivery.huggingface import archive_request
 from runtime.utils.files import sha256_file
 
 
@@ -55,32 +55,20 @@ def test_remote_cpu_rejects_tampered_source(tmp_path):
 
 
 def test_cpu_function_registered_without_gpu():
-    from pipeline import deploy_assets
-    assert deploy_assets.archive_asset is not None
-    assert deploy_assets.check_bucket is not None
-
-
-def test_client_only_sends_metadata_without_volume_read():
-    _, artifact, settings = fixture(Path(__import__('tempfile').mkdtemp()))
-    modal = Mock()
-    modal.Function.from_name.return_value.remote.return_value = {"status": "archived"}
-    data = archive_from_volume(modal, {"uses": "moss.t2i"},
-                               {"artifacts": {"image": artifact}},
-                               {"delivery": settings, "project": "001-project"})
-    assert data["status"] == "archived"
-    modal.Function.from_name.return_value.remote.assert_called_once_with(
-        artifact, settings, "001-project")
+    from pipeline import deploy_delivery_v3
+    assert deploy_delivery_v3.archive_batch is not None
+    assert deploy_delivery_v3.check_bucket is not None
 
 
 def test_cloud_archive_image_installs_dotenv_for_delivery_config_import():
     from pathlib import Path
-    code = (Path(__file__).resolve().parents[1] / "pipeline/deploy_assets.py").read_text(encoding="utf-8")
+    code = (Path(__file__).resolve().parents[1] / "pipeline/deploy_delivery_v3.py").read_text(encoding="utf-8")
     assert '"python-dotenv>=1"' in code
 
 
 def test_cpu_archiver_uses_official_pypi():
     import ast
-    path = Path(__file__).resolve().parents[1] / "pipeline/deploy_assets.py"
+    path = Path(__file__).resolve().parents[1] / "pipeline/deploy_delivery_v3.py"
     calls = [node for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
              if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
              and node.func.attr == "uv_pip_install"]
@@ -139,41 +127,6 @@ def test_batch_dedup_distinct_paths_and_corruption(tmp_path):
     provider.return_value.publish_many.assert_called_once()
 
 
-def test_batcher_merges_concurrent_requests_and_separates_errors():
-    from concurrent.futures import ThreadPoolExecutor
-    from threading import Barrier
-    from runtime.delivery.huggingface import ArchiveBatcher
-    from runtime.delivery.config import normalize_delivery
-    modal = Mock()
-    batcher = ArchiveBatcher(modal, wait=0.2)
-    settings = normalize_delivery({"provider": "huggingface"})
-    artifact = {"storage": "volume", "type": "image", "path": "model-results/a.png",
-                "size": 10, "sha256": "a"*64}
-    requests = [{"artifact": dict(artifact, path=f"model-results/{name}.png"), "delivery": settings, "project": str(i)}
-                for i, name in enumerate(["a", "a", "b", "c"])]
-    def call(items, version):
-        assert len(items) == 3
-        return {"archive_version": version, "results": [
-            {"error": "test failure"} if item["artifact"]["path"].endswith("/c.png") else
-            {"receipt": {"status": "archived", "verification": "sha256", "source_artifact": item["artifact"],
-                         "bucket": settings["bucket"], "path": item["artifact"]["path"]}} for item in items]}
-    modal.Function.from_name.return_value.remote.side_effect = call
-    barrier = Barrier(4)
-    def one(request):
-        barrier.wait()
-        try:
-            return batcher.archive(request)
-        except RuntimeError as exc:
-            return str(exc)
-    with ThreadPoolExecutor(max_workers=4) as pool:
-        result = list(pool.map(one, requests))
-    assert result[0] == result[1]
-    assert result[2]["path"].endswith("/b.png")
-    assert result[3] == "test failure"
-    modal.Function.from_name.return_value.remote.assert_called_once()
-    assert batcher.inflight == {} and batcher.pending == {}
-
-
 def test_batch_limits(tmp_path):
     from runtime.delivery.cloud_cpu import archive_mounted_batch
     from runtime.archive.config import ARCHIVE_BATCH_BYTES
@@ -185,42 +138,11 @@ def test_batch_limits(tmp_path):
     with pytest.raises(ValueError, match="byte limit"):
         archive_mounted_batch(tmp_path, [large, request])
 
-def test_batcher_adapts_and_serializes_across_instances(tmp_path):
-    from concurrent.futures import ThreadPoolExecutor
-    from threading import Barrier, Lock
-    from time import sleep
-    from runtime.delivery.huggingface import ArchiveBatcher
-    from runtime.delivery.config import normalize_delivery
 
-    modal = Mock()
-    settings = normalize_delivery({"provider": "huggingface"})
-    artifact = {"storage": "volume", "type": "image", "path": "model-results/a.png",
+
+def test_archive_request_is_metadata_only():
+    artifact = {"type": "image", "storage": "volume", "path": "model-results/a.png",
                 "size": 10, "sha256": "a"*64}
-    request = {"artifact": artifact, "delivery": settings, "project": "test"}
-    active = peak = 0
-    guard = Lock()
-    def call(items, version):
-        nonlocal active, peak
-        with guard:
-            active += 1
-            peak = max(peak, active)
-        sleep(0.05)
-        with guard:
-            active -= 1
-        return {"archive_version": version, "results": [
-            {"receipt": {"status": "archived", "verification": "sha256",
-                         "source_artifact": item["artifact"], "bucket": settings["bucket"]}}
-            for item in items]}
-    modal.Function.from_name.return_value.remote.side_effect = call
-    a = ArchiveBatcher(modal, lock_root=tmp_path)
-    b = ArchiveBatcher(modal, lock_root=tmp_path)
-    barrier = Barrier(2)
-    def archive(batcher):
-        barrier.wait()
-        return batcher.archive(request)
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        assert all(r["status"] == "archived" for r in pool.map(archive, [a, b]))
-    assert peak == 1
-    assert a.targets[settings["bucket"]] == 3
-    assert a.windows[settings["bucket"]] < 0.1
-    assert a.inflight == b.inflight == {}
+    plan = {"delivery": {"provider": "huggingface"}, "project": "test"}
+    assert archive_request({"uses": "moss.t2i"}, {"artifacts": {"image": artifact}}, plan) == {
+        "artifact": artifact, "delivery": plan["delivery"], "project": "test"}

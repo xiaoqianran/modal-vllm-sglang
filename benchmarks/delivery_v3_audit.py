@@ -49,8 +49,8 @@ def main():
             v3.save_receipts(ledger, [(intent, req, make_receipt(req))])
             ids.append(intent["id"])
         with deployment.app.run():
-            result = deployment.derivative_worker.remote(ids)
-            repeated = deployment.derivative_worker.remote(ids)
+            result = deployment.archive_batch.remote(ids, derivative=True)
+            repeated = deployment.archive_batch.remote(ids, derivative=True)
             rows = [outbox.read(ledger, outbox.path(i, "derivative.json")) for i in ids]
             assert [r and r["status"] for r in rows] == ["original", "failed"], rows
             assert result["processed"] == 2 and repeated["processed"] == 0

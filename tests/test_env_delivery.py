@@ -93,7 +93,8 @@ class EnvironmentDeliveryTests(unittest.TestCase):
                 main()
             self.assertEqual(error.exception.code, 2)
             new_run.assert_not_called()
-            function.assert_called_once_with("modal-vllm-sglang-assets", "check_bucket")
+            function.assert_called_once_with(plan["delivery_app"], "check_bucket")
+            function.return_value.remote.assert_called_once_with(plan["delivery"]["bucket"], plan["delivery_protocol"])
 
 
 if __name__ == "__main__":

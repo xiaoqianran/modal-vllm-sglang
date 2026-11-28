@@ -21,3 +21,10 @@ package = false
 
 [tool.uv.sources]
 modal-benchmark = { index = "pypi-official" }
+
+[dependency-groups]
+dev = [
+    "fastapi>=0.115,<1",
+    "httpx>=0.28,<1",
+    "pytest>=8,<10",
+]

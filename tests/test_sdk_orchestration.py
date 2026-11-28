@@ -40,6 +40,13 @@ class FakeBackend(sdk.Backend):
             return [self.files[path]]
         self.volume.read_file.side_effect = read_file
 
+    def register_delivery(self, job, record, plan):
+        from runtime.delivery.outbox import make_intent
+        return make_intent(job, record, plan)
+
+    def note_delivery_call(self, intent, call_id, *, plan):
+        pass
+
     def fingerprint(self, spec):
         return "cache"
 

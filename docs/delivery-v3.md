@@ -1,8 +1,8 @@
-# Durable media delivery protocol 3 - release candidate
+# Durable media delivery - current protocol
 
-V3 is an opt-in protocol for new Hugging Face or both-destination task plans.
-It does not change frozen protocol-1/2 plans, existing media, or existing model
-apps. Do not change the protocol of an existing scene to append new shots.
+V3 is the only supported protocol for new Hugging Face or both-destination task plans.
+Old protocol plans are not executed by the new runner. Historical media and
+receipts are retained. A new scene is required to change a frozen plan.
 
 ## Deploy independently
 
@@ -19,7 +19,7 @@ apps. Do not change the protocol of an existing scene to append new shots.
    `uv run modal deploy pipeline/deploy_delivery_v3.py`.
    The existing Hugging Face secret must authorize the public destination bucket.
    Task registration checks protocol and both actual Volume identities.
-4. Opt in to V3 on a **new scene**:
+4. For a **new scene**, the protocol is automatic; an explicit version is optional:
    ```json
    {
      "delivery_protocol": 3,
@@ -44,7 +44,9 @@ apps. Do not change the protocol of an existing scene to append new shots.
   into the history ledger; a lost copy can be repaired from active.
 - The model commits media and result metadata first. A best-effort notification
   submits only the delivery ID after releasing the model's generation lock.
-  It has a two-second local await deadline and never waits for HF upload.
+  Coalesced notification has an eight-second deadline; ambiguous failures fall
+  back to a direct, ten-second dispatch. Local repair uses direct dispatch
+  with a 60-second success or 10-second failure cooldown. Neither waits for HF upload.
 - The CPU App reads the media Volume via a read-only mount and writes the
   separate metadata Volume only via the SDK. Metadata reads use a 10s deadline;
   writes, listing, deletion and source reload use 15s. A local timeout does not
@@ -53,7 +55,7 @@ apps. Do not change the protocol of an existing scene to append new shots.
   independent batches without waiting for their completion. The single Modal
   archive function pool runs up to four containers; queued calls may exceed
   four. Recovery batches group up to eight originals from one bucket within
-  64 MiB. Larger files run individually. Completion hints use five-second Queue partitions and a conditional wake-up key; the worker waits until the window closes plus one second, drains at most 32 hints, deduplicates, and groups ready assets. Late or lost hints remain recoverable from Volume. No always-on worker is required.
+  64 MiB. Larger files run individually. Completion hints use five-second Queue partitions and a conditional wake-up key. Workers release the disposable key before draining up to 32 hints and group ready assets without sleeping. Late producers can wake another worker; lost hints remain recoverable from Volume. No always-on worker is required.
 - Claims use immutable attempt records and a lease longer than the 600s
   worker timeout. Positive platform terminal hints may accelerate takeover;
   absent or ambiguous call graphs never imply termination. A lease is only
@@ -69,16 +71,13 @@ apps. Do not change the protocol of an existing scene to append new shots.
   The same media pool executes original and derivative work. It reuses verified
   private source snapshots or verified encoded bytes after the receipt buffer
   closes. Recovery falls back to verified Volume copies or streamed HF reads.
-  The legacy derivative RPC forwards to the shared pool and does no media work.
   Originals and derivatives use separate append-only retry histories. Derivative
   failure cannot invalidate an original receipt. Eight failed derivative attempts
   or a permanent classified failure produce a failed derivative receipt.
-  One Modal cron runs every 15 minutes for both stages. Each stage visits up to five shards per tick. Known retryable failures also enqueue best-effort ID hints after recording durable failure history. Each tick checks up to 16 hints against current attempt and readiness; lost hints recover through shard reconciliation.
+  One Modal cron runs every 15 minutes for both stages. Each stage can visit all 17 shards per tick within its time and selection budgets. Known retryable failures also enqueue best-effort ID hints after recording durable failure history. Each tick checks up to 16 hints against current attempt and readiness; lost hints recover through shard reconciliation.
   They rotate through 16 hash shards and the legacy flat directory, with shared
   limits of 128/64 examinations and 32/16 selections respectively. Each shard
-  keeps its own cursor. Listing is still complete within a shard. With five shards per 15-minute
-  tick, a lost hint or unrecorded worker crash can wait roughly 60 minutes
-  for a full rotation in light load, or longer under backlog/timeouts.
+  keeps its own cursor. Listing is still complete within a shard. A light-load tick may cover all shards; under backlog or timeouts, the cursor resumes on the next tick.
   The retry queue does not guarantee the backoff deadline; no hard recovery
   SLA is claimed.
   Conditional Dict inserts reserve both adjacent 660-second clock slots.
@@ -106,7 +105,7 @@ Upgrade order: quiesce old delivery workers and scanner before replacing the CPU
 App. New workers read both legacy and sharded markers. Older workers do not
 necessarily discover sharded markers, so do not roll back to an older scanner
 until pending sharded markers have been drained or explicitly reconciled.
-Generation deployments using singleton notifications remain compatible.
+Existing current-protocol producers may continue sending event hints. Manual preview and poster backfills use the same media pool.
 
 ## Limits / operation
 
@@ -129,7 +128,23 @@ Historical receipts and attempt evidence remain immutable; do not delete
 blocked records to force retries. There is not yet an operator requeue CLI.
 Review the failed delivery and use the existing incident procedure.
 
-The V3 opt-in does not migrate existing work or automatically switch production
-default behavior. The new CPU App and new model runtime require separate
-deployment. Anonymous test Volume IDs are accepted only for an explicitly named
+The current protocol does not rewrite historical work. The CPU App and model runtime require separate deployment. Anonymous test Volume IDs are accepted only for an explicitly named
 unscheduled lab App. Never point a lab at production resources.
+
+### Production smoke test (2026-11-28)
+
+A unique 1024x1024 PNG (3,150,469 bytes) was registered and published with the
+shared media worker. A first event notification timed out at two seconds;
+the durable intent remained ready. Direct recovery dispatch took 1.627 s;
+the worker returned both receipts after 13.920 s from dispatch start. HF lookup
+took 57.23 ms, upload 972.95 ms (one upload call), and remote SHA-256 verification
+225.62 ms. The derivative receipt correctly retained the original. This is a
+single-asset recovery-path measurement, not an event-path latency SLA or a
+billing comparison. The subsequent notification fix adds bounded direct fallback.
+
+A second, unique 1536x1536 PNG (1,250,059 bytes) used the repaired normal
+event notification path: notification returned in 2.178 s, original receipt
+was observed at 20.206 s, and preview receipt at 28.664 s. The 94,854-byte
+WebP preview retained full dimensions, PSNR 45.511 dB, and verified SHA-256.
+These are client-observed wall times, including receipt polling; they are
+not a production-wide p95 or cost comparison.

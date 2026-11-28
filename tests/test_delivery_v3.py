@@ -595,13 +595,13 @@ def test_shard_budget_shared_even_when_nonempty(monkeypatch):
         calls.append((shard, limit, check_limit))
         return {"indexed": 100, "examined": check_limit, "dispatched": limit}
     result = deployment.scan_sharded("original", scan)
-    assert [c[0] for c in calls] == ["legacy", "0", "1", "2", "3"]
+    assert [c[0] for c in calls] == ["legacy", *"0123456789abcdef"]
     assert sum(c[1] for c in calls) == 32
     assert sum(c[2] for c in calls) == 128
     assert result["dispatched"] == 32
 
 
-def test_event_partition_waits_and_checks_once(monkeypatch):
+def test_event_partition_releases_wake_without_sleep(monkeypatch):
     from pipeline import deploy_delivery_v3 as deployment
     from types import SimpleNamespace
     from unittest.mock import AsyncMock
@@ -609,6 +609,8 @@ def test_event_partition_waits_and_checks_once(monkeypatch):
     monkeypatch.setattr(deployment.time, "time", lambda: now)
     slept = []
     monkeypatch.setattr(deployment.time, "sleep", slept.append)
+    pop = AsyncMock(return_value=True)
+    monkeypatch.setattr(deployment, "registry", SimpleNamespace(pop=SimpleNamespace(aio=pop)))
     monkeypatch.setattr(deployment.modal, "current_function_call_id", lambda: "fc-event")
     queue = SimpleNamespace(get_many=SimpleNamespace(aio=AsyncMock(return_value=["a","a","b"])))
     monkeypatch.setattr(deployment.modal.Queue, "from_name", lambda *a, **kw: queue)
@@ -618,7 +620,8 @@ def test_event_partition_waits_and_checks_once(monkeypatch):
     archive = Mock(side_effect=lambda *a, **kw: {"archived":len(kw["prepared"])})
     monkeypatch.setattr(deployment, "archive_originals", archive)
     result = deployment.process_event_partition("20", v3.PROTOCOL, time.monotonic())
-    assert slept == [4]
+    assert slept == []
+    pop.assert_awaited_once_with(("event", 20), None)
     assert ready.call_count == 2
     assert archive.call_count == 1
     assert result == {"event_hints":3,"archived":2}
@@ -669,3 +672,58 @@ def test_retry_hint_spawn_error_is_requeued(monkeypatch):
     monkeypatch.setattr(deployment, "dispatch", Mock(side_effect=TimeoutError))
     assert deployment.retry_known_failures() == 0
     queue.put.aio.assert_awaited_once_with(hint, block=False)
+
+
+def test_ledger_caches_only_positive_immutable_records():
+    from types import SimpleNamespace
+    calls = []
+    data = {}
+    async def read(key):
+        calls.append(key)
+        if key not in data:
+            raise FileNotFoundError(key)
+        yield data[key]
+    ledger = v3.Ledger(SimpleNamespace(read_file=SimpleNamespace(aio=read)))
+    key = "/inference/" + outbox.path("a"*64, "receipt.json")
+    with pytest.raises(FileNotFoundError):
+        list(ledger.read_file(key))
+    data[key] = b"{}"
+    assert list(ledger.read_file(key)) == [b"{}"]
+    assert list(ledger.read_file(key)) == [b"{}"]
+    assert calls == [key, key]
+    active = "/inference/" + v3.marker("a"*64)
+    data[active] = b"{}"
+    list(ledger.read_file(active))
+    list(ledger.read_file(active))
+    assert calls[-2:] == [active, active]
+
+
+def test_notify_fallback_after_ambiguous_spawn(monkeypatch):
+    import modal
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    spawn = AsyncMock(side_effect=[TimeoutError(), None])
+    reserve = AsyncMock(return_value=True)
+    enqueue = AsyncMock()
+    monkeypatch.setattr(modal.Function, "from_name", lambda *a: SimpleNamespace(spawn=SimpleNamespace(aio=spawn)))
+    monkeypatch.setattr(modal.Queue, "from_name", lambda *a, **kw: SimpleNamespace(put=SimpleNamespace(aio=enqueue)))
+    monkeypatch.setattr(modal.Dict, "from_name", lambda *a, **kw: SimpleNamespace(put=SimpleNamespace(aio=reserve)))
+    identity = "a" * 64
+    assert v3.notify(identity, "isolated-app")
+    assert spawn.await_count == 2
+    spawn.assert_awaited_with([identity], v3.PROTOCOL)
+
+
+def test_notify_direct_repair_skips_coordination(monkeypatch):
+    import modal
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    spawn = AsyncMock(side_effect=[None, TimeoutError()])
+    monkeypatch.setattr(modal.Function, "from_name", lambda *a: SimpleNamespace(spawn=SimpleNamespace(aio=spawn)))
+    queue = Mock(side_effect=AssertionError("direct repair must not use queue"))
+    monkeypatch.setattr(modal.Queue, "from_name", queue)
+    identity = "b" * 64
+    assert v3.notify(identity, "isolated-app", direct=True)
+    assert not v3.notify(identity, "isolated-app", direct=True)
+    spawn.assert_awaited_with([identity], v3.PROTOCOL)
+    queue.assert_not_called()

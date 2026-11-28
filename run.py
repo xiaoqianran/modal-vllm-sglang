@@ -103,33 +103,18 @@ def main():
                           if plan.get("delivery", {}).get("provider") in {"huggingface", "both"}}
             if hf_buckets:
                 import modal
-                from runtime.archive.config import ASSET_APP_NAME, archive_source_version
-                from runtime.delivery import outbox
-                checks = {(plan["delivery"]["bucket"], plan.get("delivery_protocol", 1),
-                           plan.get("delivery_app", ""), plan.get("delivery_volume", "")) for plan in plans
-                          if plan.get("delivery", {}).get("provider") in {"huggingface", "both"}}
-                from runtime.config.storage import runtime_volume_name
-                plan_volume = runtime_volume_name()
-                for bucket, protocol, delivery_app, delivery_volume in sorted(checks):
-                    if protocol == 3:
-                        from runtime.delivery import v3
-                        info = modal.Function.from_name(delivery_app, "check_bucket").remote(bucket, 3)
-                        source = modal.Volume.from_name(plan_volume, version=2).hydrate()
-                        metadata = modal.Volume.from_name(delivery_volume, version=2).hydrate()
-                        if (not info.get("ready") or info.get("protocol") != 3
-                                or info.get("build") != v3.build_id()
-                                or info.get("volume_id") != source.object_id
-                                or info.get("delivery_volume_id") != metadata.object_id):
-                            raise ValueError("V3 archive/storage unavailable; deploy delivery V3")
-                    elif protocol == 2:
-                        info = modal.Function.from_name(outbox.app_name(), "check_bucket").remote(bucket, outbox.PROTOCOL)
-                        if not info.get("ready") or info.get("protocol") != outbox.PROTOCOL or info.get("volume_name") != plan_volume:
-                            raise ValueError("Durable archive protocol unavailable; deploy delivery V2")
-                    else:
-                        readiness = modal.Function.from_name(ASSET_APP_NAME, "check_bucket")
-                        info = readiness.remote(bucket)
-                        if not info.get("ready") or info.get("archive_version") != archive_source_version():
-                            raise ValueError("Cloud HF archive destination/version is unavailable; deploy current archiver")
+                from runtime.delivery import v3
+                checks = {(plan["delivery"]["bucket"], plan["delivery_app"], plan["delivery_volume"], plan["volume"])
+                          for plan in plans if plan.get("delivery_protocol") == v3.PROTOCOL}
+                for bucket, delivery_app, delivery_volume, source_volume in sorted(checks):
+                    info = modal.Function.from_name(delivery_app, "check_bucket").remote(bucket, v3.PROTOCOL)
+                    source = modal.Volume.from_name(source_volume, version=2).hydrate()
+                    metadata = modal.Volume.from_name(delivery_volume, version=2).hydrate()
+                    if (not info.get("ready") or info.get("protocol") != v3.PROTOCOL
+                            or info.get("build") != v3.build_id()
+                            or info.get("volume_id") != source.object_id
+                            or info.get("delivery_volume_id") != metadata.object_id):
+                        raise ValueError("Delivery archive/storage unavailable; deploy current delivery")
             directories = [new_run(plan, output=args.output) for plan in plans]
             from orchestration.sdk import request_resume
             for directory in directories:

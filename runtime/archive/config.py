@@ -1,7 +1,6 @@
 """Project-wide Hugging Face asset storage defaults."""
 
 DEFAULT_ASSET_BUCKET = "seachen/modal-vllm-sglang-assets"
-ASSET_APP_NAME = "modal-vllm-sglang-assets"
 
 
 def archive_source_version():
@@ -31,4 +30,3 @@ def assert_archive_version():
 
 ARCHIVE_BATCH_FILES = 4
 ARCHIVE_BATCH_BYTES = 64 * 1024 * 1024
-ARCHIVE_BATCH_WAIT = 0.1

@@ -234,14 +234,12 @@ def tick(directory, backend, downloads, pool, *, item=None, pinned_preparation=N
                            "cache_fingerprint": fingerprint,
                            "execution_hash": execution_signature(signature, fingerprint)}
                 # Persist delivery intent before a generation can be accepted.
-                # Legacy frozen plans retain their original delivery behavior.
                 delivery_intent = None
-                if plan.get("delivery_protocol") in (2, 3):
+                if plan.get("delivery", {}).get("provider") in {"huggingface", "both"}:
                     delivery_intent = backend.register_delivery(job, receipt, plan)
                     receipt["delivery_id"] = delivery_intent["id"]
-                    if plan["delivery_protocol"] == 3:
-                        request = {**request, "_delivery_v3": {"id": delivery_intent["id"],
-                                                              "app": plan["delivery_app"]}}
+                    request = {**request, "_delivery_v3": {"id": delivery_intent["id"],
+                                                          "app": plan["delivery_app"]}}
                 # Inspect committed evidence before reserving or starting a GPU.
                 existing = backend.preflight_result(receipt)
                 if existing is not None:
@@ -270,10 +268,7 @@ def tick(directory, backend, downloads, pool, *, item=None, pinned_preparation=N
                         # The existing generation reservation also records the call
                         # ID. Failure here must not turn acceptance into resubmission.
                         try:
-                            if plan.get("delivery_protocol") == 3:
-                                backend.note_delivery_call(delivery_intent, call_id, plan=plan)
-                            else:
-                                backend.note_delivery_call(delivery_intent, call_id)
+                            backend.note_delivery_call(delivery_intent, call_id, plan=plan)
                         except Exception as exc:
                             print("Delivery call receipt:", type(exc).__name__, flush=True)
                 except BaseException:

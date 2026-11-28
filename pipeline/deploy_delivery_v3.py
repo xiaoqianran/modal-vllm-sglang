@@ -1,4 +1,4 @@
-"""Deploy protocol 3 independently; generation and legacy apps are untouched."""
+"""The sole deployed media delivery service."""
 import os
 import math
 import time
@@ -87,8 +87,25 @@ media_worker = dict(image=media_image, cpu=1, memory=2048, timeout=600,
 
 
 @app.function(**media_worker, max_containers=4)
-def archive_batch(identities, protocol=v3.PROTOCOL, *, derivative=False, event_partition=None):
-    v3.assert_build(protocol)
+def archive_batch(identities, protocol=v3.PROTOCOL, *, derivative=False, event_partition=None, backfill=None):
+    build = v3.assert_build(protocol)
+    if backfill is not None:
+        if identities or derivative or event_partition is not None:
+            raise ValueError("Backfill must be a separate media request")
+        if not isinstance(backfill, dict) or set(backfill) != {"kind", "bucket", "receipts", "build"}:
+            raise ValueError("Invalid backfill request")
+        if backfill["build"] != build:
+            raise RuntimeError("Archive deployment version mismatch")
+        kind, bucket, receipts = (backfill[k] for k in ("kind", "bucket", "receipts"))
+        if kind == "image":
+            from runtime.archive.preview import backfill_batch
+            results = backfill_batch(bucket, receipts)
+        elif kind == "video":
+            from runtime.archive.video_poster import backfill_video_batch
+            results = backfill_video_batch(bucket, receipts)
+        else:
+            raise ValueError("Invalid backfill kind")
+        return {"archive_version": build, "results": results}
     started = time.monotonic()
     if event_partition is not None:
         if derivative or identities or not isinstance(event_partition, str) or not event_partition.isdecimal():
@@ -104,13 +121,15 @@ def archive_batch(identities, protocol=v3.PROTOCOL, *, derivative=False, event_p
 
 
 def process_event_partition(partition, protocol, started):
-    # Wait until the producer window closes, plus a small enqueue grace period.
-    close_at = (int(partition) + 1) * v3.EVENT_WINDOW + 1
-    delay = close_at - time.time()
-    if delay > v3.EVENT_WINDOW + 1:
+    if int(partition) > int(time.time() // v3.EVENT_WINDOW):
         raise ValueError("Future event partition")
-    if delay > 0:
-        time.sleep(delay)
+    # Coalesce during container startup, not by sleeping on billed media CPU.
+    # Producers enqueue before reserving; release before reading so later
+    # producers can wake another worker. Duplicate/empty wakes are harmless.
+    try:
+        v3.deadline(registry.pop.aio(("event", int(partition)), None), 5)
+    except Exception as exc:
+        print("DELIVERY_EVENT_RELEASE_DEFERRED", type(exc).__name__, flush=True)
     queue = modal.Queue.from_name(v3.app_name() + "-events", create_if_missing=True)
     hints = v3.deadline(queue.get_many.aio(32, block=False, partition=partition), 5)
     metrics = {"event_hints": len(hints or []), "archived": 0}
@@ -299,12 +318,12 @@ def scan_sharded(stage, fn):
     remaining = 32 if stage == "original" else 16
     checks = 128 if stage == "original" else 64
     summaries = []
-    for offset in range(5):
+    for offset in range(len(shards)):
         if remaining <= 0 or checks <= 0 or time.monotonic() >= end:
             break
         shard = shards[(start + offset) % len(shards)]
         # Give each remaining shard a fair share of the budget.
-        slots = 5 - offset
+        slots = len(shards) - offset
         summary = fn(shard, end=min(end, time.monotonic() + max(1, (end-time.monotonic())/slots)),
                      limit=max(1, remaining//slots), check_limit=max(1, checks//slots))
         summaries.append(summary)
@@ -414,14 +433,6 @@ def scan_original_queue(shard=None, *, end=None, limit=32, check_limit=128):
     return {"ready": count, "calls": calls, "errors": errors, "indexed": len(identities),
             "examined": examined, "dispatched": dispatched, "listing_seconds": listing_seconds,
             "readiness_seconds": readiness_seconds, "oldest_selected_marker_age_s": oldest_ready_age}
-
-
-@app.function(image=image, cpu=.25, memory=512, timeout=660, max_containers=1,
-              scaledown_window=2, **region_options)
-def derivative_worker(identities, protocol=v3.PROTOCOL):
-    """Compatibility RPC only; actual media work runs in the shared pool."""
-    v3.assert_build(protocol)
-    return archive_batch.remote(identities, protocol, derivative=True)
 
 
 def derive_batch(identities, protocol=v3.PROTOCOL, *, local_inputs=None, owner=None):

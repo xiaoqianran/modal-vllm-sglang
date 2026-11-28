@@ -8,7 +8,8 @@ import os
 import re
 import time
 from queue import Queue, Empty
-from threading import Thread
+from threading import Thread, Lock
+from collections import OrderedDict
 from modal.exception import NotFoundError
 
 from runtime.config.storage import volume_key
@@ -63,8 +64,21 @@ class Ledger:
     """Bound metadata RPCs, without mounting the metadata filesystem."""
     def __init__(self, volume):
         self.volume = volume
+        self._immutable = OrderedDict()
+        self._cache_lock = Lock()
 
     def read_file(self, key):
+        immutable = "/delivery-v2/" in "/" + key.lstrip("/") and key.endswith(
+            ("/intent.json", "/receipt.json", "/derivative.json", "/terminal.json", "/blocked.json"))
+        if immutable:
+            with self._cache_lock:
+                cached = self._immutable.get(key)
+                if cached is not None:
+                    self._immutable.move_to_end(key)
+            if cached is not None:
+                _count("cache_hit")
+                yield cached
+                return
         _count("read")
         async def read():
             data = bytearray()
@@ -73,7 +87,14 @@ class Ledger:
                 if len(data) > MAX_RECORD:
                     raise ValueError("Delivery metadata too large")
             return bytes(data)
-        yield deadline(read(), 10)
+        data = deadline(read(), 10)
+        if immutable and len(data) <= 16384:
+            with self._cache_lock:
+                self._immutable[key] = data
+                self._immutable.move_to_end(key)
+                while len(self._immutable) > 512:
+                    self._immutable.popitem(last=False)
+        yield data
 
     @contextmanager
     def batch_upload(self, force=False):
@@ -559,16 +580,14 @@ class ReceiptBuffer:
             raise self.error
 
 
-def notify(identity, app=None):
-    """Best-effort, short-window coalescing; durable marker is authoritative."""
+def notify(identity, app=None, *, direct=False):
+    """Wake a shared worker; on ambiguous dispatch, prefer a safe duplicate."""
     import modal
     if not ID.fullmatch(identity):
         raise ValueError("Invalid delivery identity")
     name = app or app_name()
 
     async def spawn():
-        # Queue partitions are disposable hints. A lost/late hint is recovered
-        # from the persistent marker, not from the queue.
         epoch = int(time.time() // EVENT_WINDOW)
         partition = str(epoch)
         queue = modal.Queue.from_name(name + "-events", create_if_missing=True)
@@ -576,10 +595,24 @@ def notify(identity, app=None):
         await queue.put.aio(identity, partition=partition, partition_ttl=120)
         if await registry.put.aio(("event", epoch), True, skip_if_exists=True):
             await modal.Function.from_name(name, "archive_batch").spawn.aio([], PROTOCOL, event_partition=partition)
+
+    async def dispatch():
+        await modal.Function.from_name(name, "archive_batch").spawn.aio([identity], PROTOCOL)
+
+    if not direct:
+        try:
+            deadline(spawn(), 8)
+            return True
+        except Exception as exc:
+            # A timeout may happen after a reservation but before spawn.
+            # The durable claim prevents duplicate upload on ambiguous success.
+            print("DELIVERY_EVENT_FALLBACK", type(exc).__name__, flush=True)
     try:
-        deadline(spawn(), 2)
+        deadline(dispatch(), 10)
+        return True
     except Exception as exc:
         print("DELIVERY_EVENT_DEFERRED", type(exc).__name__, flush=True)
+        return False
 
 
 def build_id():

@@ -137,62 +137,32 @@ def test_build_protocol_separate_from_local_version(monkeypatch):
     with pytest.raises(RuntimeError):
         outbox.assert_build(2)
 
-def test_new_task_protocol_is_explicit_and_frozen(tmp_path):
+def test_new_task_uses_current_protocol_by_default(tmp_path):
     from orchestration import state
-    from pipeline.s01_build_plan import ROOT,build_plan
+    from pipeline.s01_build_plan import ROOT, build_plan
     import shutil
-    shutil.copytree(ROOT/"workflows",tmp_path/"workflows")
-    p=tmp_path/"tasks/099-durable.json"
-    task={"version":1,"name":"099-durable","workflow":"moss-t2i",
-          "items":[{"id":"001","prompt":"mock"}],"delivery":SETTINGS}
-    state.save(p,task)
-    assert "delivery_protocol" not in build_plan(p,root=tmp_path)
-    state.save(p,{**task,"delivery_protocol":2})
-    plan=build_plan(p,root=tmp_path)
-    assert plan["delivery_protocol"]==2
-    state.save(p,{**task,"delivery_protocol":2,"delivery":{"provider":"local"}})
+    shutil.copytree(ROOT / "workflows", tmp_path / "workflows")
+    p = tmp_path / "tasks/099-durable.json"
+    task = {"version": 1, "name": "099-durable", "workflow": "moss-t2i",
+            "items": [{"id": "001", "prompt": "mock"}], "delivery": SETTINGS}
+    state.save(p, task)
+    plan = build_plan(p, root=tmp_path)
+    assert plan["delivery_protocol"] == 3
+    assert plan["delivery"]["verify"] == "sha256"
+    state.save(p, {**task, "delivery_protocol": 3})
+    assert build_plan(p, root=tmp_path) == plan
+    for obsolete in (1, 2, True):
+        state.save(p, {**task, "delivery_protocol": obsolete})
+        with pytest.raises(ValueError, match="Unsupported delivery protocol"):
+            build_plan(p, root=tmp_path)
+    state.save(p, {**task, "delivery_protocol": 3, "delivery": {"provider": "local"}})
     with pytest.raises(ValueError):
-        build_plan(p,root=tmp_path)
+        build_plan(p, root=tmp_path)
 
 
-def test_client_poll_binds_receipt_without_generation_reread():
+def test_obsolete_protocol_cannot_dispatch():
     from orchestration.sdk import Backend
-    from orchestration.sdk_session import SDKSession
-    v=Ledger();i,_=fixture(v);req=outbox.resolve(v,i)
-    b=Backend.__new__(Backend)
-    b.volume=v;b.session=SDKSession();b.modal=Mock()
-    job={"uses":"moss.t2i"}
-    plan={"project":"001-lab","delivery":SETTINGS,"delivery_protocol":2}
-    record={**i["locator"],"delivery_id":i["id"],"artifacts":{"image":req["artifact"]}}
-    v.reads.clear()
-    assert b.archive(None,job,record,plan) is None
-    assert v.reads==[volume_key("/"+outbox.path(i["id"],name)) for name in ("receipt.json","blocked.json")]
-    b.modal.Function.from_name.return_value.spawn.assert_called_once()
-    outbox.save_receipt(v,i,req,make_receipt(req))
-    v.reads.clear()
-    assert b.archive(None,job,record,plan)["derivative_status"]=="pending"
-    assert v.reads==[volume_key("/"+outbox.path(i["id"],name)) for name in ("receipt.json","derivative.json")]
-    b.modal.Function.from_name.return_value.spawn.assert_called_once()
-
-
-def test_region_fallback_requires_next_scan(monkeypatch):
-    from pipeline import deploy_delivery_v2 as deploy
-    v=Ledger();i,_=fixture(v);req=outbox.resolve(v,i)
-    monkeypatch.setattr(deploy,"volume",v)
-    monkeypatch.setattr(deploy,"preferred","us-east")
-    monkeypatch.setattr("runtime.tasks.task_lifecycle.terminal_call_status",lambda *a:"INIT_FAILURE")
-    fn=Mock()
-    call=fn.with_options.return_value.spawn.return_value
-    call.object_id="fc-region-failure"
-    call.get.side_effect=RuntimeError("initialization failure")
-    result=deploy.schedule(fn,[[(i,req)]],prefer=True)
-    assert result[0]["terminal"]=="INIT_FAILURE"
-    fn.with_options.assert_called_once_with(region="us-east")
-    fn.spawn.assert_not_called()
-    assert outbox.read(v,outbox.path(i["id"],"region-fallback.json"))["reason"]=="INIT_FAILURE"
-    assert outbox.status(v,i["id"])["state"]=="retry_wait"
-    monkeypatch.setattr(outbox.time,"time",lambda:10**12)
-    assert outbox.collect_ready(v)
-    fn.spawn.return_value.get.return_value={"archived":1}
-    assert deploy.schedule(fn,[[(i,req)]],prefer=True)==[{"archived":1}]
-    fn.spawn.assert_called_once_with([i["id"]],2)
+    backend = Backend.__new__(Backend)
+    for protocol in (None, 1, 2):
+        with pytest.raises(ValueError, match="Obsolete delivery protocol"):
+            backend.delivery_store({"delivery_protocol": protocol})

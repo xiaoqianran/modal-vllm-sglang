@@ -249,21 +249,21 @@ def build_plan(task_path, *, root=ROOT):
         configured = configured_delivery(root)
         if configured["provider"] != "local":
             plan["delivery"] = configured
-    if "delivery_protocol" in task:
-        if type(task["delivery_protocol"]) is not int or task["delivery_protocol"] not in (2, 3):
-            raise ValueError("Unsupported delivery protocol")
-        if plan.get("delivery", {}).get("provider") not in {"huggingface", "both"}:
-            raise ValueError("Durable delivery requires HF destination")
-        plan["delivery_protocol"] = task["delivery_protocol"]
-        if plan["delivery_protocol"] == 3:
-            from runtime.delivery import v3
-            plan["delivery_volume"] = v3.volume_name()
-            plan["delivery_app"] = v3.app_name()
-            if plan["delivery_volume"] == plan["volume"]:
-                raise ValueError("V3 requires a separate metadata Volume")
-            if not isinstance(task.get("delivery"), dict) or "compression" not in task["delivery"]:
-                plan["delivery"]["compression"] = "none"
-            plan["delivery"]["verify"] = "sha256"
+    from runtime.delivery import v3
+    protocol = task.get("delivery_protocol", v3.PROTOCOL)
+    if type(protocol) is not int or protocol != v3.PROTOCOL:
+        raise ValueError("Unsupported delivery protocol; use the current protocol")
+    if plan.get("delivery", {}).get("provider") in {"huggingface", "both"}:
+        plan["delivery_protocol"] = v3.PROTOCOL
+        plan["delivery_volume"] = v3.volume_name()
+        plan["delivery_app"] = v3.app_name()
+        if plan["delivery_volume"] == plan["volume"]:
+            raise ValueError("Delivery requires a separate metadata Volume")
+        if not isinstance(task.get("delivery"), dict) or "compression" not in task["delivery"]:
+            plan["delivery"]["compression"] = "none"
+        plan["delivery"]["verify"] = "sha256"
+    elif "delivery_protocol" in task:
+        raise ValueError("Durable delivery requires HF destination")
     plan["hash"] = intent_digest(plan)
     return plan
 
@@ -315,7 +315,7 @@ def new_run(plan, *, root=ROOT, output="outputs"):
     if previous_plan.is_file() and source_task.is_file() and "delivery" in plan:
         old = read_json(previous_plan)
         if "delivery" not in old and "delivery" not in read_json(source_task):
-            plan = {key: value for key, value in plan.items() if key not in {"delivery", "hash"}}
+            plan = {key: value for key, value in plan.items() if key not in {"delivery", "delivery_protocol", "delivery_volume", "delivery_app", "hash"}}
             plan["hash"] = intent_digest(plan)
     for marker in (runtime_root / "tasks").glob("*/*/layout.json"):
         if marker.parent != proposed_directory and read_json(marker).get("media") == str(media):
