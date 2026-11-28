@@ -1,0 +1,131 @@
+{
+  "volume_name": "model-store",
+  "download_workers": "auto",
+  "revision": "5f90473023975e6271b0ed1dd84c4e88e4bbc6d3",
+  "gpu": "RTX-PRO-6000",
+  "cpu": 4,
+  "max_inputs": 2,
+  "target_inputs": 1,
+  "max_containers": 2,
+  "buffer_containers": 1,
+  "memory": 24576,
+  "port": 8000,
+  "proxy_port": 8001,
+  "timeout": 14400,
+  "startup_timeout": 3600,
+  "scaledown_window": 60,
+  "memory_snapshot": "gpu",
+  "service": "minimax-omni",
+  "app_name": "006-minimax-h3-image-vllm",
+  "operation": "t2i",
+  "operations": {
+    "t2i": {
+      "inputs": {
+        "prompt": "string"
+      }
+    },
+    "i2i": {
+      "inputs": {
+        "prompt": "string",
+        "image": "image"
+      }
+    }
+  },
+  "kind": "image",
+  "enable_image_edits": true,
+  "model": "MiniMaxAI/MiniMax-H3-Image",
+  "image": "debian_slim",
+  "uv_packages": [
+    "vllm==0.34.0",
+    "vllm-omni==0.34.0"
+  ],
+  "command": [
+    "vllm",
+    "serve",
+    "{model_path}",
+    "--omni",
+    "--num-gpus",
+    "1",
+    "--host",
+    "0.0.0.0",
+    "--port",
+    "{port}",
+    "--served-model-name",
+    "{model}",
+    "--diffusion-offload-config",
+    "{\"mode\":\"layer\",\"components\":[\"text_encoder\"]}",
+    "--enforce-eager"
+  ],
+  "defaults": {
+    "size": "2048x1152",
+    "num_inference_steps": 6,
+    "generator_device": "cpu",
+    "response_format": "b64_json"
+  },
+  "options": {
+    "size": {
+      "type": "string",
+      "pattern": "[1-9][0-9]*x[1-9][0-9]*"
+    },
+    "num_inference_steps": {
+      "type": "integer",
+      "enum": [
+        6
+      ]
+    }
+  },
+  "validator": "minimax",
+  "validator_module": "models.005-minimax-h3-image-sglang.model_impl.params",
+  "cache": {
+    "mode": "hf",
+    "allow_patterns": [
+      "model_index.json",
+      "pdd_config.json",
+      "pdd_fused_heads.safetensors",
+      "transformer/*",
+      "vae/*",
+      "tokenizer/*",
+      "processor/*"
+    ],
+    "required_files": [
+      "model_index.json",
+      "pdd_config.json",
+      "pdd_fused_heads.safetensors",
+      "transformer/*.safetensors",
+      "vae/*.safetensors"
+    ]
+  },
+  "components": {
+    "encoder": {
+      "model": "MiniMaxAI/MiniMax-H3",
+      "revision": "0919fb684102ef115126612f3fbb84d1027e7317",
+      "allow_patterns": [
+        "text_encoder/*"
+      ],
+      "required_files": [
+        "text_encoder/*.safetensors"
+      ]
+    }
+  },
+  "cache_directory": "/data/models/005-minimax-h3-image",
+  "endpoint_label": "006-minimax-h3-image-vllm-serve",
+  "modal_class": "H3",
+  "service_directory": "006-minimax-h3-image-vllm",
+  "python_version": "3.12",
+  "uv_torch_backend": "cu130",
+  "uv_requirements": "vllm-omni-0.34.0-cu130.txt",
+  "uv_only_binary": ["vllm", "vllm-omni", "torch", "flashinfer-python", "triton"],
+  "build_commands": [
+    "flashinfer install-cubin-wheel",
+    "flashinfer install-jit-cache-wheel --cuda-version 13.0 --mode minimal --sm sm120",
+    "apt-get update && apt-get install -y --no-install-recommends libxcb1 libgl1 libglib2.0-0 && rm -rf /var/lib/apt/lists/*",
+    "python -c 'import cv2; from vllm_omni.entrypoints.cli.main import main; print(cv2.__version__)'"
+  ],
+  "local_encoder_view": true,
+  "snapshot_warmup": {
+    "params": {
+      "size": "2048x1152",
+      "num_inference_steps": 6
+    }
+  }
+}
