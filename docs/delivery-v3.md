@@ -73,15 +73,18 @@ apps. Do not change the protocol of an existing scene to append new shots.
   Originals and derivatives use separate append-only retry histories. Derivative
   failure cannot invalidate an original receipt. Eight failed derivative attempts
   or a permanent classified failure produce a failed derivative receipt.
-  Scans run every minute for originals and every second minute for derivatives.
+  One Modal cron runs every 15 minutes for both stages. Each stage visits up to five shards per tick. Known retryable failures also enqueue best-effort ID hints after recording durable failure history. Each tick checks up to 16 hints against current attempt and readiness; lost hints recover through shard reconciliation.
   They rotate through 16 hash shards and the legacy flat directory, with shared
   limits of 128/64 examinations and 32/16 selections respectively. Each shard
-  keeps its own cursor. Listing is still complete within a shard; no hard
-  end-to-end recovery SLA is claimed.
+  keeps its own cursor. Listing is still complete within a shard. With five shards per 15-minute
+  tick, a lost hint or unrecorded worker crash can wait roughly 60 minutes
+  for a full rotation in light load, or longer under backlog/timeouts.
+  The retry queue does not guarantee the backoff deadline; no hard recovery
+  SLA is claimed.
   Conditional Dict inserts reserve both adjacent 660-second clock slots.
   Terminal predecessor evidence permits an append-only next ownership generation.
   Legacy boolean reservations are retained until their window expires.
-  The existing scanner attempts coordination GC every ten minutes: only known
+  The existing scanner attempts coordination GC each scan: only known
   time-bucket keys at least 24 hours past their window are eligible, with 16
   concurrent deletes, 256 attempts, 4096 examined keys and an 8s work budget.
   GC does not touch durable records. Enumeration fairness and sustained throughput

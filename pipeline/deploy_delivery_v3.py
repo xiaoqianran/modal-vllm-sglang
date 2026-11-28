@@ -1,5 +1,6 @@
 """Deploy protocol 3 independently; generation and legacy apps are untouched."""
 import os
+import math
 import time
 from bisect import bisect_right
 import modal
@@ -176,7 +177,7 @@ def archive_originals(identities, protocol, workspace, started, *, prepared=None
         v3.deadline(volume.reload.aio(), 15)
     except Exception as exc:
         for intent, _, n in todo:
-            outbox.failure(store, intent, n, exc)
+            record_original_failure(intent, n, exc)
         raise
     # Both event and scanner paths group originals by bucket and byte budget.
     local_inputs = {}
@@ -190,7 +191,7 @@ def archive_originals(identities, protocol, workspace, started, *, prepared=None
     derivative_ids = []
     for (intent, _, n), row in zip(todo, rows):
         if "receipt" not in row:
-            outbox.failure(store, intent, n, row)
+            record_original_failure(intent, n, row)
             continue
         derivative_ids.append(intent["id"])
     # Receipts and recovery markers are durable before inline derivatives start.
@@ -206,6 +207,72 @@ def archive_originals(identities, protocol, workspace, started, *, prepared=None
             print("DERIVATIVE_DEFERRED", type(exc).__name__, flush=True)
     print("DELIVERY_V3", metrics, flush=True)
     return metrics
+
+
+def retry_queue():
+    return modal.Queue.from_name(v3.app_name() + "-retry-hints", create_if_missing=True)
+
+
+def enqueue_retry(identity, derivative, n, failure):
+    if failure["kind"] != "retry" or n + 1 >= outbox.MAX_ATTEMPTS:
+        return
+    try:
+        hint = (identity, derivative, n + 1, failure["retry_at"])
+        v3.deadline(retry_queue().put.aio(hint, block=False), 5)
+    except Exception as exc:
+        print("DELIVERY_RETRY_HINT_DEFERRED", identity, type(exc).__name__, flush=True)
+
+
+def record_original_failure(intent, n, error):
+    failure = outbox.failure(store, intent, n, error)
+    enqueue_retry(intent["id"], False, n, failure)
+
+
+def retry_known_failures():
+    queue = retry_queue()
+    hints = v3.deadline(queue.get_many.aio(16, block=False), 5)
+    end = time.monotonic() + 50
+    dispatched = 0
+    seen = set()
+    for hint in hints or []:
+        if not isinstance(hint, (tuple, list)) or len(hint) != 4:
+            continue
+        identity, derivative, attempt, due = hint
+        if (not isinstance(identity, str) or not v3.ID.fullmatch(identity)
+                or type(derivative) is not bool or type(attempt) is not int
+                or not 1 <= attempt < outbox.MAX_ATTEMPTS
+                or type(due) not in (int, float) or not math.isfinite(due)):
+            continue
+        hint = (identity, derivative, attempt, due)
+        if hint in seen:
+            continue
+        seen.add(hint)
+        try:
+            if time.monotonic() >= end:
+                # The durable marker is authoritative; do not overrun the scanner.
+                break
+            if time.time() < due:
+                v3.deadline(queue.put.aio(hint, block=False), 5)
+                continue
+            if derivative:
+                if outbox.read(store, outbox.path(identity, "derivative.json")) is not None:
+                    continue
+                current = v3.derivative_due(store, identity)
+            else:
+                row = v3.ready(store, source_records, identity, modal)
+                current = row[2] if row else None
+            if current == attempt and dispatch_once(identity, attempt, derivative=derivative):
+                dispatch(archive_batch, [identity], derivative=derivative)
+                dispatched += 1
+        except Exception as exc:
+            print("DELIVERY_RETRY_DEFERRED", identity, type(exc).__name__, flush=True)
+            # Requeue an ambiguous failure for the next tick; durable state is rechecked.
+            if time.monotonic() < end:
+                try:
+                    v3.deadline(queue.put.aio(hint, block=False), 5)
+                except Exception:
+                    pass
+    return dispatched
 
 
 def dispatch(fn, identities, **options):
@@ -232,12 +299,12 @@ def scan_sharded(stage, fn):
     remaining = 32 if stage == "original" else 16
     checks = 128 if stage == "original" else 64
     summaries = []
-    for offset in range(4):
+    for offset in range(5):
         if remaining <= 0 or checks <= 0 or time.monotonic() >= end:
             break
         shard = shards[(start + offset) % len(shards)]
         # Give each remaining shard a fair share of the budget.
-        slots = 4 - offset
+        slots = 5 - offset
         summary = fn(shard, end=min(end, time.monotonic() + max(1, (end-time.monotonic())/slots)),
                      limit=max(1, remaining//slots), check_limit=max(1, checks//slots))
         summaries.append(summary)
@@ -248,23 +315,22 @@ def scan_sharded(stage, fn):
             "dispatched": sum(x.get("dispatched", 0) for x in summaries)}
 
 
-@app.function(**scanner, **({"schedule": modal.Cron("* * * * *")} if scheduled else {}))
+@app.function(**scanner, **({"schedule": modal.Cron("*/15 * * * *")} if scheduled else {}))
 def scan():
     v3.assert_build()
-    minute = int(time.time() // 60)
-    if minute % 2:
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        retries = pool.submit(retry_known_failures)
+        derivatives = pool.submit(scan_sharded, "derivative", scan_derivatives)
         result = scan_sharded("original", scan_originals)
-    else:
-        with ThreadPoolExecutor(max_workers=1) as pool:
-            derivatives = pool.submit(scan_sharded, "derivative", scan_derivatives)
-            result = scan_sharded("original", scan_originals)
-            result["derivatives"] = derivatives.result()
-    # Opportunistic ten-minute maintenance in the existing scanner, never a new pool.
-    if minute % 10 == 0:
+        result["derivatives"] = derivatives.result()
         try:
-            result["coordination_gc"] = v3.collect_coordination(registry)
+            result["targeted_retries"] = retries.result()
         except Exception as exc:
-            print("COORDINATION_GC_DEFERRED", type(exc).__name__, flush=True)
+            print("DELIVERY_RETRY_QUEUE_DEFERRED", type(exc).__name__, flush=True)
+    try:
+        result["coordination_gc"] = v3.collect_coordination(registry)
+    except Exception as exc:
+        print("COORDINATION_GC_DEFERRED", type(exc).__name__, flush=True)
     return result
 
 
@@ -411,6 +477,7 @@ def derive_batch(identities, protocol=v3.PROTOCOL, *, local_inputs=None, owner=N
                 try:
                     last = v3.derivative_failure(store, identity, n, exc)
                     v3.reconcile_derivative_failure(store, identity, row, n + 1, last)
+                    enqueue_retry(identity, True, n, last)
                 except Exception as failure_exc:
                     print("DERIVATIVE_FAILURE_DEFERRED", identity, type(failure_exc).__name__, flush=True)
             continue
@@ -424,6 +491,7 @@ def derive_batch(identities, protocol=v3.PROTOCOL, *, local_inputs=None, owner=N
                         last = v3.derivative_failure(store, identity, n, {
                             "kind": "retry", "error": reason})
                         v3.reconcile_derivative_failure(store, identity, row, n + 1, last)
+                        enqueue_retry(identity, True, n, last)
                         continue
                     result = {"status": "failed", "error": reason, "source_sha256": row["stored_sha256"]}
                 if v3.finish_derivative(store, identity, row, result):

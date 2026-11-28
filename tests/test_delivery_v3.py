@@ -595,7 +595,7 @@ def test_shard_budget_shared_even_when_nonempty(monkeypatch):
         calls.append((shard, limit, check_limit))
         return {"indexed": 100, "examined": check_limit, "dispatched": limit}
     result = deployment.scan_sharded("original", scan)
-    assert [c[0] for c in calls] == ["legacy", "0", "1", "2"]
+    assert [c[0] for c in calls] == ["legacy", "0", "1", "2", "3"]
     assert sum(c[1] for c in calls) == 32
     assert sum(c[2] for c in calls) == 128
     assert result["dispatched"] == 32
@@ -635,3 +635,37 @@ def test_coordination_gc_bounds_attempts_even_if_keys_disappear(monkeypatch):
     result = v3.collect_coordination(registry, delete_limit=5)
     assert result["attempted"] == 5
     assert result["removed"] == 0
+
+def test_targeted_retry_rechecks_attempt_and_preserves_future_hint(monkeypatch):
+    from pipeline import deploy_delivery_v3 as deployment
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, Mock
+
+    future = ("a"*64, True, 2, deployment.time.time() + 600)
+    ready = ("b"*64, True, 2, 0)
+    hints = [None, {"bad": 1}, future, ready, list(ready), ("c"*64, True, 1, 0), ("d"*64, True, 2, 0)]
+    queue = SimpleNamespace(get_many=SimpleNamespace(aio=AsyncMock(return_value=hints)),
+                            put=SimpleNamespace(aio=AsyncMock()))
+    monkeypatch.setattr(deployment, "retry_queue", lambda: queue)
+    monkeypatch.setattr(deployment.outbox, "read", lambda store, path: {} if "d"*64 in path else None)
+    monkeypatch.setattr(deployment.v3, "derivative_due", lambda store, identity: 2)
+    monkeypatch.setattr(deployment, "dispatch_once", lambda *a, **kw: True)
+    dispatch = Mock()
+    monkeypatch.setattr(deployment, "dispatch", dispatch)
+    assert deployment.retry_known_failures() == 1
+    queue.put.aio.assert_awaited_once_with(future, block=False)
+    dispatch.assert_called_once_with(deployment.archive_batch, ["b"*64], derivative=True)
+
+def test_retry_hint_spawn_error_is_requeued(monkeypatch):
+    from pipeline import deploy_delivery_v3 as deployment
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    hint = ("a"*64, False, 1, 0)
+    queue = SimpleNamespace(get_many=SimpleNamespace(aio=AsyncMock(return_value=[hint])),
+                            put=SimpleNamespace(aio=AsyncMock()))
+    monkeypatch.setattr(deployment, "retry_queue", lambda: queue)
+    monkeypatch.setattr(deployment.v3, "ready", lambda *args: ({}, {}, 1))
+    monkeypatch.setattr(deployment, "dispatch_once", lambda *args, **kwargs: True)
+    monkeypatch.setattr(deployment, "dispatch", Mock(side_effect=TimeoutError))
+    assert deployment.retry_known_failures() == 0
+    queue.put.aio.assert_awaited_once_with(hint, block=False)
