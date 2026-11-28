@@ -12,6 +12,19 @@ def read_json(path):
     return json.loads(Path(path).read_text(encoding="utf-8-sig"))
 
 
+def replace_with_retry(source, destination):
+    """Bounded retry for transient Windows sharing violations; never truncate."""
+    delays = (0.02, 0.05, 0.1, 0.2, 0.4, 0.8)
+    for delay in (*delays, None):
+        try:
+            os.replace(source, destination)
+            return
+        except OSError as exc:
+            if delay is None or getattr(exc, "winerror", None) not in {5, 32, 33}:
+                raise
+            time.sleep(delay)
+
+
 def atomic_write(path, data):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -21,7 +34,7 @@ def atomic_write(path, data):
             stream.write(data)
             stream.flush()
             os.fsync(stream.fileno())
-        os.replace(temporary, path)
+        replace_with_retry(temporary, path)
     finally:
         Path(temporary).unlink(missing_ok=True)
 
